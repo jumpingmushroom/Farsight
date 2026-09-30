@@ -1,0 +1,15 @@
+.git
+reference/
+testdata-golden/
+web/node_modules
+web/build
+web/.svelte-kit
+web/test-results
+web/playwright-report
+.superpowers/
+.claude/
+/farsight
+/farsight-*
+design/
+docs/
+hack/

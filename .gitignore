@@ -1,0 +1,16 @@
+testdata-golden/
+/farsight-agent
+/farsight-snapshot
+/farsight-logreplay
+/gennames
+reference/
+/farsight
+node_modules/
+/web/build/
+/web/.svelte-kit/
+/web/test-results/
+/web/playwright-report/
+.claude/
+.superpowers/
+/farsight-render
+/farsight-seed

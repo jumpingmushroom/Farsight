@@ -1,0 +1,51 @@
+/* App-wide styles: self-hosted fonts, theme tokens (DESIGN-NOTES §2.2), base atoms, Leaflet reset. */
+@import '@fontsource/caprasimo/400.css';
+@import '@fontsource/figtree/400.css';
+@import '@fontsource/figtree/600.css';
+@import '@fontsource/figtree/700.css';
+
+/* DESIGN-NOTES §2.2 canvas-level block, verbatim minus the canvas-only body background. */
+a{color:var(--color-accent-700)}a:hover{color:var(--color-accent-800)}
+[data-theme="dark"]{
+  --color-bg:#161513;--color-surface:#22201c;--color-text:#efe6d6;--color-accent:#d67f48;
+  --color-divider:color-mix(in srgb,#efe6d6 13%,transparent);
+  --color-neutral-100:#2e2b25;--color-neutral-200:#474238;--color-neutral-300:#645c50;--color-neutral-400:#82796a;--color-neutral-500:#a19786;--color-neutral-600:#c0b6a5;--color-neutral-700:#dcd3c4;--color-neutral-800:#eee7db;--color-neutral-900:#f9f4ed;
+  --color-accent-100:#402310;--color-accent-200:#643312;--color-accent-300:#8c491a;--color-accent-400:#b2622d;--color-accent-500:#d67f48;--color-accent-600:#f6a06b;--color-accent-700:#ffc6a5;--color-accent-800:#ffe1d0;--color-accent-900:#fff2eb;
+  --color-accent-2-100:#272e1b;--color-accent-2-200:#3d472b;--color-accent-2-300:#56633f;--color-accent-2-400:#728157;--color-accent-2-500:#8fa073;--color-accent-2-600:#aebf92;--color-accent-2-700:#ccdbb2;--color-accent-2-800:#e1eecc;--color-accent-2-900:#f0fae1;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.4);--shadow-md:0 4px 14px rgba(0,0,0,.45);--shadow-lg:0 14px 40px rgba(0,0,0,.55);
+  --cold:#7fb2d6;--cold-ink:#b5d4ea;--glass:rgba(30,28,25,.9);--muted:color-mix(in srgb,#efe6d6 64%,transparent)}
+[data-theme="light"]{--cold:#2f6c94;--cold-ink:#1d4a69;--glass:rgba(245,234,216,.92);--muted:color-mix(in srgb,#201e1d 64%,transparent)}
+[data-theme] .btn-secondary{color:var(--color-text)}
+
+/* Visually hidden, still read by assistive tech. */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+html,body{height:100%;margin:0;overflow:hidden;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body)}
+
+/* Leaflet reset: themed background, inherited font, default controls hidden (the app draws its own). */
+.leaflet-container{background:var(--color-bg);font:inherit}
+.leaflet-control-attribution,.leaflet-control-zoom{display:none}
+
+/* Map pins (DESIGN-NOTES §4.1): the Leaflet divIcon box is the disc's footprint. */
+.leaflet-marker-icon.fs-pin,.leaflet-marker-icon.fs-cluster-icon{background:none;border:0}
+/* Pin opacity for the offline and stale states (DESIGN-NOTES §3.22), set on Leaflet's marker pane. */
+.leaflet-marker-pane.fs-pins-offline{opacity:.75}
+.leaflet-marker-pane.fs-pins-stale{opacity:.85}
+.fs-pin-disc{width:100%;height:100%;box-sizing:border-box;border-radius:50%;display:grid;place-items:center;cursor:pointer}
+.fs-pin-disc svg{display:block}
+.fs-pin-label{position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:4px;white-space:nowrap;font-family:var(--font-heading);font-size:13px;line-height:1.4;color:#201e1d;background:rgba(245,234,216,.9);padding:1px 9px;border-radius:999px;pointer-events:none}
+/* Cluster bubble (§5.1). */
+.fs-cluster{box-sizing:border-box;border-radius:50%;display:grid;place-items:center;background:#26231f;border:2px solid #f5ead8;box-shadow:0 0 0 5px rgba(38,35,31,.25),0 3px 8px rgba(0,0,0,.35);color:#f5ead8;font-family:var(--font-body);font-size:13px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums;cursor:pointer}
+.fs-pin:focus-visible,.fs-cluster-icon:focus-visible{outline:none}
+.fs-pin:focus-visible .fs-pin-disc,.fs-cluster-icon:focus-visible .fs-cluster{outline:2px solid var(--color-accent);outline-offset:2px}
+
+/* Portal lines (§5.4): fixed colours, not tokens. */
+.leaflet-pane path.pl{stroke:#9cc4e0;stroke-width:2px;stroke-dasharray:6 5;stroke-opacity:.6;stroke-linecap:butt;fill:none}
+.leaflet-pane path.pl.pl-sel{stroke:#7fb2d6;stroke-width:3px;stroke-dasharray:none;stroke-opacity:1}
+.leaflet-pane path.pl.pl-dim{stroke-opacity:.25}
+
+/* Terrain tiles at fractional zoom, where Leaflet scales the tile container
+   and tile edges land on fractional pixels: a transparent outline makes
+   Chromium rasterise each one without its own edge anti-aliasing, so no
+   seams. (The fog is one canvas, fog.ts, so it has no tile edges.) */
+.leaflet-tile-pane img.leaflet-tile{outline:1px solid transparent}

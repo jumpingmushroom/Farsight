@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/organic-4d151dd9-be22-4870-a515-60b620c2fda0/styles.css">
+<script src="_ds/organic-4d151dd9-be22-4870-a515-60b620c2fda0/_ds_bundle.js"></script>
+</helmet>
+<div style="width:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:14px;padding:18px 18px 16px;border-radius:28px;background:var(--color-surface);color:var(--color-text);border:1px solid var(--color-divider);box-shadow:var(--shadow-lg);font-family:var(--font-body)">
+  <div style="display:flex;align-items:center;gap:12px">
+    <div style="width:44px;height:44px;flex:none;border-radius:50%;display:grid;place-items:center;background:{{ m.discBg }};border:2px solid #f5ead8;box-shadow:0 2px 6px rgba(0,0,0,.25)"><img src="{{ m.icon }}" alt="" style="width:21px;height:21px"></div>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;color:var(--cold-ink, #1d4a69)">{{ m.kicker }}</div>
+      <div style="font-family:var(--font-heading);font-size:21px;line-height:1.15;overflow-wrap:anywhere">{{ m.title }}</div>
+    </div>
+    <sc-if value="{{ hasClose }}" hint-placeholder-val="{{ false }}">
+      <button class="btn btn-secondary btn-icon" onClick="{{ close }}" aria-label="Close" style="width:34px;height:34px;flex:none;align-self:flex-start"><img src="{{ m.ic.x }}" alt="" style="width:16px;height:16px"></button>
+    </sc-if>
+  </div>
+  <sc-if value="{{ m.hasBadges }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <sc-for list="{{ m.badges }}" as="b" hint-placeholder-count="1"><span class="tag" style="background:{{ b.bg }};color:{{ b.fg }};font-weight:700;font-size:12px">{{ b.text }}</span></sc-for>
+    </div>
+  </sc-if>
+  <sc-if value="{{ m.hasFacts }}" hint-placeholder-val="{{ true }}">
+    <div style="display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:16px;row-gap:6px;font-size:14px">
+      <sc-for list="{{ m.facts }}" as="f" hint-placeholder-count="3">
+        <div style="color:var(--muted, rgba(32,30,29,.62))">{{ f.k }}</div>
+        <div style="font-weight:600;font-variant-numeric:tabular-nums;overflow-wrap:anywhere">{{ f.v }}</div>
+      </sc-for>
+    </div>
+  </sc-if>
+  <sc-if value="{{ m.hasItems }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;flex-direction:column;padding:4px 14px;border-radius:18px;background:color-mix(in srgb,var(--color-text) 6%,transparent)">
+      <sc-for list="{{ m.items }}" as="it" hint-placeholder-count="4">
+        <div style="display:flex;justify-content:space-between;gap:12px;padding:7px 0;font-size:14px;border-bottom:1px solid color-mix(in srgb,var(--color-text) 8%,transparent);font-weight:{{ it.weight }};color:{{ it.color }}"><span>{{ it.name }}</span><span style="font-variant-numeric:tabular-nums;font-weight:700">×{{ it.count }}</span></div>
+      </sc-for>
+    </div>
+  </sc-if>
+  <sc-if value="{{ m.hasNote }}" hint-placeholder-val="{{ true }}">
+    <p style="margin:0;font-size:13.5px;line-height:1.5;text-wrap:pretty;opacity:.88">{{ m.note }}</p>
+  </sc-if>
+  <sc-if value="{{ m.hasJump }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;padding-top:2px"><button class="btn btn-primary" onClick="{{ jump }}" style="white-space:nowrap">Jump to partner →</button></div>
+  </sc-if>
+  <div style="font-size:12px;color:var(--muted, rgba(32,30,29,.62));font-variant-numeric:tabular-nums">{{ m.where }}</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:340,&quot;height&quot;:420},&quot;m&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;object&quot;},&quot;onClose&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;() =&gt; void&quot;},&quot;onJump&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(id: string) =&gt; void&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const m = this.props.m || { badges: [], facts: [], items: [], ic: {} };
+    return {
+      m,
+      hasClose: !!this.props.onClose,
+      close: () => this.props.onClose && this.props.onClose(),
+      jump: () => this.props.onJump && this.props.onJump(m.partnerId),
+    };
+  }
+}
+</script>
+</body>
+</html>

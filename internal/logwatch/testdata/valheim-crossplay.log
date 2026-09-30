@@ -1,0 +1,99 @@
+09/15/2026 08:19:39: Opened PlayFab server
+09/15/2026 08:19:40: Register PlayFab server "Mulevikings" with IP 203.0.113.10:2456
+09/15/2026 08:29:40:  Connections 0 ZDOS:173470  sent:0 recv:0
+09/15/2026 09:39:17: PlayFab listen socket child connected to remote player F0000000000000A2
+09/15/2026 09:39:17: Muted PlayFab remote player F0000000000000A2
+09/15/2026 09:39:17: PlayFab socket with remote ID playfab/F0000000000000A2 received local Platform ID Steam_76561190000000007
+09/15/2026 09:39:17: Got handshake from client playfab/F0000000000000A2
+09/15/2026 09:39:17: Server: New peer connected,sending global keys
+09/15/2026 09:39:37: Got character ZDOID from Thorgerdr : 100004242:1
+09/15/2026 09:39:40:  Connections 1 ZDOS:173462  sent:0 recv:574
+09/15/2026 10:54:16: Destroying abandoned non persistent zdo 100004242:12183 owner 100004242
+09/15/2026 10:54:16: Destroying abandoned non persistent zdo 100004242:12255 owner 100004242
+09/15/2026 10:54:16: Destroying abandoned non persistent zdo 100004242:1 owner 100004242
+09/15/2026 10:54:16: Destroying abandoned non persistent zdo 100004242:12185 owner 100004242
+ZPlayFabSocket::Dispose. State: CONNECTED
+ZPlayFabSocket::Dispose. leave lobby. LobbyId: 
+ZPlayFabSocket::Dispose. State: CLOSED
+09/15/2026 10:54:16: Player connection lost server "Mulevikings" that has join code 114544, now 0 player(s)
+09/15/2026 10:59:40:  Connections 0 ZDOS:173279  sent:0 recv:0
+09/15/2026 14:11:21: PlayFab listen socket child connected to remote player F0000000000000A2
+09/15/2026 14:11:21: Player joined server "Mulevikings" that has join code 114544, now 1 player(s)
+09/15/2026 14:11:21: ZRpc timeout set to 90s 
+09/15/2026 14:11:21: Muted PlayFab remote player F0000000000000A2
+09/15/2026 14:11:21: PlayFab socket with remote ID playfab/F0000000000000A2 received local Platform ID Steam_76561190000000007
+09/15/2026 14:11:21: Got handshake from client playfab/F0000000000000A2
+09/15/2026 14:11:25: RPC_Disconnect
+ZPlayFabSocket::Dispose. State: CONNECTED
+ZPlayFabSocket::Dispose. leave lobby. LobbyId: 
+ZPlayFabSocket::Dispose. State: CLOSED
+09/15/2026 14:11:25: Player connection lost server "Mulevikings" that has join code 114544, now 0 player(s)
+09/15/2026 20:36:57: PlayFab listen socket child connected to remote player F000000000000A9
+09/15/2026 20:36:57: Player joined server "Mulevikings" that has join code 114544, now 2 player(s)
+09/15/2026 20:36:57: ZRpc timeout set to 90s 
+09/15/2026 20:36:57: Muted PlayFab remote player F000000000000A9
+09/15/2026 20:36:57: PlayFab socket with remote ID playfab/F000000000000A9 received local Platform ID Steam_76561190000000003
+09/15/2026 20:36:57: Got handshake from client playfab/F000000000000A9
+09/15/2026 20:37:04: Network version check, their:40, mine:40
+09/15/2026 20:37:04: Peer playfab/F000000000000A9 has wrong password
+09/15/2026 20:37:04: RPC_Disconnect
+ZPlayFabSocket::Dispose. State: CONNECTED
+ZPlayFabSocket::Dispose. leave lobby. LobbyId: 
+ZPlayFabSocket::Dispose. State: CLOSED
+09/15/2026 20:37:04: Player connection lost server "Mulevikings" that has join code 114544, now 1 player(s)
+09/15/2026 20:37:24: PlayFab listen socket child connected to remote player F000000000000A9
+09/15/2026 20:37:24: Player joined server "Mulevikings" that has join code 114544, now 2 player(s)
+09/15/2026 20:37:24: ZRpc timeout set to 90s 
+09/15/2026 20:38:30: Resume TX on playfab/F000000000000A9
+09/15/2026 20:38:30: Resume TX on playfab/F000000000000A9
+09/15/2026 20:38:30: Player joined server "Mulevikings" that has join code 114544, now 2 player(s)
+09/15/2026 20:38:30: Assume restarted game session for remote ID playfab/F000000000000A9 and Platform ID Steam_76561190000000003
+09/15/2026 20:38:30: PlayFab socket with remote ID playfab/F000000000000A9 received local Platform ID Steam_76561190000000003
+09/15/2026 20:38:30: Got handshake from client playfab/F000000000000A9
+09/15/2026 20:38:30: Keep socket for playfab/F000000000000A9, try to reconnect before timeout
+09/15/2026 20:38:30: Player connection lost server "Mulevikings" that has join code 114544, now 2 player(s)
+09/15/2026 20:38:30: Failed to send, suspend TX on playfab/F000000000000A9 while trying to reconnect
+09/15/2026 20:39:00: ZRpc timeout detected
+ZPlayFabSocket::Dispose. State: CONNECTED
+09/15/2026 20:51:27: Checking for any blocked players in the historical player list...
+09/15/2026 20:51:27: Server: New peer connected,sending global keys
+09/15/2026 20:51:28: Checking for any blocked players in the historical player list...
+09/15/2026 20:51:40: Checking for any blocked players in the historical player list...
+09/15/2026 20:51:41: Got character ZDOID from Thorvaldsson : -100004256:1
+09/15/2026 20:52:53: Got character ZDOID from Thorvaldsson : 0:0
+09/15/2026 20:52:57: Got character ZDOID from Thorvaldsson : -100004256:44
+09/15/2026 20:53:46: RPC_Disconnect
+09/15/2026 20:53:46: Destroying abandoned non persistent zdo -100004256:44 owner -100004256
+ZPlayFabSocket::Dispose. State: CONNECTED
+ZPlayFabSocket::Dispose. leave lobby. LobbyId: 
+ZPlayFabSocket::Dispose. State: CLOSED
+09/15/2026 20:53:46: Player connection lost server "Mulevikings" that has join code 114544, now 2 player(s)
+09/15/2026 20:54:10: PlayFab listen socket child connected to remote player F0000000000000A1
+09/15/2026 20:54:10: Player joined server "Mulevikings" that has join code 114544, now 3 player(s)
+09/15/2026 20:54:10: Muted PlayFab remote player F0000000000000A1
+09/15/2026 20:54:10: PlayFab socket with remote ID playfab/F0000000000000A1 received local Platform ID PlayStation_1000000000000000001
+09/15/2026 22:52:27: Keep socket for playfab/F0000000000000A2, try to reconnect before timeout
+09/15/2026 22:52:27: Player connection lost server "Mulevikings" that has join code 114544, now 3 player(s)
+09/15/2026 22:52:27: Failed to send, suspend TX on playfab/F0000000000000A2 while trying to reconnect
+09/15/2026 23:28:56: RPC_Disconnect
+09/15/2026 23:28:56: Destroying abandoned non persistent zdo 100004263:13874 owner 100004263
+09/15/2026 23:28:56: Destroying abandoned non persistent zdo 100004263:13873 owner 100004263
+09/15/2026 23:28:56: Destroying abandoned non persistent zdo 100004263:11211 owner 100004263
+ZPlayFabSocket::Dispose. State: CONNECTED
+ZPlayFabSocket::Dispose. leave lobby. LobbyId: 
+ZPlayFabSocket::Dispose. State: CLOSED
+09/15/2026 23:28:56: Player connection lost server "Mulevikings" that has join code 114544, now 0 player(s)
+09/15/2026 23:29:42:  Connections 0 ZDOS:186500  sent:0 recv:0
+09/15/2026 23:32:14: PlayFab listen socket child connected to remote player F0000000000000A4
+09/15/2026 23:32:14: Player joined server "Mulevikings" that has join code 113433, now 1 player(s)
+09/15/2026 23:32:14: ZRpc timeout set to 90s 
+09/15/2026 23:32:14: Muted PlayFab remote player F0000000000000A4
+09/15/2026 23:32:14: PlayFab socket with remote ID playfab/F0000000000000A4 received local Platform ID Steam_76561190000000006
+09/15/2026 23:32:14: Got handshake from client playfab/F0000000000000A4
+09/15/2026 23:32:21: Network version check, their:40, mine:40
+09/15/2026 23:32:21: Peer playfab/F0000000000000A4 has wrong password
+09/15/2026 23:32:21: RPC_Disconnect
+ZPlayFabSocket::Dispose. State: CONNECTED
+ZPlayFabSocket::Dispose. leave lobby. LobbyId: 
+ZPlayFabSocket::Dispose. State: CLOSED
+09/15/2026 23:32:21: Player connection lost server "Mulevikings" that has join code 113433, now 0 player(s)

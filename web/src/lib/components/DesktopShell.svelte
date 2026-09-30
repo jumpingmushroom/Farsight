@@ -1,0 +1,379 @@
+<!--
+  Desktop shell (DESIGN-NOTES §1.1): the full-viewport map with markers and
+  the marker popover (§5.9), the side panel or its collapsed pill (§3.2–
+  §3.10, §3.4), the map-updated pill (§3.11) or a state overlay (§3.22:
+  waiting pill, charting card, offline/stale/can't-draw banner), the
+  top-right search and layers cluster (§3.12, §3.13), the scale readout and
+  zoom controls, and the join dialog (§3.19). The toast lives in the layout.
+
+  Owns the UI flags: panelOpen, tab, selectedId, joinOpen, layersOpen,
+  layers and portalLinks. `mapView` (derive.ts) decides the state overlay,
+  the tile filter and the pin-opacity class on the marker pane. The map stays mounted across server switches (AtlasMap swaps
+  its tiles by key); a switch clears the selection and resets the view. The
+  panel floats over the map, so map container points are page points and
+  `padLeft` (376 open, 0 collapsed) keeps programmatic centring in the area
+  right of the panel.
+-->
+<script lang="ts">
+	import type L from 'leaflet';
+	import { onDestroy, untrack } from 'svelte';
+	import { maskForZones } from '$lib/fog';
+	import { toLatLng } from '$lib/geo';
+	import { mapView } from '$lib/derive';
+	import {
+		buildMarkers,
+		defaultLayers,
+		enabledLayerCount,
+		layerCounts,
+		markersKey,
+		visibleMarkers,
+		type LayerKey,
+		type MapMarker
+	} from '$lib/markers';
+	import { app } from '$lib/state.svelte';
+	import type { Marker } from '$lib/types';
+	import AtlasMap from './AtlasMap.svelte';
+	import ChartingCard from './ChartingCard.svelte';
+	import CollapsedPill from './CollapsedPill.svelte';
+	import JoinDialog from './JoinDialog.svelte';
+	import LayersButton from './LayersButton.svelte';
+	import LayersPanel from './LayersPanel.svelte';
+	import MapUpdatedPill from './MapUpdatedPill.svelte';
+	import MarkerCard from './MarkerCard.svelte';
+	import MarkerLayer from './MarkerLayer.svelte';
+	import ScaleReadout from './ScaleReadout.svelte';
+	import SearchBox from './SearchBox.svelte';
+	import SidePanel from './SidePanel.svelte';
+	import StateBanner from './StateBanner.svelte';
+	import WaitingPill from './WaitingPill.svelte';
+	import ZoomControls from './ZoomControls.svelte';
+
+	const PANEL_W = 376; // 16 + 344 + 16
+	const POPOVER_W = 312;
+	const CULL = 40;
+	const fog = true;
+
+	// UI flags.
+	let panelOpen = $state(true);
+	let tab = $state<'players' | 'world'>('players');
+	let selectedId = $state<string>();
+	let joinOpen = $state(false);
+	let layersOpen = $state(false);
+	let layers = $state(defaultLayers());
+	let portalLinks = $state(true);
+
+	let searchBox = $state<ReturnType<typeof SearchBox>>();
+	let layersButton = $state<ReturnType<typeof LayersButton>>();
+	/** Widths for the banner slot: the viewport and the top-right cluster (§1.1 item 6). */
+	let shellW = $state(0);
+	let clusterW = $state(0);
+	let pillW = $state(0);
+
+	let atlas = $state<ReturnType<typeof AtlasMap>>();
+	let map = $state.raw<L.Map>();
+	/** Kind and position of the selection, to drop it when a new snapshot reuses the id (§5.4). */
+	let selectedKey: string | undefined;
+	let zoom = $state(0);
+	let popover = $state<{ left: number; top: number }>();
+	let frame = 0;
+
+	const card = $derived(app.card?.id === app.currentId ? app.card : undefined);
+	const mask = $derived(app.snapshot ? maskForZones(app.snapshot.exploredZones) : undefined);
+	const padLeft = $derived(panelOpen ? PANEL_W : 0);
+
+	// The state treatment (§3.22): overlay, tile filter and pin opacity.
+	// `app.tileSamples` is replaced together with `app.card`, so reading it
+	// here stays current.
+	const view = $derived(card ? mapView(card, app.now, app.tileSamples, layers.biomes) : undefined);
+	const pillL = $derived(panelOpen ? PANEL_W : 190);
+
+	// Markers are hidden while waiting for a save and while charting.
+	const markersOn = $derived(!!view?.markersOn);
+	// The marker model is memoised on (server, save, defeated bosses): a card
+	// poll (a new object every 15 s) returns the same array, so search
+	// results, layer counts and MarkerLayer don't rework.
+	let built: { key: string; all: MapMarker[] } = { key: '', all: [] };
+	const all = $derived.by<MapMarker[]>(() => {
+		const snap = app.snapshot;
+		if (!markersOn || !snap || !card) return [];
+		const key = markersKey(card.id, snap, card.world);
+		if (built.key !== key) built = { key, all: buildMarkers(snap, card.world) };
+		return built.all;
+	});
+	const counts = $derived(layerCounts(all, mask, fog));
+
+	// The search box is 340 px (§3.12), narrowed on small desktops with the
+	// panel open so the cluster clears it (376 + 16 + layers ≈ 137 + gaps).
+	const searchW = $derived(panelOpen ? Math.max(180, Math.min(340, shellW - 555)) : 340);
+
+	// The pill and the banners share one slot (§1.1 item 4) and must clear the
+	// search/layers cluster; when the gap is too narrow they drop below it.
+	const BANNER_MIN_W = 360;
+	const BELOW_CLUSTER = 16 + 46 + 10;
+	const clearRight = $derived(16 + clusterW + 12);
+	const gap = $derived(shellW - pillL - clearRight);
+	const bannerBox = $derived(
+		gap >= BANNER_MIN_W ? { right: clearRight, top: 16 } : { right: 16, top: BELOW_CLUSTER }
+	);
+	const pillTop = $derived(gap >= Math.max(pillW, 360) ? 16 : BELOW_CLUSTER);
+
+	// Pin opacity for offline / stale lives on the marker pane (app.css).
+	$effect(() => {
+		const pane = map?.getPane('markerPane');
+		if (!pane) return;
+		const cls = view?.pinClass ?? '';
+		pane.classList.remove('fs-pins-offline', 'fs-pins-stale');
+		if (cls) pane.classList.add(cls);
+	});
+	const selected = $derived(selectedId === undefined ? undefined : all.find((m) => m.id === selectedId));
+	const selectedShown = $derived(
+		!!selected && visibleMarkers([selected], layers, mask, fog, zoom).length === 1
+	);
+
+	const keyOf = (m: MapMarker) => `${m.type}@${m.x},${m.z}`;
+
+	/** Closes the layers panel; focus inside it goes back to the Layers button. */
+	function closeLayers(): void {
+		if (!layersOpen) return;
+		const inside = !!document.activeElement?.closest('#layers-panel');
+		layersOpen = false;
+		if (inside) layersButton?.focus();
+	}
+
+	/** Closes the search results and the layers panel (§5.3). */
+	function closeMenus(): void {
+		closeLayers();
+		searchBox?.close();
+	}
+
+	function select(id: string | undefined): void {
+		if (id !== undefined) closeMenus();
+		selectedId = id;
+		const m = id === undefined ? undefined : all.find((x) => x.id === id);
+		selectedKey = m ? keyOf(m) : undefined;
+	}
+
+	// A refreshed snapshot: keep the selection only if the id still names the
+	// same kind at the same position.
+	$effect(() => {
+		if (selectedId === undefined) return;
+		if (!selected || keyOf(selected) !== selectedKey) select(undefined);
+	});
+
+	// A server switch: drop the selection, close the menus, clear the
+	// typed search and return to the default view.
+	let lastServer: string | undefined;
+	$effect(() => {
+		const id = app.currentId;
+		if (lastServer !== undefined && id !== lastServer) {
+			untrack(() => {
+				closeMenus();
+				searchBox?.clear();
+			});
+			select(undefined);
+			joinOpen = false;
+			atlas?.resetView();
+		}
+		lastServer = id;
+	});
+
+	/** §5.9: right of the pin (or left when it would overflow), clamped vertically. */
+	function placePopover(): void {
+		frame = 0;
+		if (!map) return;
+		zoom = map.getZoom();
+		if (!selected) {
+			popover = undefined;
+			return;
+		}
+		const p = map.latLngToContainerPoint(toLatLng(selected.x, selected.z));
+		const size = map.getSize();
+		// Hidden while the pin is culled (outside the viewport ±40 px, like
+		// MarkerLayer); shown again when it comes back into view.
+		if (p.x < -CULL || p.y < -CULL || p.x > size.x + CULL || p.y > size.y + CULL) {
+			popover = undefined;
+			return;
+		}
+		let left = p.x + 26;
+		if (left + POPOVER_W > size.x - 16) left = p.x - 26 - POPOVER_W;
+		// Never under the open side panel.
+		left = Math.max(left, padLeft + 16);
+		const top = Math.max(96, Math.min(size.y - 440, p.y - 60));
+		popover = { left, top };
+	}
+
+	function schedulePopover(): void {
+		if (!frame) frame = requestAnimationFrame(placePopover);
+	}
+
+	$effect(() => {
+		void selected;
+		void map;
+		schedulePopover();
+	});
+
+	onDestroy(() => {
+		if (frame) cancelAnimationFrame(frame);
+	});
+
+	function jump(id: string): void {
+		const partner = all.find((m) => m.id === id);
+		if (!partner || !map) return;
+		atlas?.centerOn(partner.x, partner.z, Math.max(3.5, map.getZoom()));
+		select(id);
+	}
+
+	/** World tab "Show altar": centre on it at zoom 3.5 and select it. */
+	function showAltar(altar: Marker): void {
+		atlas?.centerOn(altar.x, altar.z, 3.5);
+		select(altar.id);
+	}
+
+	/** Search pick (§5.2): centre on the marker at zoom 4.25 and select it. */
+	function pickResult(m: MapMarker): void {
+		atlas?.centerOn(m.x, m.z, 4.25);
+		select(m.id);
+	}
+
+	function toggleLayer(key: LayerKey): void {
+		layers[key] = !layers[key];
+	}
+
+	function openJoin(): void {
+		closeMenus();
+		joinOpen = true;
+	}
+
+	function toast(title: string, sub: string): void {
+		app.showToast(title, sub === '' ? undefined : sub);
+	}
+
+	function onkeydown(e: KeyboardEvent): void {
+		if (e.key !== 'Escape' || e.defaultPrevented || joinOpen || app.unlockPrompt) return;
+		if (layersOpen) {
+			closeLayers();
+			return;
+		}
+		if (selectedId !== undefined) select(undefined);
+	}
+</script>
+
+<svelte:window {onkeydown} />
+
+<main class="shell" bind:clientWidth={shellW}>
+	<AtlasMap
+		bind:this={atlas}
+		{card}
+		snapshot={app.snapshot}
+		{padLeft}
+		dim={1}
+		filter={view?.filter ?? ''}
+		fog={fog && view?.overlay.kind !== 'charting'}
+		onready={(m) => (map = m)}
+		onclick={() => {
+			closeMenus();
+			select(undefined);
+		}}
+		onmove={schedulePopover}
+	/>
+	{#if map}
+		<MarkerLayer {map} {all} {layers} {mask} {fog} {portalLinks} {selectedId} onselect={select} />
+	{/if}
+
+	{#if panelOpen}
+		<SidePanel bind:tab oncollapse={() => (panelOpen = false)} onjoin={openJoin} onshowaltar={showAltar} />
+	{:else}
+		<CollapsedPill onopen={() => (panelOpen = true)} />
+	{/if}
+
+	{#if view?.overlay.kind === 'waiting'}
+		<WaitingPill {padLeft} />
+	{:else if view?.overlay.kind === 'charting'}
+		{@const o = view.overlay}
+		<ChartingCard pct={o.pct} done={o.done} total={o.total} etaMin={o.etaMin} {padLeft} />
+	{:else if view?.overlay.kind === 'banner'}
+		{@const o = view.overlay}
+		<StateBanner tone={o.tone} title={o.title} body={o.body} left={pillL} right={bannerBox.right} top={bannerBox.top} />
+	{:else if view?.overlay.kind === 'pill' && card?.world}
+		<MapUpdatedPill world={card.world} now={app.now} left={pillL} top={pillTop} bind:width={pillW} />
+	{/if}
+
+	<div class="cluster" bind:clientWidth={clusterW}>
+		<SearchBox
+			bind:this={searchBox}
+			{all}
+			{mask}
+			{fog}
+			width={searchW}
+			disabled={!markersOn}
+			disabledPlaceholder={view?.overlay.kind === 'charting' ? 'Charting the map…' : 'Waiting for the first save…'}
+			onpick={pickResult}
+			onopen={() => (layersOpen = false)}
+		/>
+		<div class="layers">
+			<LayersButton
+				bind:this={layersButton}
+				count={enabledLayerCount(layers)}
+				open={layersOpen}
+				controls="layers-panel"
+				onclick={() => (layersOpen ? closeLayers() : (layersOpen = true))}
+			/>
+			{#if layersOpen}
+				<LayersPanel
+					id="layers-panel"
+					variant="desktop"
+					{layers}
+					{portalLinks}
+					{counts}
+					ontoggle={toggleLayer}
+					onlinks={() => (portalLinks = !portalLinks)}
+				/>
+			{/if}
+		</div>
+	</div>
+
+	{#if selected && selectedShown && popover}
+		<div class="popover" style:left="{popover.left}px" style:top="{popover.top}px">
+			<MarkerCard m={selected.card} onclose={() => select(undefined)} onjump={jump} />
+		</div>
+	{/if}
+
+	<ScaleReadout {map} {mask} {fog} left={panelOpen ? PANEL_W : 16} />
+	<ZoomControls
+		onzoomin={() => atlas?.zoomBy(0.75)}
+		onzoomout={() => atlas?.zoomBy(-0.75)}
+		onreset={() => {
+			atlas?.resetView();
+			select(undefined);
+		}}
+	/>
+</main>
+
+{#if joinOpen && card}
+	<JoinDialog {card} onclose={() => (joinOpen = false)} oncopy={toast} />
+{/if}
+
+<style>
+	.shell {
+		position: fixed;
+		inset: 0;
+		overflow: hidden;
+	}
+	.cluster {
+		position: absolute;
+		top: 16px;
+		right: 16px;
+		display: flex;
+		gap: 10px;
+		align-items: flex-start;
+		z-index: 600;
+	}
+	.layers {
+		position: relative;
+	}
+	.popover {
+		position: absolute;
+		width: 312px;
+		z-index: 500;
+	}
+</style>

@@ -1,0 +1,1488 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="_ds/organic-4d151dd9-be22-4870-a515-60b620c2fda0/styles.css">
+<script src="_ds/organic-4d151dd9-be22-4870-a515-60b620c2fda0/_ds_bundle.js"></script>
+<style>
+body{margin:0;background:var(--color-neutral-200)}
+a{color:var(--color-accent-700)}a:hover{color:var(--color-accent-800)}
+[data-theme="dark"]{--color-bg:#161513;--color-surface:#22201c;--color-text:#efe6d6;--color-accent:#d67f48;--color-divider:color-mix(in srgb,#efe6d6 13%,transparent);
+--color-neutral-100:#2e2b25;--color-neutral-200:#474238;--color-neutral-300:#645c50;--color-neutral-400:#82796a;--color-neutral-500:#a19786;--color-neutral-600:#c0b6a5;--color-neutral-700:#dcd3c4;--color-neutral-800:#eee7db;--color-neutral-900:#f9f4ed;
+--color-accent-100:#402310;--color-accent-200:#643312;--color-accent-300:#8c491a;--color-accent-400:#b2622d;--color-accent-500:#d67f48;--color-accent-600:#f6a06b;--color-accent-700:#ffc6a5;--color-accent-800:#ffe1d0;--color-accent-900:#fff2eb;
+--color-accent-2-100:#272e1b;--color-accent-2-200:#3d472b;--color-accent-2-300:#56633f;--color-accent-2-400:#728157;--color-accent-2-500:#8fa073;--color-accent-2-600:#aebf92;--color-accent-2-700:#ccdbb2;--color-accent-2-800:#e1eecc;--color-accent-2-900:#f0fae1;
+--shadow-sm:0 1px 2px rgba(0,0,0,.4);--shadow-md:0 4px 14px rgba(0,0,0,.45);--shadow-lg:0 14px 40px rgba(0,0,0,.55);
+--cold:#7fb2d6;--cold-ink:#b5d4ea;--glass:rgba(30,28,25,.9);--muted:color-mix(in srgb,#efe6d6 64%,transparent)}
+[data-theme="light"]{--cold:#2f6c94;--cold-ink:#1d4a69;--glass:rgba(245,234,216,.92);--muted:color-mix(in srgb,#201e1d 64%,transparent)}
+[data-theme] .btn-secondary{color:var(--color-text)}
+</style>
+</helmet>
+<div style="padding:72px;display:flex;flex-direction:column;gap:88px;width:max-content;font-family:var(--font-body);color:var(--color-text)">
+<section style="display:flex;flex-direction:column;gap:64px">
+  <div style="max-width:760px">
+    <h1 style="margin:0 0 10px">{{ appName }}</h1>
+    <p style="margin:0;font-size:17px;text-wrap:pretty">Farsight is a private companion for your Valheim servers: a world atlas plus who’s online. Each server has its own map, timeline and join details. The map is a snapshot rebuilt from each autosave; the online list is live. Positions of players are never shown.</p>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <div><h3 style="margin:0">01 · Desktop main view</h3><div style="font-size:14px;opacity:.75">Interactive: drag to pan, scroll to zoom, click markers and clusters, search “swamp” or “Frøya”, toggle layers.</div></div>
+
+    <div data-theme="{{ theme }}" data-screen-label="Desktop main view" style="position:relative;width:1440px;height:900px;overflow:hidden;border-radius:28px;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);box-shadow:0 30px 80px rgba(0,0,0,.28)">
+      <div ref="{{ mapRef }}" onPointerDown="{{ onDown }}" onPointerMove="{{ onMove }}" onPointerLeave="{{ onLeave }}" onClick="{{ onMapClick }}" style="position:absolute;inset:0;overflow:hidden;cursor:{{ cursor }};touch-action:none;user-select:none">
+        <sc-if value="{{ ready }}" hint-placeholder-val="{{ false }}">
+          <img src="{{ mapUrl }}" alt="World map" draggable="false" style="position:absolute;left:0;top:0;width:1024px;height:1024px;max-width:none;transform-origin:0 0;transform:{{ dv.transform }};border-radius:50%;box-shadow:0 0 0 5px color-mix(in srgb,var(--color-text) 12%,transparent),0 30px 80px rgba(0,0,0,.35);filter:{{ mapFilter }};pointer-events:none;transition:filter .4s">
+        </sc-if>
+        <sc-for list="{{ dv.wards }}" as="w" hint-placeholder-count="0"><div style="position:absolute;left:{{ w.l }}px;top:{{ w.t }}px;width:{{ w.d }}px;height:{{ w.d }}px;border-radius:50%;border:2px dashed #f5ead8;background:rgba(127,178,214,.18);pointer-events:none"></div></sc-for>
+        <sc-for list="{{ dv.lines }}" as="ln" hint-placeholder-count="0"><div style="position:absolute;left:{{ ln.l }}px;top:{{ ln.t }}px;width:{{ ln.w }}px;height:0;border-top:{{ ln.b }};transform-origin:0 0;transform:rotate({{ ln.a }}rad);opacity:{{ ln.o }};pointer-events:none"></div></sc-for>
+        <sc-for list="{{ dv.pins }}" as="p" hint-placeholder-count="0">
+          <div onClick="{{ p.onClick }}" title="{{ p.title }}" style="position:absolute;left:{{ p.l }}px;top:{{ p.t }}px;width:{{ p.s }}px;height:{{ p.s }}px;border-radius:50%;background:{{ p.bg }};border:2px solid {{ p.border }};box-shadow:{{ p.shadow }};display:grid;place-items:center;cursor:pointer;box-sizing:border-box">
+            <sc-if value="{{ p.isCluster }}"><span style="font-weight:700;font-size:13px;color:#f5ead8;font-variant-numeric:tabular-nums">{{ p.count }}</span></sc-if>
+            <sc-if value="{{ p.hasIcon }}"><img src="{{ p.icon }}" alt="" style="width:{{ p.is }}px;height:{{ p.is }}px;pointer-events:none"></sc-if>
+            <sc-if value="{{ p.hasLabel }}"><span style="position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:4px;white-space:nowrap;font-family:var(--font-heading);font-size:13px;color:#201e1d;background:rgba(245,234,216,.9);padding:1px 9px;border-radius:999px;pointer-events:none">{{ p.label }}</span></sc-if>
+          </div>
+        </sc-for>
+      </div>
+
+      <sc-if value="{{ notReady }}" hint-placeholder-val="{{ true }}">
+        <div style="position:absolute;left:50%;top:50%;transform:translate(-30%,-50%);padding:18px 24px;border-radius:28px;background:var(--glass);border:1px solid var(--color-divider);font-size:14px">Charting Example from the world save…</div>
+      </sc-if>
+
+      <sc-if value="{{ timelineShow }}" hint-placeholder-val="{{ false }}">
+        <aside style="position:absolute;left:16px;top:16px;bottom:16px;width:520px;display:flex;flex-direction:column;border-radius:30px;background:var(--color-surface);border:1px solid var(--color-divider);box-shadow:var(--shadow-lg);overflow:hidden">
+          <div style="display:flex;align-items:center;gap:10px;padding:16px 16px 10px 12px">
+            <button class="btn btn-secondary btn-icon" onClick="{{ closeTimeline }}" aria-label="Back"><img src="{{ ic.chevL }}" alt="" style="width:17px;height:17px"></button>
+            <div style="flex:1;min-width:0"><div style="font-family:var(--font-heading);font-size:22px;line-height:1.1">Activity</div><div style="font-size:12px;color:var(--muted)">Last 3 days · from the server log and world saves</div></div>
+            <button class="btn btn-ghost" onClick="{{ resetTl }}" style="font-family:var(--font-body);font-size:13px;font-weight:700;white-space:nowrap;flex:none">Reset filters</button>
+          </div>
+          <div style="flex:1;overflow:auto">
+            <div style="display:flex;flex-direction:column;gap:14px;padding:6px 20px 16px">
+              <div style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">Who was on today</div>
+              <div style="display:flex;flex-direction:column;gap:7px">
+                <sc-for list="{{ sessions }}" as="r" hint-placeholder-count="5">
+                  <div style="display:grid;grid-template-columns:52px minmax(0,1fr);gap:8px;align-items:center">
+                    <div style="font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.name }}</div>
+                    <div style="position:relative;height:14px;border-radius:999px;background:color-mix(in srgb,var(--color-text) 6%,transparent)">
+                      <sc-for list="{{ r.bars }}" as="b"><div title="{{ b.title }}" style="position:absolute;top:0;bottom:0;left:{{ b.l }}%;width:{{ b.w }}%;min-width:4px;border-radius:999px;background:{{ b.bg }}"></div></sc-for>
+                      <div style="position:absolute;top:-3px;bottom:-3px;left:{{ nowPct }}%;width:2px;background:var(--cold)"></div>
+                    </div>
+                  </div>
+                </sc-for>
+                <div style="display:grid;grid-template-columns:52px minmax(0,1fr);gap:8px"><div></div><div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div></div>
+                <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted)"><span style="display:flex;align-items:center;gap:6px"><span style="width:14px;height:8px;border-radius:999px;background:var(--color-accent)"></span>Online now</span><span style="display:flex;align-items:center;gap:6px"><span style="width:14px;height:8px;border-radius:999px;background:var(--color-neutral-400)"></span>Earlier session</span><span style="display:flex;align-items:center;gap:6px"><span style="width:2px;height:12px;background:var(--cold)"></span>Now · 14:44</span></div>
+              </div>
+              <div style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding-top:6px">Show</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <sc-for list="{{ tlChips }}" as="c" hint-placeholder-count="8">
+                  <button onClick="{{ c.toggle }}" aria-pressed="{{ c.on }}" style="flex:none;display:flex;align-items:center;gap:6px;height:32px;padding:0 12px 0 8px;border-radius:999px;border:1.5px solid {{ c.border }};background:{{ c.bg }};color:{{ c.fg }};font:inherit;font-size:13px;font-weight:600;cursor:pointer"><img src="{{ c.icon }}" alt="" style="width:14px;height:14px;opacity:{{ c.op }}">{{ c.label }}<span style="font-size:11.5px;opacity:.7;font-variant-numeric:tabular-nums">{{ c.count }}</span></button>
+                </sc-for>
+              </div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <sc-for list="{{ tlWho }}" as="p" hint-placeholder-count="6">
+                  <button onClick="{{ p.pick }}" style="flex:none;display:flex;align-items:center;gap:6px;height:30px;padding:0 12px 0 4px;border-radius:999px;border:0;background:{{ p.bg }};color:{{ p.fg }};font:inherit;font-size:13px;font-weight:600;cursor:pointer"><span style="width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:{{ p.avBg }};color:{{ p.avFg }};font-family:var(--font-heading);font-size:11px">{{ p.initial }}</span>{{ p.name }}</button>
+                </sc-for>
+              </div>
+            </div>
+            <div style="border-top:1px solid var(--color-divider);padding-bottom:16px">
+                <sc-for list="{{ tlGroups }}" as="g" hint-placeholder-count="2">
+                  <div style="display:flex;flex-direction:column">
+                    <div style="position:sticky;top:0;z-index:1;display:flex;align-items:baseline;gap:8px;padding:10px 20px 8px;background:var(--color-surface)"><span style="font-family:var(--font-heading);font-size:16px">{{ g.label }}</span><span style="font-size:12px;color:var(--muted)">{{ g.sub }}</span></div>
+                    <sc-for list="{{ g.items }}" as="e" hint-placeholder-count="4">
+                      <div style="display:grid;grid-template-columns:44px 30px minmax(0,1fr);column-gap:10px;padding:0 20px">
+                        <div style="font-size:12.5px;font-variant-numeric:tabular-nums;color:var(--muted);padding-top:7px;text-align:right">{{ e.time }}</div>
+                        <div style="display:flex;flex-direction:column;align-items:center"><div style="width:30px;height:30px;flex:none;border-radius:50%;display:grid;place-items:center;background:{{ e.bg }}"><img src="{{ e.icon }}" alt="" style="width:14px;height:14px"></div><div style="flex:1;width:2px;min-height:10px;background:var(--color-divider)"></div></div>
+                        <div style="padding:5px 0 14px;min-width:0">
+                          <div style="font-size:14px;line-height:1.35;text-wrap:pretty">{{ e.text }}</div>
+                          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:3px;font-size:12px;color:var(--muted)">
+                            <span style="display:flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%;background:{{ e.srcDot }}"></span>{{ e.src }}</span>
+                            <sc-if value="{{ e.hasMap }}"><button onClick="{{ e.onMap }}" style="border:0;background:transparent;padding:0;font:inherit;font-size:12px;font-weight:700;color:var(--cold-ink);cursor:pointer">Show on map →</button></sc-if>
+                          </div>
+                        </div>
+                      </div>
+                    </sc-for>
+                  </div>
+                </sc-for>
+                <sc-if value="{{ tlEmpty }}"><div style="padding:28px 20px;font-size:14px;color:var(--muted);text-align:center">Nothing matches these filters.</div></sc-if>
+            </div>
+          </div>
+        </aside>
+      </sc-if>
+      <sc-if value="{{ profileShow }}" hint-placeholder-val="{{ false }}">
+        <aside style="position:absolute;left:16px;top:16px;bottom:16px;width:344px;display:flex;flex-direction:column;border-radius:30px;background:var(--color-surface);border:1px solid var(--color-divider);box-shadow:var(--shadow-lg);overflow:hidden">
+          <div style="display:flex;align-items:center;gap:10px;padding:14px 14px 8px">
+            <button class="btn btn-secondary btn-icon" onClick="{{ closeProfile }}" aria-label="Back"><img src="{{ ic.chevL }}" alt="" style="width:17px;height:17px"></button>
+            <span style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">Player</span>
+          </div>
+          <div style="flex:1;overflow:auto">
+            <div style="display:flex;flex-direction:column;gap:18px;padding:4px 18px 20px">
+              <div style="display:flex;align-items:center;gap:14px">
+                <div style="position:relative;width:60px;height:60px;flex:none;border-radius:50%;background:var(--color-accent-200);color:var(--color-accent-800);display:grid;place-items:center;font-family:var(--font-heading);font-size:26px">{{ prof.initial }}<span style="position:absolute;right:0;bottom:0;width:15px;height:15px;border-radius:50%;background:{{ prof.dot }};border:3px solid var(--color-surface)"></span></div>
+                <div style="flex:1;min-width:0"><div style="font-family:var(--font-heading);font-size:26px;line-height:1.1">{{ prof.name }}</div><div style="font-size:13px;color:{{ prof.statusColor }};font-weight:700">{{ prof.status }}</div></div>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">
+                <sc-for list="{{ prof.stats }}" as="s" hint-placeholder-count="3"><div style="padding:10px 10px;min-width:0;border-radius:18px;background:color-mix(in srgb,var(--color-text) 6%,transparent)"><div style="font-size:11.5px;color:var(--muted)">{{ s.k }}</div><div style="font-family:var(--font-heading);font-size:17px;line-height:1.15;white-space:nowrap">{{ s.v }}</div></div></sc-for>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-family:var(--font-heading);font-size:16px">Last 7 days</span><span style="font-size:12px;color:var(--muted)">hours online</span></div>
+                <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;align-items:end;height:92px">
+                  <sc-for list="{{ prof.days }}" as="d" hint-placeholder-count="7">
+                    <div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px;height:100%">
+                      <span style="font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums">{{ d.label }}</span>
+                      <div style="width:100%;height:{{ d.pct }}%;min-height:3px;border-radius:8px;background:{{ d.bg }}"></div>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px"><sc-for list="{{ prof.days }}" as="d"><span style="text-align:center;font-size:11px;font-weight:{{ d.weight }};color:{{ d.color }}">{{ d.d }}</span></sc-for></div>
+              </div>
+              <div style="display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:14px;row-gap:5px;font-size:13.5px">
+                <span style="color:var(--muted)">First seen</span><b>{{ prof.first }}</b>
+                <span style="color:var(--muted)">Last seen</span><b>{{ prof.last }}</b>
+                <span style="color:var(--muted)">Beds</span><b>{{ prof.beds }}</b>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <div style="font-family:var(--font-heading);font-size:16px">Bases</div>
+                <sc-for list="{{ prof.bases }}" as="b" hint-placeholder-count="1">
+                  <button onClick="{{ b.onMap }}" style="display:flex;align-items:center;gap:10px;min-height:48px;padding:6px 10px;border:0;border-radius:16px;background:color-mix(in srgb,var(--color-text) 6%,transparent);color:var(--color-text);font:inherit;cursor:pointer;text-align:left" style-hover="background:color-mix(in srgb,var(--color-text) 10%,transparent)">
+                    <span style="width:30px;height:30px;flex:none;border-radius:50%;display:grid;place-items:center;background:#f5ead8;border:2px solid #26231f;box-sizing:border-box"><img src="{{ ic.homeInk }}" alt="" style="width:15px;height:15px"></span>
+                    <span style="flex:1;min-width:0"><span style="display:block;font-weight:700;font-size:14px">{{ b.name }}</span><span style="display:block;font-size:12px;color:var(--muted)">{{ b.sub }}</span></span>
+                    <span style="font-size:12px;font-weight:700;color:var(--cold-ink);white-space:nowrap">Map →</span>
+                  </button>
+                </sc-for>
+                <sc-if value="{{ prof.noBases }}"><div style="font-size:13px;color:var(--muted)">No bases yet.</div></sc-if>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-family:var(--font-heading);font-size:16px">Portals placed</span><span style="font-size:12px;color:var(--muted)">{{ prof.portalCount }}</span></div>
+                <div style="display:flex;flex-wrap:wrap;gap:6px">
+                  <sc-for list="{{ prof.portals }}" as="p" hint-placeholder-count="3"><button onClick="{{ p.onMap }}" style="display:flex;align-items:center;gap:6px;height:32px;padding:0 12px 0 6px;border-radius:999px;border:1.5px solid {{ p.border }};background:transparent;color:var(--color-text);font:inherit;font-size:13px;font-weight:600;cursor:pointer"><span style="width:20px;height:20px;border-radius:50%;display:grid;place-items:center;background:#3d7eab"><img src="{{ ic.portalCream }}" alt="" style="width:11px;height:11px"></span>{{ p.tag }}</button></sc-for>
+                </div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-family:var(--font-heading);font-size:16px">Tames they named</span><span style="font-size:12px;color:var(--muted)">{{ prof.tameCount }}</span></div>
+                <div style="display:flex;flex-wrap:wrap;gap:6px">
+                  <sc-for list="{{ prof.tames }}" as="t" hint-placeholder-count="3"><span class="tag tag-accent-2" style="font-size:13px">{{ t.name }} · {{ t.species }}</span></sc-for>
+                </div>
+                <sc-if value="{{ prof.noTames }}"><div style="font-size:13px;color:var(--muted)">None yet.</div></sc-if>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-family:var(--font-heading);font-size:16px">Deaths</span><span style="font-size:12px;color:var(--muted)">{{ prof.deathLine }}</span></div>
+                <sc-for list="{{ prof.tombs }}" as="t" hint-placeholder-count="1">
+                  <button onClick="{{ t.onMap }}" style="display:flex;align-items:center;gap:10px;min-height:44px;padding:6px 10px;border:0;border-radius:16px;background:var(--color-accent-100);color:var(--color-accent-800);font:inherit;cursor:pointer;text-align:left">
+                    <span style="width:28px;height:28px;flex:none;border-radius:50%;display:grid;place-items:center;background:#c67139;border:2px solid #f5ead8;box-sizing:border-box"><img src="{{ ic.skullCream }}" alt="" style="width:14px;height:14px"></span>
+                    <span style="flex:1;font-size:13.5px;font-weight:600">{{ t.text }}</span><span style="font-size:12px;font-weight:700;white-space:nowrap">Map →</span>
+                  </button>
+                </sc-for>
+              </div>
+              <div style="font-size:11.5px;line-height:1.45;color:var(--muted)">Playtime comes from the server log. Bases, beds, portals and tames come from who placed or named them in the world save. Deaths count tombstones seen in saves, so a death recovered between two saves is missed.</div>
+            </div>
+          </div>
+        </aside>
+      </sc-if>
+      <sc-if value="{{ panelNormal }}" hint-placeholder-val="{{ true }}">
+        <aside style="position:absolute;left:16px;top:16px;bottom:16px;width:344px;display:flex;flex-direction:column;border-radius:30px;background:var(--glass);backdrop-filter:blur(14px);border:1px solid var(--color-divider);box-shadow:var(--shadow-lg);overflow:hidden">
+          <div style="display:flex;align-items:center;gap:12px;padding:18px 16px 14px 18px">
+            <div style="width:38px;height:38px;border-radius:50%;display:grid;place-items:center;background:var(--color-accent);color:var(--color-bg);font-family:var(--font-heading);font-size:20px;flex:none">{{ appInitial }}</div>
+            <div style="flex:1;min-width:0"><div style="font-family:var(--font-heading);font-size:20px;line-height:1.1">{{ appName }}</div><div style="font-size:12px;color:var(--muted)">Valheim server atlas</div></div>
+            <button class="btn btn-secondary btn-icon" onClick="{{ toggleTheme }}" aria-label="Toggle theme"><img src="{{ ic.theme }}" alt="" style="width:17px;height:17px"></button>
+            <button class="btn btn-secondary btn-icon" onClick="{{ togglePanel }}" aria-label="Collapse panel"><img src="{{ ic.chevL }}" alt="" style="width:17px;height:17px"></button>
+          </div>
+          <div style="margin:0 14px;padding:16px;border-radius:24px;background:color-mix(in srgb,var(--color-text) 6%,transparent);display:flex;flex-direction:column;gap:12px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="width:10px;height:10px;border-radius:50%;background:var(--color-accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--color-accent) 25%,transparent)"></span>
+              <span style="font-size:13px;font-weight:700;color:var(--color-accent-700)">Online</span>
+              <span style="margin-left:auto;font-size:12px;color:var(--muted)">Live status</span>
+            </div>
+            <div style="position:relative">
+              <button onClick="{{ toggleServerMenu }}" aria-haspopup="listbox" style="display:flex;align-items:center;gap:8px;width:100%;border:0;background:transparent;padding:0;color:var(--color-text);font:inherit;cursor:pointer;text-align:left">
+                <span style="flex:1;min-width:0;font-family:var(--font-heading);font-size:22px;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ serverName }}</span>
+                <span style="flex:none;height:28px;padding:0 8px 0 11px;border-radius:999px;background:color-mix(in srgb,var(--color-text) 9%,transparent);display:flex;align-items:center;gap:4px;font-size:12px;font-weight:700;white-space:nowrap">{{ serverCount }} servers<img src="{{ ic.chevD }}" alt="" style="width:14px;height:14px"></span>
+              </button>
+              <sc-if value="{{ serverMenu }}" hint-placeholder-val="{{ false }}">
+                <div role="listbox" style="position:absolute;z-index:5;top:38px;left:-10px;right:-10px;padding:8px;border-radius:22px;background:var(--color-surface);border:1px solid var(--color-divider);box-shadow:var(--shadow-lg);display:flex;flex-direction:column;gap:2px">
+                  <sc-for list="{{ servers }}" as="sv" hint-placeholder-count="3">
+                    <button onClick="{{ sv.pick }}" style="display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border:0;border-radius:16px;background:{{ sv.bg }};color:var(--color-text);font:inherit;cursor:pointer;text-align:left" style-hover="background:color-mix(in srgb,var(--color-text) 7%,transparent)">
+                      <span style="width:9px;height:9px;flex:none;border-radius:50%;background:{{ sv.dot }}"></span>
+                      <span style="flex:1;min-width:0"><span style="display:block;font-weight:700;font-size:14px">{{ sv.name }}</span><span style="display:block;font-size:12px;color:var(--muted)">{{ sv.sub }}</span></span>
+                      <span style="font-size:12px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums">{{ sv.count }}</span>
+                    </button>
+                  </sc-for>
+                  <div style="padding:8px 10px 4px;font-size:12px;color:var(--muted);border-top:1px solid var(--color-divider);margin-top:4px">Admins add servers in Settings. Each gets its own map, timeline and join code.</div>
+                </div>
+              </sc-if>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">
+              <div><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Players</div><div style="font-size:18px;font-weight:700;font-variant-numeric:tabular-nums">4<span style="color:var(--muted);font-weight:400">/10</span></div></div>
+              <div><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Version</div><div style="font-size:15px;font-weight:700;padding-top:3px">1.0.16</div></div>
+              <div><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Uptime</div><div style="font-size:15px;font-weight:700;padding-top:3px">3d 6h</div></div>
+            </div>
+            <button class="btn btn-primary btn-block" onClick="{{ openJoin }}" style="white-space:nowrap">How to join</button>
+          </div>
+          <div style="display:flex;gap:6px;margin:14px 14px 4px;padding:4px;border-radius:999px;background:color-mix(in srgb,var(--color-text) 6%,transparent)">
+            <button onClick="{{ tabPlayers }}" style="flex:1;border:0;border-radius:999px;padding:8px 0;font:inherit;font-size:14px;font-weight:700;cursor:pointer;background:{{ tabs.pBg }};color:{{ tabs.pFg }}">Online · 4</button>
+            <button onClick="{{ tabWorld }}" style="flex:1;border:0;border-radius:999px;padding:8px 0;font:inherit;font-size:14px;font-weight:700;cursor:pointer;background:{{ tabs.wBg }};color:{{ tabs.wFg }}">World</button>
+          </div>
+          <div style="flex:1;overflow:auto;padding:10px 14px 18px">
+            <sc-if value="{{ tabs.isPlayers }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;flex-direction:column;gap:2px">
+                <div style="font-size:12px;color:var(--muted);padding:4px 6px 8px">Live from the server. Player positions aren’t tracked.</div>
+                <sc-for list="{{ players }}" as="pl" hint-placeholder-count="4">
+                  <div onClick="{{ pl.open }}" style="display:flex;align-items:center;gap:12px;padding:8px;border-radius:18px;cursor:pointer" style-hover="background:color-mix(in srgb,var(--color-text) 6%,transparent)">
+                    <div style="position:relative;width:40px;height:40px;flex:none;border-radius:50%;background:var(--color-accent-200);color:var(--color-accent-800);display:grid;place-items:center;font-family:var(--font-heading);font-size:18px">{{ pl.initial }}<span style="position:absolute;right:-1px;bottom:-1px;width:13px;height:13px;border-radius:50%;background:var(--color-accent);border:2.5px solid var(--color-surface)"></span></div>
+                    <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:15px">{{ pl.name }}</div><div style="font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums">online {{ pl.session }}</div></div>
+                    <button class="btn btn-ghost" onClick="{{ pl.open }}" style="font-family:var(--font-body);font-size:12px;font-weight:700;color:var(--cold-ink);white-space:nowrap;flex:none">Profile →</button>
+                  </div>
+                </sc-for>
+                <div style="font-size:12px;color:var(--muted);padding:12px 6px 4px">Recently online</div>
+                <sc-for list="{{ recent }}" as="pl" hint-placeholder-count="1">
+                  <div onClick="{{ pl.open }}" style="display:flex;align-items:center;gap:12px;padding:8px;border-radius:18px;cursor:pointer" style-hover="background:color-mix(in srgb,var(--color-text) 6%,transparent)">
+                    <div style="width:40px;height:40px;flex:none;border-radius:50%;background:var(--color-neutral-200);color:var(--color-neutral-800);display:grid;place-items:center;font-family:var(--font-heading);font-size:18px">{{ pl.initial }}</div>
+                    <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:15px">{{ pl.name }}</div><div style="font-size:13px;color:var(--muted)">{{ pl.session }}</div></div>
+                    <span style="font-size:12px;font-weight:700;color:var(--cold-ink);white-space:nowrap">Profile →</span>
+                  </div>
+                </sc-for>
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 6px 6px"><span style="font-family:var(--font-heading);font-size:17px">Recent activity</span><button class="btn btn-ghost" onClick="{{ openTimeline }}" style="font-size:13px;font-weight:700;color:var(--cold-ink)">Full timeline →</button></div>
+                <sc-for list="{{ activity }}" as="a" hint-placeholder-count="5">
+                  <div onClick="{{ a.onClick }}" style="display:flex;align-items:flex-start;gap:10px;padding:7px 8px;border-radius:14px;cursor:{{ a.cursor }}" style-hover="background:color-mix(in srgb,var(--color-text) 5%,transparent)">
+                    <div style="width:28px;height:28px;flex:none;border-radius:50%;display:grid;place-items:center;background:{{ a.bg }}"><img src="{{ a.icon }}" alt="" style="width:14px;height:14px"></div>
+                    <div style="flex:1;min-width:0;font-size:14px;line-height:1.35;padding-top:4px">{{ a.text }}</div>
+                    <div style="font-size:12px;color:var(--muted);white-space:nowrap;padding-top:5px">{{ a.time }}</div>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+            <sc-if value="{{ tabs.isWorld }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:18px;padding:8px 6px">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                  <div style="padding:14px 16px;border-radius:22px;background:color-mix(in srgb,var(--color-text) 6%,transparent)"><div style="font-size:12px;color:var(--muted)">In-game day</div><div style="font-family:var(--font-heading);font-size:34px;line-height:1.1">214</div></div>
+                  <div style="padding:14px 16px;border-radius:22px;background:color-mix(in srgb,var(--color-text) 6%,transparent)"><div style="font-size:12px;color:var(--muted)">Bosses</div><div style="font-family:var(--font-heading);font-size:34px;line-height:1.1">4<span style="font-size:20px;color:var(--muted)"> / 8</span></div></div>
+                </div>
+                <div>
+                  <div style="font-family:var(--font-heading);font-size:17px;margin-bottom:10px">Forsaken defeated</div>
+                  <div style="display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:4px">
+                    <sc-for list="{{ bosses }}" as="b" hint-placeholder-count="7">
+                      <div style="display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center">
+                        <div style="width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-family:var(--font-heading);font-size:14px;background:{{ b.bg }};color:{{ b.fg }};border:2px {{ b.bs }} {{ b.bc }};box-sizing:border-box">{{ b.num }}</div>
+                        <div style="font-size:10.5px;line-height:1.2;color:{{ b.label }}">{{ b.name }}</div>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:20px;border:1px dashed var(--color-divider)">
+                  <div style="flex:1;font-size:13px;line-height:1.4">Next up: <b>Yagluth</b>, whose altar is in the Plains.</div>
+                  <button class="btn btn-secondary" onClick="{{ showAltar }}" style="font-size:13px">Show altar</button>
+                </div>
+                
+                <div style="display:flex;flex-direction:column;gap:8px">
+                  <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px"><span style="font-family:var(--font-heading);font-size:16px">World rules</span><span style="font-size:12px;color:var(--muted)">{{ worldPreset }}</span></div>
+                  <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px">
+                    <sc-for list="{{ worldSettings }}" as="w" hint-placeholder-count="8"><div style="padding:8px 12px;border-radius:14px;background:color-mix(in srgb,var(--color-text) 6%,transparent)"><div style="font-size:11.5px;color:var(--muted)">{{ w.k }}</div><div style="font-size:13.5px;font-weight:700;color:{{ w.fg }}">{{ w.v }}</div></div></sc-for>
+                  </div>
+                  <div style="font-size:11.5px;color:var(--muted)">Orange = changed from Normal. Read from the world’s modifier keys.</div>
+                </div><div style="display:flex;flex-direction:column;gap:6px"><div style="display:flex;justify-content:space-between;font-size:13px"><span>Explored by the crew</span><b style="font-variant-numeric:tabular-nums">{{ exploredPct }}%</b></div><div style="height:6px;border-radius:999px;background:color-mix(in srgb,var(--color-text) 12%,transparent);overflow:hidden"><div style="width:{{ exploredPct }}%;height:100%;border-radius:999px;background:var(--color-accent-2-500)"></div></div></div><div style="font-size:12px;color:var(--muted);line-height:1.45">Bosses come from the world’s progress keys. Exploration comes from the zones the server has generated.</div>
+              </div>
+            </sc-if>
+          </div>
+        </aside>
+      </sc-if>
+      <sc-if value="{{ panelClosed }}" hint-placeholder-val="{{ false }}">
+        <button onClick="{{ togglePanel }}" style="position:absolute;left:16px;top:16px;height:48px;display:flex;align-items:center;gap:10px;padding:0 16px 0 8px;border-radius:999px;border:1px solid var(--color-divider);background:var(--glass);box-shadow:var(--shadow-md);color:var(--color-text);font:inherit;cursor:pointer">
+          <span style="width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--color-accent);color:var(--color-bg);font-family:var(--font-heading);font-size:17px">{{ appInitial }}</span>
+          <span style="width:9px;height:9px;border-radius:50%;background:var(--color-accent)"></span>
+          <span style="font-weight:700;font-size:14px">4 online</span>
+          <img src="{{ ic.chevR }}" alt="" style="width:16px;height:16px">
+        </button>
+      </sc-if>
+
+      <div style="position:absolute;top:16px;left:{{ chrome.pillL }}px;display:flex;flex-direction:column;gap:8px;padding:10px 16px 12px;border-radius:24px;background:var(--glass);border:1px solid var(--color-divider);box-shadow:var(--shadow-md);min-width:360px">
+        <div style="display:flex;align-items:center;gap:10px;font-size:14px">
+          <img src="{{ ic.mapCold }}" alt="" style="width:17px;height:17px">
+          <span style="white-space:nowrap"><b>Map updated 12 min ago</b><span style="color:var(--muted)"> · next save in ~8 min</span></span>
+        </div>
+        <div style="height:5px;border-radius:999px;background:color-mix(in srgb,var(--color-text) 12%,transparent);overflow:hidden"><div style="width:60%;height:100%;border-radius:999px;background:var(--cold)"></div></div>
+        <div style="font-size:11.5px;color:var(--muted)">Snapshot from the 14:32 autosave · markers don’t move between saves</div>
+      </div>
+      <div style="position:absolute;top:106px;left:{{ chrome.pillL }}px">
+        <button onClick="{{ toggleWx }}" aria-expanded="{{ wxOpen }}" style="display:flex;align-items:center;gap:10px;padding:7px 14px 7px 7px;border-radius:999px;border:1px solid {{ wxBorder }};background:var(--glass);box-shadow:var(--shadow-md);color:var(--color-text);font:inherit;cursor:pointer">
+          <span style="width:34px;height:34px;flex:none;border-radius:50%;display:grid;place-items:center;background:{{ tod.discBg }}"><img src="{{ tod.icon }}" alt="" style="width:18px;height:18px"></span>
+          <span style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.25"><b style="font-size:14px;white-space:nowrap">{{ tod.label }} · {{ tod.clock }}</b><span style="font-size:12px;color:var(--muted);white-space:nowrap">{{ tod.wxLine }}</span></span>
+          <img src="{{ ic.chevD }}" alt="" style="width:14px;height:14px;margin-left:2px">
+        </button>
+        <sc-if value="{{ wxOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;top:58px;left:0">
+            <div style="width:360px;box-sizing:border-box;padding:16px;border-radius:26px;background:var(--color-surface);color:var(--color-text);border:1px solid var(--color-divider);box-shadow:var(--shadow-lg);display:flex;flex-direction:column;gap:14px">
+              <div>
+                <div style="display:flex;justify-content:space-between;gap:8px;font-size:13px"><b>Day 214 · {{ tod.clock }}</b><span style="color:var(--muted)">{{ tod.next }}</span></div>
+                <div style="position:relative;height:10px;margin-top:8px;border-radius:999px;background:linear-gradient(90deg,#2b3752 0%,#2b3752 19%,#c98a5a 24%,#e6d6a4 31%,#e6d6a4 70%,#c98a5a 77%,#2b3752 83%,#2b3752 100%)"><div style="position:absolute;top:-4px;left:{{ tod.pct }}%;width:4px;height:18px;margin-left:-2px;border-radius:2px;background:var(--color-text);box-shadow:0 0 0 2px var(--color-surface)"></div></div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:4px;font-variant-numeric:tabular-nums"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:2px">
+                <div style="display:grid;grid-template-columns:minmax(0,1.3fr) repeat(3,minmax(0,1fr));gap:6px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:700;padding:0 0 4px"><span>Biome</span><span>Now</span><span>~4 min</span><span>~8 min</span></div>
+                <sc-for list="{{ wxRows }}" as="r" hint-placeholder-count="6">
+                  <div style="display:grid;grid-template-columns:minmax(0,1.3fr) repeat(3,minmax(0,1fr));gap:6px;align-items:center;padding:6px 0;border-top:1px solid var(--color-divider);font-size:13px">
+                    <span style="display:flex;align-items:center;gap:7px;min-width:0"><span style="width:11px;height:11px;flex:none;border-radius:50%;background:{{ r.hex }};border:1px solid rgba(0,0,0,.2)"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.name }}</span></span>
+                    <b>{{ r.now }}</b><span style="color:var(--muted)">{{ r.next }}</span><span style="color:var(--muted)">{{ r.later }}</span>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="font-size:11.5px;line-height:1.45;color:var(--muted)">Time is estimated from the last save’s world clock (one in-game day ≈ 30 real minutes). Weather follows the game’s own schedule per biome. Only explored biomes are listed.</div>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+
+      <div style="position:absolute;top:16px;right:16px;display:flex;gap:10px;align-items:flex-start">
+        <div style="position:relative;width:340px">
+          <img src="{{ ic.search }}" alt="" style="position:absolute;left:16px;top:14px;width:18px;height:18px;opacity:.7;pointer-events:none">
+          <input class="input" value="{{ q }}" onChange="{{ onQ }}" onFocus="{{ onFocus }}" onBlur="{{ onBlur }}" placeholder="Portals, signs, tames, builders…" style="height:46px;padding-left:44px;background:var(--glass);box-shadow:var(--shadow-md);font-size:14px">
+          <sc-if value="{{ search.open }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;top:54px;left:0;right:0;padding:10px;border-radius:24px;background:var(--color-surface);border:1px solid var(--color-divider);box-shadow:var(--shadow-lg);display:flex;flex-direction:column;gap:2px;max-height:420px;overflow:auto">
+              <sc-if value="{{ search.empty }}">
+                <div style="padding:6px 8px 4px;font-size:12px;color:var(--muted)">Try</div>
+                <div style="display:flex;flex-wrap:wrap;gap:6px;padding:0 6px 6px">
+                  <sc-for list="{{ search.hints }}" as="h"><button class="tag tag-neutral" onMouseDown="{{ h.onPick }}" style="border:0;cursor:pointer;font:inherit;font-size:13px;padding:5px 12px">{{ h.text }}</button></sc-for>
+                </div>
+              </sc-if>
+              <sc-for list="{{ search.results }}" as="r" hint-placeholder-count="0">
+                <div onMouseDown="{{ r.onPick }}" style="display:flex;align-items:center;gap:12px;padding:8px;border-radius:16px;cursor:pointer" style-hover="background:color-mix(in srgb,var(--cold) 16%,transparent)">
+                  <div style="width:32px;height:32px;flex:none;border-radius:50%;display:grid;place-items:center;background:{{ r.bg }};border:2px solid #f5ead8"><img src="{{ r.icon }}" alt="" style="width:16px;height:16px"></div>
+                  <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px">{{ r.title }}</div><div style="font-size:12px;color:var(--muted)">{{ r.sub }}</div></div>
+                </div>
+              </sc-for>
+              <sc-if value="{{ search.none }}"><div style="padding:10px 8px;font-size:14px;color:var(--muted)">Nothing matches “{{ q }}” in the last save.</div></sc-if>
+            </div>
+          </sc-if>
+        </div>
+        <div style="position:relative">
+          <button onClick="{{ toggleLayers }}" style="height:46px;display:flex;align-items:center;gap:8px;padding:0 18px;border-radius:999px;border:1px solid {{ chrome.layBorder }};background:var(--glass);box-shadow:var(--shadow-md);color:var(--color-text);font:inherit;font-size:14px;font-weight:700;cursor:pointer"><img src="{{ ic.layers }}" alt="" style="width:18px;height:18px">Layers<span style="min-width:22px;height:22px;padding:0 7px;border-radius:999px;background:var(--cold);color:var(--color-bg);font-size:12px;display:grid;place-items:center">{{ chrome.layerCount }}</span></button>
+          <sc-if value="{{ layersOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;top:54px;right:0;width:318px;padding:12px;border-radius:26px;background:var(--color-surface);border:1px solid var(--color-divider);box-shadow:var(--shadow-lg);display:flex;flex-direction:column;gap:2px">
+              <div style="font-family:var(--font-heading);font-size:17px;padding:4px 10px 8px">Map layers</div>
+              <sc-for list="{{ layers }}" as="l" hint-placeholder-count="10">
+                <button onClick="{{ l.toggle }}" style="display:flex;align-items:center;gap:12px;width:100%;padding:7px 10px;border:0;background:transparent;border-radius:16px;color:var(--color-text);font:inherit;cursor:pointer;text-align:left" style-hover="background:color-mix(in srgb,var(--color-text) 6%,transparent)">
+                  <span style="width:28px;height:28px;flex:none;border-radius:50%;display:grid;place-items:center;background:#26231f;opacity:{{ l.op }}"><img src="{{ l.icon }}" alt="" style="width:14px;height:14px"></span>
+                  <span style="flex:1;min-width:0;font-size:14px;line-height:1.2">{{ l.label }}<span style="display:block;font-size:11.5px;color:{{ l.subColor }}">{{ l.sub }}</span></span>
+                  <span style="font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums">{{ l.count }}</span>
+                  <span style="width:38px;height:22px;flex:none;border-radius:999px;background:{{ l.track }};position:relative"><span style="position:absolute;top:3px;left:{{ l.knob }}px;width:16px;height:16px;border-radius:50%;background:#f5ead8;box-shadow:0 1px 2px rgba(0,0,0,.3)"></span></span>
+                </button>
+                <sc-if value="{{ l.hasSub }}" hint-placeholder-val="{{ false }}">
+                  <div role="checkbox" aria-checked="{{ l.subOn }}" onClick="{{ l.subToggle }}" style="display:flex;align-items:center;gap:10px;margin:-2px 0 4px 40px;padding:6px 10px;border-radius:14px;cursor:{{ l.subCursor }};opacity:{{ l.subOp }};font-size:13px" style-hover="background:color-mix(in srgb,var(--color-text) 6%,transparent)">
+                    <span style="width:18px;height:18px;flex:none;border-radius:6px;border:2px solid {{ l.cbBorder }};background:{{ l.cbBg }};display:grid;place-items:center;box-sizing:border-box"><sc-if value="{{ l.subOn }}"><img src="{{ l.check }}" alt="" style="width:12px;height:12px"></sc-if></span>
+                    <span style="flex:1">Show connections</span>
+                    <span style="font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums">{{ l.subCount }}</span>
+                  </div>
+                </sc-if>
+              </sc-for>
+              <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 8px;padding:12px 10px 4px;margin-top:6px;border-top:1px solid var(--color-divider)">
+                <sc-for list="{{ legend }}" as="b" hint-placeholder-count="10"><div style="display:flex;align-items:center;gap:6px;font-size:12px"><span style="width:14px;height:14px;flex:none;border-radius:50%;background:{{ b.hex }};border:1px solid rgba(0,0,0,.2)"></span>{{ b.name }}</div></sc-for>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+
+      <sc-if value="{{ pop.show }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute;left:{{ pop.l }}px;top:{{ pop.t }}px;width:312px">
+          <dc-import name="MarkerCard" m="{{ pop.card }}" on-close="{{ deselect }}" on-jump="{{ jump }}" hint-size="312px,300px"></dc-import>
+        </div>
+      </sc-if>
+
+      <div style="position:absolute;left:{{ chrome.readL }}px;bottom:16px;display:flex;align-items:center;gap:14px;padding:9px 16px;border-radius:999px;background:var(--glass);border:1px solid var(--color-divider);box-shadow:var(--shadow-md);font-size:13px;font-variant-numeric:tabular-nums">
+        <span style="display:flex;flex-direction:column;gap:3px"><span style="height:6px;width:{{ scale.w }}px;border:2px solid var(--color-text);border-top:0;box-sizing:border-box"></span><span style="font-size:11px;color:var(--muted)">{{ scale.label }}</span></span>
+        <span style="width:1px;align-self:stretch;background:var(--color-divider)"></span>
+        <span style="min-width:170px"><b>{{ cur.coords }}</b></span>
+        <span style="color:var(--muted);min-width:90px">{{ cur.biome }}</span>
+      </div>
+
+      <div style="position:absolute;right:16px;bottom:16px;display:flex;flex-direction:column;gap:10px;align-items:center">
+        <div style="display:flex;flex-direction:column;border-radius:999px;background:var(--glass);border:1px solid var(--color-divider);box-shadow:var(--shadow-md);overflow:hidden">
+          <button class="btn btn-icon" onClick="{{ zoomIn }}" aria-label="Zoom in" style="width:46px;height:46px;border-radius:0" style-hover="background:color-mix(in srgb,var(--color-text) 8%,transparent)"><img src="{{ ic.plus }}" alt="" style="width:18px;height:18px"></button>
+          <button class="btn btn-icon" onClick="{{ zoomOut }}" aria-label="Zoom out" style="width:46px;height:46px;border-radius:0;border-top:1px solid var(--color-divider)" style-hover="background:color-mix(in srgb,var(--color-text) 8%,transparent)"><img src="{{ ic.minus }}" alt="" style="width:18px;height:18px"></button>
+          <button class="btn btn-icon" onClick="{{ resetView }}" aria-label="Reset view" style="width:46px;height:46px;border-radius:0;border-top:1px solid var(--color-divider)" style-hover="background:color-mix(in srgb,var(--color-text) 8%,transparent)"><img src="{{ ic.reset }}" alt="" style="width:18px;height:18px"></button>
+        </div>
+      </div>
+
+      <sc-if value="{{ joinOpen }}" hint-placeholder-val="{{ false }}">
+        <div onClick="{{ closeJoin }}" style="position:absolute;inset:0;background:rgba(10,9,8,.55);display:grid;place-items:center">
+          <div onClick="{{ stop }}" role="dialog" aria-label="How to join" style="width:540px;max-height:840px;overflow:auto;box-sizing:border-box;display:flex;flex-direction:column;gap:16px;padding:24px;border-radius:32px;background:var(--color-surface);border:1px solid var(--color-divider);box-shadow:var(--shadow-lg)">
+            <div style="display:flex;align-items:flex-start;gap:12px">
+              <div style="flex:1"><div style="font-family:var(--font-heading);font-size:26px;line-height:1.1">Join {{ serverName }}</div><div style="display:flex;align-items:center;gap:8px;margin-top:4px;font-size:13px;color:var(--muted)"><span style="width:8px;height:8px;border-radius:50%;background:var(--color-accent)"></span>Online · 4/10 · crossplay on</div></div>
+              <button class="btn btn-secondary btn-icon" onClick="{{ closeJoin }}" aria-label="Close"><img src="{{ ic.x }}" alt="" style="width:16px;height:16px"></button>
+            </div>
+              <div style="display:flex;gap:4px;padding:4px;border-radius:999px;background:color-mix(in srgb,var(--color-text) 7%,transparent)">
+                <sc-for list="{{ join.plats }}" as="p" hint-placeholder-count="4"><button onClick="{{ p.pick }}" style="flex:1;border:0;border-radius:999px;min-height:34px;padding:0 6px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;background:{{ p.bg }};color:{{ p.fg }}">{{ p.label }}</button></sc-for>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:10px;padding:18px;border-radius:24px;background:color-mix(in srgb,var(--color-accent) 12%,transparent);border:1.5px solid color-mix(in srgb,var(--color-accent) 40%,transparent)">
+                <div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;color:var(--color-accent-700)">Join code</span><span style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)"><span style="width:8px;height:8px;border-radius:50%;background:var(--color-accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--color-accent) 25%,transparent)"></span>Live from server</span></div>
+                <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                  <div style="font-family:var(--font-heading);font-size:52px;line-height:1;letter-spacing:.06em;font-variant-numeric:tabular-nums">318 742</div>
+                  <button class="btn btn-primary" onClick="{{ copyCode }}" style="margin-left:auto;white-space:nowrap;min-height:40px"><img src="{{ ic.copyBg }}" alt="" style="width:16px;height:16px">Copy code</button>
+                </div>
+                <div style="font-size:12.5px;line-height:1.45;color:var(--muted)">Issued at today’s 06:00 restart. A new code is issued every time the server restarts, and this page updates by itself.</div>
+              </div>
+              <sc-if value="{{ join.isPC }}" hint-placeholder-val="{{ true }}">
+                <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:22px;background:color-mix(in srgb,var(--color-text) 6%,transparent)">
+                  <div style="flex:1;min-width:0"><div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;color:var(--cold-ink)">Or join by address (PC)</div><div style="font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;overflow-wrap:anywhere">play.example.net:2456</div><div style="font-size:12px;color:var(--muted)">PC only. Stays the same across restarts.</div></div>
+                  <button class="btn btn-secondary" onClick="{{ copyAddr }}" style="white-space:nowrap;flex:none;min-height:40px"><img src="{{ ic.copy }}" alt="" style="width:15px;height:15px">Copy</button>
+                </div>
+              </sc-if>
+              <div style="display:flex;flex-direction:column;gap:10px">
+                <sc-for list="{{ join.steps }}" as="st" hint-placeholder-count="4">
+                  <div style="display:flex;gap:12px;align-items:flex-start"><span style="width:26px;height:26px;flex:none;border-radius:50%;display:grid;place-items:center;background:var(--color-accent-2-200);color:var(--color-accent-2-800);font-weight:700;font-size:13px">{{ st.n }}</span><span style="font-size:14px;line-height:1.45;padding-top:3px;text-wrap:pretty">{{ st.text }}</span></div>
+                </sc-for>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-radius:18px;border:1px dashed var(--color-divider);font-size:13px;line-height:1.45">
+                <div><b>Password:</b> ask in the Discord <b>#example</b> channel. It’s never shown here.</div>
+                <div><b>Version:</b> your game must be on <b>1.0.16</b>, the same as the server.</div>
+                <sc-if value="{{ join.isConsole }}"><div style="color:var(--muted)">Crossplay must be allowed in your console’s privacy settings.</div></sc-if>
+              </div>
+                <div style="display:flex;flex-direction:column;gap:8px">
+                  <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px"><span style="font-family:var(--font-heading);font-size:16px">World rules</span><span style="font-size:12px;color:var(--muted)">{{ worldPreset }}</span></div>
+                  <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px">
+                    <sc-for list="{{ worldSettings }}" as="w" hint-placeholder-count="8"><div style="padding:8px 12px;border-radius:14px;background:color-mix(in srgb,var(--color-text) 6%,transparent)"><div style="font-size:11.5px;color:var(--muted)">{{ w.k }}</div><div style="font-size:13.5px;font-weight:700;color:{{ w.fg }}">{{ w.v }}</div></div></sc-for>
+                  </div>
+                  <div style="font-size:11.5px;color:var(--muted)">Orange = changed from Normal. Read from the world’s modifier keys.</div>
+                </div>
+          </div>
+        </div>
+      </sc-if>
+      <sc-if value="{{ toast.show }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute;left:50%;bottom:84px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:2px;padding:12px 20px;border-radius:22px;background:var(--color-text);color:var(--color-bg);box-shadow:var(--shadow-lg);font-size:14px"><b>{{ toast.title }}</b><span style="font-size:12px;opacity:.75;font-variant-numeric:tabular-nums">{{ toast.url }}</span></div>
+      </sc-if>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <div><h3 style="margin:0">02 · Mobile</h3><div style="font-size:14px;opacity:.75">Map fills the screen. Players live in a bottom sheet; search and layers open from the top-bar menu but land at thumb height.</div></div>
+    <div data-theme="{{ theme }}" style="display:flex;gap:40px;align-items:flex-start">
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:13px;font-weight:700">Default · sheet peeking</div>
+        <div data-screen-label="Mobile default" style="position:relative;width:390px;height:844px;border-radius:48px;overflow:hidden;background:var(--color-bg);color:var(--color-text);box-shadow:0 0 0 10px #0f0e0d,0 30px 60px rgba(0,0,0,.3)">
+          <sc-if value="{{ ready }}"><img src="{{ mapUrl }}" alt="" style="position:absolute;left:0;top:0;width:1024px;height:1024px;max-width:none;transform-origin:0 0;transform:{{ m1.transform }};border-radius:50%;filter:{{ nightFilter }}"></sc-if>
+          <sc-for list="{{ m1.lines }}" as="ln" hint-placeholder-count="0"><div style="position:absolute;left:{{ ln.l }}px;top:{{ ln.t }}px;width:{{ ln.w }}px;border-top:{{ ln.b }};transform-origin:0 0;transform:rotate({{ ln.a }}rad);opacity:{{ ln.o }}"></div></sc-for>
+          <sc-for list="{{ m1.pins }}" as="p" hint-placeholder-count="0">
+            <div style="position:absolute;left:{{ p.l }}px;top:{{ p.t }}px;width:{{ p.s }}px;height:{{ p.s }}px;border-radius:50%;background:{{ p.bg }};border:2px solid {{ p.border }};box-shadow:{{ p.shadow }};display:grid;place-items:center;box-sizing:border-box">
+              <sc-if value="{{ p.isCluster }}"><span style="font-weight:700;font-size:13px;color:#f5ead8">{{ p.count }}</span></sc-if>
+              <sc-if value="{{ p.hasIcon }}"><img src="{{ p.icon }}" alt="" style="width:{{ p.is }}px;height:{{ p.is }}px"></sc-if>
+              <sc-if value="{{ p.hasLabel }}"><span style="position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:4px;white-space:nowrap;font-family:var(--font-heading);font-size:13px;color:#201e1d;background:rgba(245,234,216,.9);padding:1px 9px;border-radius:999px">{{ p.label }}</span></sc-if>
+            </div>
+          </sc-for>
+          <div style="position:absolute;left:12px;right:12px;top:54px;display:flex;align-items:center;gap:8px;padding:6px 6px 6px 8px;border-radius:999px;background:var(--glass);border:1px solid var(--color-divider);box-shadow:var(--shadow-md)">
+            <div style="width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:var(--color-accent);color:var(--color-bg);font-family:var(--font-heading);font-size:20px;flex:none">{{ appInitial }}</div>
+            <div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:4px;font-family:var(--font-heading);font-size:17px;line-height:1.1;white-space:nowrap">{{ serverName }}<img src="{{ ic.chevD }}" alt="" style="width:14px;height:14px"></div><div style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px"><span style="width:7px;height:7px;border-radius:50%;background:var(--cold)"></span>Map 12 min ago · next ~8 min</div></div>
+            <div style="width:48px;height:48px;border-radius:50%;display:grid;place-items:center;background:color-mix(in srgb,var(--color-text) 8%,transparent)"><img src="{{ ic.menu }}" alt="" style="width:20px;height:20px"></div>
+          </div>
+          <div style="position:absolute;left:12px;top:122px;display:flex;align-items:center;gap:8px;height:44px;padding:0 14px 0 6px;border-radius:999px;background:var(--glass);border:1px solid var(--color-divider);box-shadow:var(--shadow-md)"><span style="width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:{{ tod.discBg }}"><img src="{{ tod.icon }}" alt="" style="width:16px;height:16px"></span><span style="font-size:13px;font-weight:700;white-space:nowrap">{{ tod.clock }} · {{ tod.wxShort }}</span></div>
+          <div style="position:absolute;right:14px;bottom:208px;display:flex;flex-direction:column;gap:10px">
+            <div style="width:52px;height:52px;border-radius:50%;display:grid;place-items:center;background:var(--glass);border:1px solid var(--color-divider);box-shadow:var(--shadow-md)"><img src="{{ ic.plus }}" alt="" style="width:20px;height:20px"></div>
+            <div style="width:52px;height:52px;border-radius:50%;display:grid;place-items:center;background:var(--glass);border:1px solid var(--color-divider);box-shadow:var(--shadow-md)"><img src="{{ ic.minus }}" alt="" style="width:20px;height:20px"></div>
+            <div style="width:52px;height:52px;border-radius:50%;display:grid;place-items:center;background:var(--glass);border:1px solid var(--color-divider);box-shadow:var(--shadow-md)"><img src="{{ ic.reset }}" alt="" style="width:20px;height:20px"></div>
+          </div>
+          <div style="position:absolute;left:0;right:0;bottom:0;padding:10px 16px 30px;border-radius:30px 30px 0 0;background:var(--glass);backdrop-filter:blur(14px);border-top:1px solid var(--color-divider);box-shadow:var(--shadow-lg);display:flex;flex-direction:column;gap:14px">
+            <div style="width:44px;height:5px;border-radius:999px;background:color-mix(in srgb,var(--color-text) 28%,transparent);align-self:center"></div>
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="font-family:var(--font-heading);font-size:21px">Online now</span>
+              <span style="height:28px;padding:0 11px;border-radius:999px;background:var(--color-accent);color:var(--color-bg);font-weight:700;display:grid;place-items:center;font-size:14px">4 / 10</span>
+              <span style="margin-left:auto;height:44px;padding:0 16px;border-radius:999px;background:var(--color-accent);color:var(--color-bg);font-weight:700;font-size:14px;display:grid;place-items:center">Join</span>
+            </div>
+            <div style="display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin-right:-16px;padding-right:16px">
+              <sc-for list="{{ players }}" as="pl" hint-placeholder-count="4">
+                <div style="display:flex;align-items:center;gap:8px;padding:6px 12px 6px 6px;border-radius:999px;background:color-mix(in srgb,var(--color-text) 7%,transparent);flex:none">
+                  <span style="width:32px;height:32px;border-radius:50%;background:var(--color-accent-200);color:var(--color-accent-800);display:grid;place-items:center;font-family:var(--font-heading);font-size:15px">{{ pl.initial }}</span>
+                  <span style="display:flex;flex-direction:column;line-height:1.15"><b style="font-size:14px">{{ pl.name }}</b><span style="font-size:11.5px;color:var(--muted)">{{ pl.session }}</span></span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:13px;font-weight:700">Sheet pulled up</div>
+        <div data-screen-label="Mobile players sheet" style="position:relative;width:390px;height:844px;border-radius:48px;overflow:hidden;background:var(--color-bg);color:var(--color-text);box-shadow:0 0 0 10px #0f0e0d,0 30px 60px rgba(0,0,0,.3)">
+          <sc-if value="{{ ready }}"><img src="{{ mapUrl }}" alt="" style="position:absolute;left:0;top:0;width:1024px;height:1024px;max-width:none;transform-origin:0 0;transform:{{ m1.transform }};border-radius:50%;filter:brightness(.7)"></sc-if>
+          <div style="position:absolute;left:12px;right:12px;top:54px;display:flex;align-items:center;gap:8px;padding:6px 6px 6px 8px;border-radius:999px;background:var(--glass);border:1px solid var(--color-divider)">
+            <div style="width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:var(--color-accent);color:var(--color-bg);font-family:var(--font-heading);font-size:20px;flex:none">{{ appInitial }}</div>
+            <div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:4px;font-family:var(--font-heading);font-size:17px;line-height:1.1;white-space:nowrap">{{ serverName }}<img src="{{ ic.chevD }}" alt="" style="width:14px;height:14px"></div><div style="font-size:12px;color:var(--muted)">Map 12 min ago · next ~8 min</div></div>
+            <div style="width:48px;height:48px;border-radius:50%;display:grid;place-items:center;background:color-mix(in srgb,var(--color-text) 8%,transparent)"><img src="{{ ic.menu }}" alt="" style="width:20px;height:20px"></div>
+          </div>
+          <div style="position:absolute;left:0;right:0;bottom:0;top:176px;padding:10px 16px 30px;border-radius:30px 30px 0 0;background:var(--color-surface);border-top:1px solid var(--color-divider);box-shadow:var(--shadow-lg);display:flex;flex-direction:column;gap:6px">
+            <div style="width:44px;height:5px;border-radius:999px;background:color-mix(in srgb,var(--color-text) 28%,transparent);align-self:center;margin-bottom:8px"></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:0 4px">
+              <span style="font-family:var(--font-heading);font-size:22px">Online now</span>
+              <span style="height:28px;padding:0 11px;border-radius:999px;background:var(--color-accent);color:var(--color-bg);font-weight:700;display:grid;place-items:center;font-size:14px">4 / 10</span>
+            </div>
+            <div style="font-size:12.5px;color:var(--muted);padding:0 4px 6px">{{ serverName }} · live · positions aren’t tracked</div>
+            <sc-for list="{{ players }}" as="pl" hint-placeholder-count="4">
+              <div style="display:flex;align-items:center;gap:12px;min-height:60px;padding:0 4px">
+                <div style="position:relative;width:44px;height:44px;flex:none;border-radius:50%;background:var(--color-accent-200);color:var(--color-accent-800);display:grid;place-items:center;font-family:var(--font-heading);font-size:19px">{{ pl.initial }}<span style="position:absolute;right:-1px;bottom:-1px;width:13px;height:13px;border-radius:50%;background:var(--color-accent);border:2.5px solid var(--color-surface)"></span></div>
+                <div style="flex:1"><div style="font-weight:700;font-size:16px">{{ pl.name }}</div><div style="font-size:13.5px;color:var(--muted)">online {{ pl.session }}</div></div>
+                <span style="font-size:13px;font-weight:700;color:var(--cold-ink);padding:12px 4px;white-space:nowrap;flex:none">{{ pl.bases }}</span>
+              </div>
+            </sc-for>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 4px 4px"><span style="font-family:var(--font-heading);font-size:18px">Recent activity</span><span style="font-size:14px;font-weight:700;color:var(--cold-ink);padding:10px 0">Full timeline →</span></div>
+            <sc-for list="{{ activityShort }}" as="a" hint-placeholder-count="3">
+              <div style="display:flex;align-items:center;gap:12px;min-height:48px;padding:0 4px">
+                <div style="width:32px;height:32px;flex:none;border-radius:50%;display:grid;place-items:center;background:{{ a.bg }}"><img src="{{ a.icon }}" alt="" style="width:15px;height:15px"></div>
+                <div style="flex:1;font-size:14.5px;line-height:1.3">{{ a.text }}</div>
+                <div style="font-size:12px;color:var(--muted);white-space:nowrap">{{ a.time }}</div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:13px;font-weight:700">Menu · search &amp; layers</div>
+        <div data-screen-label="Mobile menu" style="position:relative;width:390px;height:844px;border-radius:48px;overflow:hidden;background:var(--color-bg);color:var(--color-text);box-shadow:0 0 0 10px #0f0e0d,0 30px 60px rgba(0,0,0,.3)">
+          <sc-if value="{{ ready }}"><img src="{{ mapUrl }}" alt="" style="position:absolute;left:0;top:0;width:1024px;height:1024px;max-width:none;transform-origin:0 0;transform:{{ m1.transform }};border-radius:50%;filter:brightness(.55)"></sc-if>
+          <div style="position:absolute;left:12px;right:12px;top:54px;display:flex;align-items:center;gap:8px;padding:6px 6px 6px 8px;border-radius:999px;background:var(--glass);border:1px solid var(--color-divider)">
+            <div style="width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:var(--color-accent);color:var(--color-bg);font-family:var(--font-heading);font-size:20px;flex:none">{{ appInitial }}</div>
+            <div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:4px;font-family:var(--font-heading);font-size:17px;line-height:1.1;white-space:nowrap">{{ serverName }}<img src="{{ ic.chevD }}" alt="" style="width:14px;height:14px"></div><div style="font-size:12px;color:var(--muted)">Map 12 min ago · next ~8 min</div></div>
+            <div style="width:48px;height:48px;border-radius:50%;display:grid;place-items:center;background:var(--cold)"><img src="{{ ic.xBg }}" alt="" style="width:20px;height:20px"></div>
+          </div>
+          <div style="position:absolute;left:0;right:0;bottom:0;padding:18px 16px 30px;border-radius:30px 30px 0 0;background:var(--color-surface);box-shadow:var(--shadow-lg);display:flex;flex-direction:column;gap:12px">
+            <div style="position:relative">
+              <img src="{{ ic.search }}" alt="" style="position:absolute;left:18px;top:16px;width:20px;height:20px;opacity:.7">
+              <div class="input" style="height:52px;padding-left:48px;display:flex;align-items:center;font-size:16px;color:var(--muted)">Portals, signs, tames, builders…</div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <sc-for list="{{ search.hints }}" as="h"><span class="tag tag-neutral" style="font-size:14px;padding:8px 14px">{{ h.text }}</span></sc-for>
+            </div>
+            <div style="font-family:var(--font-heading);font-size:18px;padding-top:6px">Layers</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <sc-for list="{{ layers }}" as="l" hint-placeholder-count="10">
+                <div style="display:flex;align-items:center;gap:10px;min-height:52px;padding:0 12px 0 8px;border-radius:18px;background:{{ l.tile }};border:1.5px solid {{ l.tileBorder }}">
+                  <span style="width:32px;height:32px;flex:none;border-radius:50%;display:grid;place-items:center;background:#26231f;opacity:{{ l.op }}"><img src="{{ l.icon }}" alt="" style="width:15px;height:15px"></span>
+                  <span style="flex:1;font-size:13px;line-height:1.2;font-weight:600">{{ l.short }}</span>
+                </div>
+              </sc-for>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;min-height:48px;padding:0 12px;border-radius:18px;border:1.5px solid var(--color-divider)">
+              <span style="width:22px;height:22px;flex:none;border-radius:7px;border:2px solid {{ portalSub.cbBorder }};background:{{ portalSub.cbBg }};display:grid;place-items:center;box-sizing:border-box"><sc-if value="{{ portalSub.subOn }}"><img src="{{ portalSub.check }}" alt="" style="width:14px;height:14px"></sc-if></span>
+              <span style="flex:1;font-size:14px;font-weight:600">Show portal connections</span>
+              <span style="font-size:12px;color:var(--muted)">{{ portalSub.subCount }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:13px;font-weight:700">Marker tapped</div>
+        <div data-screen-label="Mobile marker detail" style="position:relative;width:390px;height:844px;border-radius:48px;overflow:hidden;background:var(--color-bg);color:var(--color-text);box-shadow:0 0 0 10px #0f0e0d,0 30px 60px rgba(0,0,0,.3)">
+          <sc-if value="{{ ready }}"><img src="{{ mapUrl }}" alt="" style="position:absolute;left:0;top:0;width:1024px;height:1024px;max-width:none;transform-origin:0 0;transform:{{ m4.transform }};border-radius:50%"></sc-if>
+          <sc-for list="{{ m4.lines }}" as="ln" hint-placeholder-count="0"><div style="position:absolute;left:{{ ln.l }}px;top:{{ ln.t }}px;width:{{ ln.w }}px;border-top:{{ ln.b }};transform-origin:0 0;transform:rotate({{ ln.a }}rad);opacity:{{ ln.o }}"></div></sc-for>
+          <sc-for list="{{ m4.pins }}" as="p" hint-placeholder-count="0">
+            <div style="position:absolute;left:{{ p.l }}px;top:{{ p.t }}px;width:{{ p.s }}px;height:{{ p.s }}px;border-radius:50%;background:{{ p.bg }};border:2px solid {{ p.border }};box-shadow:{{ p.shadow }};display:grid;place-items:center;box-sizing:border-box">
+              <sc-if value="{{ p.isCluster }}"><span style="font-weight:700;font-size:13px;color:#f5ead8">{{ p.count }}</span></sc-if>
+              <sc-if value="{{ p.hasIcon }}"><img src="{{ p.icon }}" alt="" style="width:{{ p.is }}px;height:{{ p.is }}px"></sc-if>
+              <sc-if value="{{ p.hasLabel }}"><span style="position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:4px;white-space:nowrap;font-family:var(--font-heading);font-size:13px;color:#201e1d;background:rgba(245,234,216,.9);padding:1px 9px;border-radius:999px">{{ p.label }}</span></sc-if>
+            </div>
+          </sc-for>
+          <div style="position:absolute;left:12px;right:12px;top:54px;display:flex;align-items:center;gap:8px;padding:6px 6px 6px 8px;border-radius:999px;background:var(--glass);border:1px solid var(--color-divider);box-shadow:var(--shadow-md)">
+            <div style="width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:var(--color-accent);color:var(--color-bg);font-family:var(--font-heading);font-size:20px;flex:none">{{ appInitial }}</div>
+            <div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:4px;font-family:var(--font-heading);font-size:17px;line-height:1.1;white-space:nowrap">{{ serverName }}<img src="{{ ic.chevD }}" alt="" style="width:14px;height:14px"></div><div style="font-size:12px;color:var(--muted)">Map 12 min ago · next ~8 min</div></div>
+            <div style="width:48px;height:48px;border-radius:50%;display:grid;place-items:center;background:color-mix(in srgb,var(--color-text) 8%,transparent)"><img src="{{ ic.menu }}" alt="" style="width:20px;height:20px"></div>
+          </div>
+          <div style="position:absolute;left:12px;right:12px;bottom:28px">
+            <dc-import name="MarkerCard" m="{{ m4.card }}" hint-size="366px,320px"></dc-import>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <div><h3 style="margin:0">03 · Marker details &amp; world progression</h3><div style="font-size:14px;opacity:.75">Popovers on desktop, floating cards on mobile. Everything is “as of the last save”.</div></div>
+    <div data-theme="{{ theme }}" data-screen-label="Marker details" style="display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start;width:1440px;box-sizing:border-box;padding:36px;border-radius:32px;background:var(--color-bg);color:var(--color-text)">
+      <sc-for list="{{ gallery }}" as="g" hint-placeholder-count="8">
+        <div style="display:flex;flex-direction:column;gap:10px;width:312px">
+          <div style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">{{ g.label }}</div>
+          <dc-import name="MarkerCard" m="{{ g.card }}" hint-size="312px,300px"></dc-import>
+        </div>
+      </sc-for>
+      <div style="display:flex;flex-direction:column;gap:10px;width:344px">
+        <div style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">World progression panel</div>
+        <div style="display:flex;flex-direction:column;gap:18px;padding:22px;border-radius:30px;background:var(--color-surface);border:1px solid var(--color-divider);box-shadow:var(--shadow-lg)">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div style="padding:14px 16px;border-radius:22px;background:color-mix(in srgb,var(--color-text) 6%,transparent)"><div style="font-size:12px;color:var(--muted)">In-game day</div><div style="font-family:var(--font-heading);font-size:34px;line-height:1.1">214</div></div>
+            <div style="padding:14px 16px;border-radius:22px;background:color-mix(in srgb,var(--color-text) 6%,transparent)"><div style="font-size:12px;color:var(--muted)">Bosses</div><div style="font-family:var(--font-heading);font-size:34px;line-height:1.1">4<span style="font-size:20px;color:var(--muted)"> / 8</span></div></div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:4px">
+            <sc-for list="{{ bosses }}" as="b" hint-placeholder-count="7">
+              <div style="display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center">
+                <div style="width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-family:var(--font-heading);font-size:14px;background:{{ b.bg }};color:{{ b.fg }};border:2px {{ b.bs }} {{ b.bc }};box-sizing:border-box">{{ b.num }}</div>
+                <div style="font-size:10.5px;line-height:1.2;color:{{ b.label }}">{{ b.name }}</div>
+              </div>
+            </sc-for>
+          </div>
+          
+                <div style="display:flex;flex-direction:column;gap:8px">
+                  <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px"><span style="font-family:var(--font-heading);font-size:16px">World rules</span><span style="font-size:12px;color:var(--muted)">{{ worldPreset }}</span></div>
+                  <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px">
+                    <sc-for list="{{ worldSettings }}" as="w" hint-placeholder-count="8"><div style="padding:8px 12px;border-radius:14px;background:color-mix(in srgb,var(--color-text) 6%,transparent)"><div style="font-size:11.5px;color:var(--muted)">{{ w.k }}</div><div style="font-size:13.5px;font-weight:700;color:{{ w.fg }}">{{ w.v }}</div></div></sc-for>
+                  </div>
+                  <div style="font-size:11.5px;color:var(--muted)">Orange = changed from Normal. Read from the world’s modifier keys.</div>
+                </div><div style="display:flex;flex-direction:column;gap:6px"><div style="display:flex;justify-content:space-between;font-size:13px"><span>Explored by the crew</span><b style="font-variant-numeric:tabular-nums">{{ exploredPct }}%</b></div><div style="height:6px;border-radius:999px;background:color-mix(in srgb,var(--color-text) 12%,transparent);overflow:hidden"><div style="width:{{ exploredPct }}%;height:100%;border-radius:999px;background:var(--color-accent-2-500)"></div></div></div><div style="font-size:12px;color:var(--muted);line-height:1.45">Bosses come from the world’s progress keys. Exploration comes from the zones the server has generated.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <div><h3 style="margin:0">08 · Profiles, world rules, time &amp; weather</h3><div style="font-size:14px;opacity:.75">Desktop: click a player in the side panel to open their profile there. The time and weather pill sits under the map-updated pill. At night the map gets a subtle tint (try the time-of-day tweak).</div></div>
+    <div data-theme="{{ theme }}" style="display:flex;gap:40px;align-items:flex-start">
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:13px;font-weight:700">Mobile · player profile</div>
+        <div data-screen-label="Mobile player profile" style="position:relative;width:390px;height:844px;border-radius:48px;overflow:hidden;background:var(--color-bg);color:var(--color-text);box-shadow:0 0 0 10px #0f0e0d,0 30px 60px rgba(0,0,0,.3)">
+          <sc-if value="{{ ready }}"><img src="{{ mapUrl }}" alt="" style="position:absolute;left:0;top:0;width:1024px;height:1024px;max-width:none;transform-origin:0 0;transform:{{ m1.transform }};border-radius:50%;filter:brightness(.55)"></sc-if>
+          <div style="position:absolute;left:0;right:0;bottom:0;top:54px;border-radius:30px 30px 0 0;background:var(--color-surface);box-shadow:var(--shadow-lg);display:flex;flex-direction:column;overflow:hidden">
+            <div style="width:44px;height:5px;border-radius:999px;background:color-mix(in srgb,var(--color-text) 28%,transparent);align-self:center;margin:10px 0 2px"></div>
+            <div style="display:flex;align-items:center;gap:6px;padding:0 12px 4px 4px"><div style="width:48px;height:48px;border-radius:50%;display:grid;place-items:center"><img src="{{ ic.chevL }}" alt="" style="width:20px;height:20px"></div><span style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">Player</span></div>
+            <div style="flex:1;overflow:auto">
+            <div style="display:flex;flex-direction:column;gap:18px;padding:4px 16px 20px">
+              <div style="display:flex;align-items:center;gap:14px">
+                <div style="position:relative;width:60px;height:60px;flex:none;border-radius:50%;background:var(--color-accent-200);color:var(--color-accent-800);display:grid;place-items:center;font-family:var(--font-heading);font-size:26px">{{ profM.initial }}<span style="position:absolute;right:0;bottom:0;width:15px;height:15px;border-radius:50%;background:{{ profM.dot }};border:3px solid var(--color-surface)"></span></div>
+                <div style="flex:1;min-width:0"><div style="font-family:var(--font-heading);font-size:26px;line-height:1.1">{{ profM.name }}</div><div style="font-size:13px;color:{{ profM.statusColor }};font-weight:700">{{ profM.status }}</div></div>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">
+                <sc-for list="{{ profM.stats }}" as="s" hint-placeholder-count="3"><div style="padding:10px 10px;min-width:0;border-radius:18px;background:color-mix(in srgb,var(--color-text) 6%,transparent)"><div style="font-size:11.5px;color:var(--muted)">{{ s.k }}</div><div style="font-family:var(--font-heading);font-size:17px;line-height:1.15;white-space:nowrap">{{ s.v }}</div></div></sc-for>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-family:var(--font-heading);font-size:16px">Last 7 days</span><span style="font-size:12px;color:var(--muted)">hours online</span></div>
+                <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;align-items:end;height:92px">
+                  <sc-for list="{{ profM.days }}" as="d" hint-placeholder-count="7">
+                    <div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px;height:100%">
+                      <span style="font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums">{{ d.label }}</span>
+                      <div style="width:100%;height:{{ d.pct }}%;min-height:3px;border-radius:8px;background:{{ d.bg }}"></div>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px"><sc-for list="{{ profM.days }}" as="d"><span style="text-align:center;font-size:11px;font-weight:{{ d.weight }};color:{{ d.color }}">{{ d.d }}</span></sc-for></div>
+              </div>
+              <div style="display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:14px;row-gap:5px;font-size:13.5px">
+                <span style="color:var(--muted)">First seen</span><b>{{ profM.first }}</b>
+                <span style="color:var(--muted)">Last seen</span><b>{{ profM.last }}</b>
+                <span style="color:var(--muted)">Beds</span><b>{{ profM.beds }}</b>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <div style="font-family:var(--font-heading);font-size:16px">Bases</div>
+                <sc-for list="{{ profM.bases }}" as="b" hint-placeholder-count="1">
+                  <button onClick="{{ b.onMap }}" style="display:flex;align-items:center;gap:10px;min-height:48px;padding:6px 10px;border:0;border-radius:16px;background:color-mix(in srgb,var(--color-text) 6%,transparent);color:var(--color-text);font:inherit;cursor:pointer;text-align:left" style-hover="background:color-mix(in srgb,var(--color-text) 10%,transparent)">
+                    <span style="width:30px;height:30px;flex:none;border-radius:50%;display:grid;place-items:center;background:#f5ead8;border:2px solid #26231f;box-sizing:border-box"><img src="{{ ic.homeInk }}" alt="" style="width:15px;height:15px"></span>
+                    <span style="flex:1;min-width:0"><span style="display:block;font-weight:700;font-size:14px">{{ b.name }}</span><span style="display:block;font-size:12px;color:var(--muted)">{{ b.sub }}</span></span>
+                    <span style="font-size:12px;font-weight:700;color:var(--cold-ink);white-space:nowrap">Map →</span>
+                  </button>
+                </sc-for>
+                <sc-if value="{{ profM.noBases }}"><div style="font-size:13px;color:var(--muted)">No bases yet.</div></sc-if>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-family:var(--font-heading);font-size:16px">Portals placed</span><span style="font-size:12px;color:var(--muted)">{{ profM.portalCount }}</span></div>
+                <div style="display:flex;flex-wrap:wrap;gap:6px">
+                  <sc-for list="{{ profM.portals }}" as="p" hint-placeholder-count="3"><button onClick="{{ p.onMap }}" style="display:flex;align-items:center;gap:6px;height:32px;padding:0 12px 0 6px;border-radius:999px;border:1.5px solid {{ p.border }};background:transparent;color:var(--color-text);font:inherit;font-size:13px;font-weight:600;cursor:pointer"><span style="width:20px;height:20px;border-radius:50%;display:grid;place-items:center;background:#3d7eab"><img src="{{ ic.portalCream }}" alt="" style="width:11px;height:11px"></span>{{ p.tag }}</button></sc-for>
+                </div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-family:var(--font-heading);font-size:16px">Tames they named</span><span style="font-size:12px;color:var(--muted)">{{ profM.tameCount }}</span></div>
+                <div style="display:flex;flex-wrap:wrap;gap:6px">
+                  <sc-for list="{{ profM.tames }}" as="t" hint-placeholder-count="3"><span class="tag tag-accent-2" style="font-size:13px">{{ t.name }} · {{ t.species }}</span></sc-for>
+                </div>
+                <sc-if value="{{ profM.noTames }}"><div style="font-size:13px;color:var(--muted)">None yet.</div></sc-if>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-family:var(--font-heading);font-size:16px">Deaths</span><span style="font-size:12px;color:var(--muted)">{{ profM.deathLine }}</span></div>
+                <sc-for list="{{ profM.tombs }}" as="t" hint-placeholder-count="1">
+                  <button onClick="{{ t.onMap }}" style="display:flex;align-items:center;gap:10px;min-height:44px;padding:6px 10px;border:0;border-radius:16px;background:var(--color-accent-100);color:var(--color-accent-800);font:inherit;cursor:pointer;text-align:left">
+                    <span style="width:28px;height:28px;flex:none;border-radius:50%;display:grid;place-items:center;background:#c67139;border:2px solid #f5ead8;box-sizing:border-box"><img src="{{ ic.skullCream }}" alt="" style="width:14px;height:14px"></span>
+                    <span style="flex:1;font-size:13.5px;font-weight:600">{{ t.text }}</span><span style="font-size:12px;font-weight:700;white-space:nowrap">Map →</span>
+                  </button>
+                </sc-for>
+              </div>
+              <div style="font-size:11.5px;line-height:1.45;color:var(--muted)">Playtime comes from the server log. Bases, beds, portals and tames come from who placed or named them in the world save. Deaths count tombstones seen in saves, so a death recovered between two saves is missed.</div>
+            </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:13px;font-weight:700">Time &amp; weather dropdown</div>
+            <div style="width:360px;box-sizing:border-box;padding:16px;border-radius:26px;background:var(--color-surface);color:var(--color-text);border:1px solid var(--color-divider);box-shadow:var(--shadow-lg);display:flex;flex-direction:column;gap:14px">
+              <div>
+                <div style="display:flex;justify-content:space-between;gap:8px;font-size:13px"><b>Day 214 · {{ tod.clock }}</b><span style="color:var(--muted)">{{ tod.next }}</span></div>
+                <div style="position:relative;height:10px;margin-top:8px;border-radius:999px;background:linear-gradient(90deg,#2b3752 0%,#2b3752 19%,#c98a5a 24%,#e6d6a4 31%,#e6d6a4 70%,#c98a5a 77%,#2b3752 83%,#2b3752 100%)"><div style="position:absolute;top:-4px;left:{{ tod.pct }}%;width:4px;height:18px;margin-left:-2px;border-radius:2px;background:var(--color-text);box-shadow:0 0 0 2px var(--color-surface)"></div></div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:4px;font-variant-numeric:tabular-nums"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:2px">
+                <div style="display:grid;grid-template-columns:minmax(0,1.3fr) repeat(3,minmax(0,1fr));gap:6px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:700;padding:0 0 4px"><span>Biome</span><span>Now</span><span>~4 min</span><span>~8 min</span></div>
+                <sc-for list="{{ wxRows }}" as="r" hint-placeholder-count="6">
+                  <div style="display:grid;grid-template-columns:minmax(0,1.3fr) repeat(3,minmax(0,1fr));gap:6px;align-items:center;padding:6px 0;border-top:1px solid var(--color-divider);font-size:13px">
+                    <span style="display:flex;align-items:center;gap:7px;min-width:0"><span style="width:11px;height:11px;flex:none;border-radius:50%;background:{{ r.hex }};border:1px solid rgba(0,0,0,.2)"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.name }}</span></span>
+                    <b>{{ r.now }}</b><span style="color:var(--muted)">{{ r.next }}</span><span style="color:var(--muted)">{{ r.later }}</span>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="font-size:11.5px;line-height:1.45;color:var(--muted)">Time is estimated from the last save’s world clock (one in-game day ≈ 30 real minutes). Weather follows the game’s own schedule per biome. Only explored biomes are listed.</div>
+            </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;width:344px">
+        <div style="font-size:13px;font-weight:700">World rules card</div>
+        <div style="padding:18px;border-radius:26px;background:var(--color-surface);color:var(--color-text);border:1px solid var(--color-divider);box-shadow:var(--shadow-lg)">
+                <div style="display:flex;flex-direction:column;gap:8px">
+                  <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px"><span style="font-family:var(--font-heading);font-size:16px">World rules</span><span style="font-size:12px;color:var(--muted)">{{ worldPreset }}</span></div>
+                  <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px">
+                    <sc-for list="{{ worldSettings }}" as="w" hint-placeholder-count="8"><div style="padding:8px 12px;border-radius:14px;background:color-mix(in srgb,var(--color-text) 6%,transparent)"><div style="font-size:11.5px;color:var(--muted)">{{ w.k }}</div><div style="font-size:13.5px;font-weight:700;color:{{ w.fg }}">{{ w.v }}</div></div></sc-for>
+                  </div>
+                  <div style="font-size:11.5px;color:var(--muted)">Orange = changed from Normal. Read from the world’s modifier keys.</div>
+                </div>
+        </div>
+        <div style="font-size:13px;line-height:1.45;color:var(--muted)">Shown in the World tab and in How to join, so new players know what they’re signing up for.</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <div><h3 style="margin:0">07 · Multiple servers</h3><div style="font-size:14px;opacity:.75">Each server keeps its own map, timeline, progression and join code. Desktop: the “servers” pill in the server card. Mobile: tap the server name in the top bar.</div></div>
+    <div data-theme="{{ theme }}" style="display:flex;gap:40px;align-items:flex-start">
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:13px;font-weight:700">Mobile · server switcher</div>
+        <div data-screen-label="Mobile server switcher" style="position:relative;width:390px;height:844px;border-radius:48px;overflow:hidden;background:var(--color-bg);color:var(--color-text);box-shadow:0 0 0 10px #0f0e0d,0 30px 60px rgba(0,0,0,.3)">
+          <sc-if value="{{ ready }}"><img src="{{ mapUrl }}" alt="" style="position:absolute;left:0;top:0;width:1024px;height:1024px;max-width:none;transform-origin:0 0;transform:{{ m1.transform }};border-radius:50%;filter:brightness(.55)"></sc-if>
+          <div style="position:absolute;left:12px;right:12px;top:54px;display:flex;align-items:center;gap:8px;padding:6px 6px 6px 8px;border-radius:999px;background:var(--glass);border:1px solid var(--cold)">
+            <div style="width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:var(--color-accent);color:var(--color-bg);font-family:var(--font-heading);font-size:20px;flex:none">{{ appInitial }}</div>
+            <div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:4px;font-family:var(--font-heading);font-size:17px;line-height:1.1;white-space:nowrap">{{ serverName }}<img src="{{ ic.chevU }}" alt="" style="width:14px;height:14px"></div><div style="font-size:12px;color:var(--muted)">Choose a server</div></div>
+          </div>
+          <div style="position:absolute;left:0;right:0;bottom:0;padding:10px 16px 30px;border-radius:30px 30px 0 0;background:var(--color-surface);box-shadow:var(--shadow-lg);display:flex;flex-direction:column;gap:8px">
+            <div style="width:44px;height:5px;border-radius:999px;background:color-mix(in srgb,var(--color-text) 28%,transparent);align-self:center;margin-bottom:8px"></div>
+            <div style="font-family:var(--font-heading);font-size:22px;padding:0 4px 4px">Servers</div>
+            <sc-for list="{{ servers }}" as="sv" hint-placeholder-count="3">
+              <div style="display:flex;align-items:center;gap:12px;min-height:68px;padding:0 14px;border-radius:22px;background:{{ sv.bg }};border:1.5px solid {{ sv.border }}">
+                <span style="width:11px;height:11px;flex:none;border-radius:50%;background:{{ sv.dot }}"></span>
+                <span style="flex:1;min-width:0"><span style="display:block;font-weight:700;font-size:16px">{{ sv.name }}</span><span style="display:block;font-size:13px;color:var(--muted)">{{ sv.sub }}</span></span>
+                <span style="font-size:14px;font-weight:700;font-variant-numeric:tabular-nums">{{ sv.count }}</span>
+              </div>
+            </sc-for>
+            <div style="font-size:12.5px;color:var(--muted);padding:6px 4px 0;line-height:1.45">Archived worlds stay browsable as read-only maps.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <div><h3 style="margin:0">06 · How to join</h3><div style="font-size:14px;opacity:.75">The join code is read from the server log’s “registered with join code” line, so it’s current after every restart. Desktop: “How to join” in the server card. The platform switch here is live.</div></div>
+    <div data-theme="{{ theme }}" style="display:flex;gap:40px;align-items:flex-start">
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:13px;font-weight:700">Mobile · join sheet</div>
+        <div data-screen-label="Mobile how to join" style="position:relative;width:390px;height:844px;border-radius:48px;overflow:hidden;background:var(--color-bg);color:var(--color-text);box-shadow:0 0 0 10px #0f0e0d,0 30px 60px rgba(0,0,0,.3)">
+          <sc-if value="{{ ready }}"><img src="{{ mapUrl }}" alt="" style="position:absolute;left:0;top:0;width:1024px;height:1024px;max-width:none;transform-origin:0 0;transform:{{ m1.transform }};border-radius:50%;filter:brightness(.55)"></sc-if>
+          <div style="position:absolute;left:0;right:0;bottom:0;top:54px;border-radius:30px 30px 0 0;background:var(--color-surface);box-shadow:var(--shadow-lg);display:flex;flex-direction:column;overflow:hidden">
+            <div style="width:44px;height:5px;border-radius:999px;background:color-mix(in srgb,var(--color-text) 28%,transparent);align-self:center;margin:10px 0 4px"></div>
+            <div style="flex:1;overflow:auto;display:flex;flex-direction:column;gap:14px;padding:6px 16px 30px">
+              <div style="display:flex;align-items:center;gap:10px"><div style="flex:1"><div style="font-family:var(--font-heading);font-size:24px;line-height:1.1">Join {{ serverName }}</div><div style="font-size:12.5px;color:var(--muted)">Online · 4/10 · crossplay on</div></div><div style="width:48px;height:48px;border-radius:50%;display:grid;place-items:center;background:color-mix(in srgb,var(--color-text) 8%,transparent)"><img src="{{ ic.x }}" alt="" style="width:18px;height:18px"></div></div>
+              <div style="display:flex;gap:4px;padding:4px;border-radius:999px;background:color-mix(in srgb,var(--color-text) 7%,transparent)">
+                <sc-for list="{{ join.plats }}" as="p" hint-placeholder-count="4"><button onClick="{{ p.pick }}" style="flex:1;border:0;border-radius:999px;min-height:44px;padding:0 6px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;background:{{ p.bg }};color:{{ p.fg }}">{{ p.label }}</button></sc-for>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:10px;padding:18px;border-radius:24px;background:color-mix(in srgb,var(--color-accent) 12%,transparent);border:1.5px solid color-mix(in srgb,var(--color-accent) 40%,transparent)">
+                <div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;color:var(--color-accent-700)">Join code</span><span style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)"><span style="width:8px;height:8px;border-radius:50%;background:var(--color-accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--color-accent) 25%,transparent)"></span>Live from server</span></div>
+                <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                  <div style="font-family:var(--font-heading);font-size:44px;line-height:1;letter-spacing:.06em;font-variant-numeric:tabular-nums">318 742</div>
+                  <button class="btn btn-primary" onClick="{{ copyCode }}" style="margin-left:auto;white-space:nowrap;min-height:48px"><img src="{{ ic.copyBg }}" alt="" style="width:16px;height:16px">Copy code</button>
+                </div>
+                <div style="font-size:12.5px;line-height:1.45;color:var(--muted)">Issued at today’s 06:00 restart. A new code is issued every time the server restarts, and this page updates by itself.</div>
+              </div>
+              <sc-if value="{{ join.isPC }}" hint-placeholder-val="{{ true }}">
+                <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:22px;background:color-mix(in srgb,var(--color-text) 6%,transparent)">
+                  <div style="flex:1;min-width:0"><div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;color:var(--cold-ink)">Or join by address (PC)</div><div style="font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;overflow-wrap:anywhere">play.example.net:2456</div><div style="font-size:12px;color:var(--muted)">PC only. Stays the same across restarts.</div></div>
+                  <button class="btn btn-secondary" onClick="{{ copyAddr }}" style="white-space:nowrap;flex:none;min-height:48px"><img src="{{ ic.copy }}" alt="" style="width:15px;height:15px">Copy</button>
+                </div>
+              </sc-if>
+              <div style="display:flex;flex-direction:column;gap:10px">
+                <sc-for list="{{ join.steps }}" as="st" hint-placeholder-count="4">
+                  <div style="display:flex;gap:12px;align-items:flex-start"><span style="width:26px;height:26px;flex:none;border-radius:50%;display:grid;place-items:center;background:var(--color-accent-2-200);color:var(--color-accent-2-800);font-weight:700;font-size:13px">{{ st.n }}</span><span style="font-size:14px;line-height:1.45;padding-top:3px;text-wrap:pretty">{{ st.text }}</span></div>
+                </sc-for>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-radius:18px;border:1px dashed var(--color-divider);font-size:13px;line-height:1.45">
+                <div><b>Password:</b> ask in the Discord <b>#example</b> channel. It’s never shown here.</div>
+                <div><b>Version:</b> your game must be on <b>1.0.16</b>, the same as the server.</div>
+                <sc-if value="{{ join.isConsole }}"><div style="color:var(--muted)">Crossplay must be allowed in your console’s privacy settings.</div></sc-if>
+              </div>
+                <div style="display:flex;flex-direction:column;gap:8px">
+                  <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px"><span style="font-family:var(--font-heading);font-size:16px">World rules</span><span style="font-size:12px;color:var(--muted)">{{ worldPreset }}</span></div>
+                  <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px">
+                    <sc-for list="{{ worldSettings }}" as="w" hint-placeholder-count="8"><div style="padding:8px 12px;border-radius:14px;background:color-mix(in srgb,var(--color-text) 6%,transparent)"><div style="font-size:11.5px;color:var(--muted)">{{ w.k }}</div><div style="font-size:13.5px;font-weight:700;color:{{ w.fg }}">{{ w.v }}</div></div></sc-for>
+                  </div>
+                  <div style="font-size:11.5px;color:var(--muted)">Orange = changed from Normal. Read from the world’s modifier keys.</div>
+                </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;width:380px">
+        <div style="font-size:13px;font-weight:700">Join code states</div>
+        <sc-for list="{{ codeStates }}" as="c" hint-placeholder-count="3">
+          <div style="display:flex;flex-direction:column;gap:8px;padding:16px 18px;border-radius:24px;background:var(--color-surface);color:var(--color-text);border:1.5px solid {{ c.border }}">
+            <div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;color:var(--muted)">{{ c.kicker }}</span><span style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)"><span style="width:8px;height:8px;border-radius:50%;background:{{ c.dot }}"></span>{{ c.status }}</span></div>
+            <div style="font-family:var(--font-heading);font-size:34px;line-height:1.05;letter-spacing:.05em;color:{{ c.codeColor }}">{{ c.code }}</div>
+            <div style="font-size:12.5px;line-height:1.45;color:var(--muted)">{{ c.note }}</div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <div><h3 style="margin:0">05 · Activity timeline</h3><div style="font-size:14px;opacity:.75">Desktop: “Full timeline →” in the side panel opens it. Filters are shared, so toggling chips here updates both.</div></div>
+    <div data-theme="{{ theme }}" style="display:flex;gap:40px;align-items:flex-start">
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:13px;font-weight:700">Mobile · full-height sheet</div>
+        <div data-screen-label="Mobile activity timeline" style="position:relative;width:390px;height:844px;border-radius:48px;overflow:hidden;background:var(--color-bg);color:var(--color-text);box-shadow:0 0 0 10px #0f0e0d,0 30px 60px rgba(0,0,0,.3)">
+          <sc-if value="{{ ready }}"><img src="{{ mapUrl }}" alt="" style="position:absolute;left:0;top:0;width:1024px;height:1024px;max-width:none;transform-origin:0 0;transform:{{ m1.transform }};border-radius:50%;filter:brightness(.55)"></sc-if>
+          <div style="position:absolute;left:0;right:0;bottom:0;top:54px;border-radius:30px 30px 0 0;background:var(--color-surface);box-shadow:var(--shadow-lg);display:flex;flex-direction:column;overflow:hidden">
+            <div style="width:44px;height:5px;border-radius:999px;background:color-mix(in srgb,var(--color-text) 28%,transparent);align-self:center;margin:10px 0 6px"></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:0 12px 8px 8px">
+              <div style="width:48px;height:48px;border-radius:50%;display:grid;place-items:center"><img src="{{ ic.chevL }}" alt="" style="width:20px;height:20px"></div>
+              <div style="flex:1"><div style="font-family:var(--font-heading);font-size:22px;line-height:1.1">Activity</div><div style="font-size:12px;color:var(--muted)">Last 3 days · log + saves</div></div>
+            </div>
+            <div style="flex:1;overflow:auto">
+              <div style="display:flex;flex-direction:column;gap:12px;padding:4px 16px 14px">
+              <div style="display:flex;flex-direction:column;gap:7px">
+                <sc-for list="{{ sessions }}" as="r" hint-placeholder-count="5">
+                  <div style="display:grid;grid-template-columns:52px minmax(0,1fr);gap:8px;align-items:center">
+                    <div style="font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.name }}</div>
+                    <div style="position:relative;height:14px;border-radius:999px;background:color-mix(in srgb,var(--color-text) 6%,transparent)">
+                      <sc-for list="{{ r.bars }}" as="b"><div title="{{ b.title }}" style="position:absolute;top:0;bottom:0;left:{{ b.l }}%;width:{{ b.w }}%;min-width:4px;border-radius:999px;background:{{ b.bg }}"></div></sc-for>
+                      <div style="position:absolute;top:-3px;bottom:-3px;left:{{ nowPct }}%;width:2px;background:var(--cold)"></div>
+                    </div>
+                  </div>
+                </sc-for>
+                <div style="display:grid;grid-template-columns:52px minmax(0,1fr);gap:8px"><div></div><div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div></div>
+                <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted)"><span style="display:flex;align-items:center;gap:6px"><span style="width:14px;height:8px;border-radius:999px;background:var(--color-accent)"></span>Online now</span><span style="display:flex;align-items:center;gap:6px"><span style="width:14px;height:8px;border-radius:999px;background:var(--color-neutral-400)"></span>Earlier session</span><span style="display:flex;align-items:center;gap:6px"><span style="width:2px;height:12px;background:var(--cold)"></span>Now · 14:44</span></div>
+              </div>
+              <div style="display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin-right:-16px;padding-right:16px">
+                <sc-for list="{{ tlChips }}" as="c" hint-placeholder-count="8">
+                  <button onClick="{{ c.toggle }}" aria-pressed="{{ c.on }}" style="flex:none;display:flex;align-items:center;gap:6px;height:40px;padding:0 12px 0 8px;border-radius:999px;border:1.5px solid {{ c.border }};background:{{ c.bg }};color:{{ c.fg }};font:inherit;font-size:13px;font-weight:600;cursor:pointer"><img src="{{ c.icon }}" alt="" style="width:14px;height:14px;opacity:{{ c.op }}">{{ c.label }}<span style="font-size:11.5px;opacity:.7;font-variant-numeric:tabular-nums">{{ c.count }}</span></button>
+                </sc-for>
+              </div>
+              <div style="display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin-right:-16px;padding-right:16px">
+                <sc-for list="{{ tlWho }}" as="p" hint-placeholder-count="6">
+                  <button onClick="{{ p.pick }}" style="flex:none;display:flex;align-items:center;gap:6px;height:40px;padding:0 12px 0 4px;border-radius:999px;border:0;background:{{ p.bg }};color:{{ p.fg }};font:inherit;font-size:13px;font-weight:600;cursor:pointer"><span style="width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:{{ p.avBg }};color:{{ p.avFg }};font-family:var(--font-heading);font-size:11px">{{ p.initial }}</span>{{ p.name }}</button>
+                </sc-for>
+              </div>
+              </div>
+              <div style="border-top:1px solid var(--color-divider);padding-bottom:30px">
+                <sc-for list="{{ tlGroups }}" as="g" hint-placeholder-count="2">
+                  <div style="display:flex;flex-direction:column">
+                    <div style="position:sticky;top:0;z-index:1;display:flex;align-items:baseline;gap:8px;padding:10px 12px 8px;background:var(--color-surface)"><span style="font-family:var(--font-heading);font-size:16px">{{ g.label }}</span><span style="font-size:12px;color:var(--muted)">{{ g.sub }}</span></div>
+                    <sc-for list="{{ g.items }}" as="e" hint-placeholder-count="4">
+                      <div style="display:grid;grid-template-columns:44px 30px minmax(0,1fr);column-gap:10px;padding:0 12px">
+                        <div style="font-size:12.5px;font-variant-numeric:tabular-nums;color:var(--muted);padding-top:7px;text-align:right">{{ e.time }}</div>
+                        <div style="display:flex;flex-direction:column;align-items:center"><div style="width:30px;height:30px;flex:none;border-radius:50%;display:grid;place-items:center;background:{{ e.bg }}"><img src="{{ e.icon }}" alt="" style="width:14px;height:14px"></div><div style="flex:1;width:2px;min-height:10px;background:var(--color-divider)"></div></div>
+                        <div style="padding:5px 0 14px;min-width:0">
+                          <div style="font-size:14px;line-height:1.35;text-wrap:pretty">{{ e.text }}</div>
+                          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:3px;font-size:12px;color:var(--muted)">
+                            <span style="display:flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%;background:{{ e.srcDot }}"></span>{{ e.src }}</span>
+                            <sc-if value="{{ e.hasMap }}"><button onClick="{{ e.onMap }}" style="border:0;background:transparent;padding:0;font:inherit;font-size:12px;font-weight:700;color:var(--cold-ink);cursor:pointer">Show on map →</button></sc-if>
+                          </div>
+                        </div>
+                      </div>
+                    </sc-for>
+                  </div>
+                </sc-for>
+                <sc-if value="{{ tlEmpty }}"><div style="padding:28px 12px;font-size:14px;color:var(--muted);text-align:center">Nothing matches these filters.</div></sc-if>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="max-width:360px;display:flex;flex-direction:column;gap:12px;padding-top:30px;font-size:14px;line-height:1.5;color:#201e1d">
+        <div style="font-family:var(--font-heading);font-size:18px">Where each entry comes from</div>
+        <div style="display:flex;gap:10px"><span style="width:8px;height:8px;margin-top:7px;flex:none;border-radius:50%;background:var(--color-accent)"></span><span><b>Server log</b> (live, exact time): joins, leaves, restarts, saves.</span></div>
+        <div style="display:flex;gap:10px"><span style="width:8px;height:8px;margin-top:7px;flex:none;border-radius:50%;background:var(--cold)"></span><span><b>World save</b> (spotted by comparing two saves): tombstones, new portals, tames, base growth, raids, bosses. The time is the save it first appeared in, never the exact moment.</span></div>
+        <div style="color:rgba(32,30,29,.62)">“Show on map” only appears for places in explored areas.</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <div><h3 style="margin:0">04 · States</h3><div style="font-size:14px;opacity:.75">Offline, nobody online, first-run map generation, and stale data.</div></div>
+    <div data-theme="{{ theme }}" style="display:grid;grid-template-columns:repeat(2,720px);gap:28px">
+      <sc-for list="{{ states }}" as="s" hint-placeholder-count="4">
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div style="font-size:13px;font-weight:700">{{ s.label }}</div>
+          <div style="position:relative;width:720px;height:460px;border-radius:28px;overflow:hidden;background:var(--color-bg);color:var(--color-text);box-shadow:0 20px 50px rgba(0,0,0,.25)">
+            <sc-if value="{{ ready }}"><img src="{{ s.img }}" alt="" style="position:absolute;left:0;top:0;width:1024px;height:1024px;max-width:none;transform-origin:0 0;transform:{{ st.transform }};border-radius:50%;filter:{{ s.filter }};image-rendering:{{ s.rendering }}"></sc-if>
+            <sc-if value="{{ s.pins }}">
+              <sc-for list="{{ st.pins }}" as="p" hint-placeholder-count="0">
+                <div style="position:absolute;left:{{ p.l }}px;top:{{ p.t }}px;width:{{ p.s }}px;height:{{ p.s }}px;border-radius:50%;background:{{ p.bg }};border:2px solid {{ p.border }};display:grid;place-items:center;box-sizing:border-box;opacity:{{ s.pinOp }}">
+                  <sc-if value="{{ p.isCluster }}"><span style="font-weight:700;font-size:12px;color:#f5ead8">{{ p.count }}</span></sc-if>
+                  <sc-if value="{{ p.hasIcon }}"><img src="{{ p.icon }}" alt="" style="width:{{ p.is }}px;height:{{ p.is }}px"></sc-if>
+                </div>
+              </sc-for>
+            </sc-if>
+            <div style="position:absolute;left:12px;top:12px;bottom:12px;width:236px;padding:14px;border-radius:24px;background:var(--glass);border:1px solid var(--color-divider);box-shadow:var(--shadow-md);display:flex;flex-direction:column;gap:12px;box-sizing:border-box">
+              <div style="display:flex;align-items:center;gap:8px"><span style="width:10px;height:10px;border-radius:50%;background:{{ s.dot }}"></span><span style="font-size:13px;font-weight:700;color:{{ s.statusColor }}">{{ s.status }}</span><span style="margin-left:auto;font-size:12px;color:var(--muted)">{{ s.count }}</span></div>
+              <div style="font-family:var(--font-heading);font-size:19px;line-height:1.1">{{ serverName }}</div>
+              <sc-if value="{{ s.showPlayers }}">
+                <sc-for list="{{ players }}" as="pl"><div style="display:flex;align-items:center;gap:10px"><span style="width:30px;height:30px;border-radius:50%;background:var(--color-accent-200);color:var(--color-accent-800);display:grid;place-items:center;font-family:var(--font-heading);font-size:14px">{{ pl.initial }}</span><span style="flex:1;font-size:13.5px;font-weight:700">{{ pl.name }}</span><span style="font-size:12px;color:var(--muted)">{{ pl.session }}</span></div></sc-for>
+              </sc-if>
+              <sc-if value="{{ s.showEmpty }}">
+                <div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:10px;padding:0 4px">
+                  <div style="width:56px;height:56px;border-radius:50%;display:grid;place-items:center;background:var(--color-accent-2-100)"><img src="{{ ic.moonSage }}" alt="" style="width:24px;height:24px"></div>
+                  <div style="font-family:var(--font-heading);font-size:20px;line-height:1.15">{{ s.emptyTitle }}</div>
+                  <div style="font-size:13px;line-height:1.45;color:var(--muted);text-wrap:pretty">{{ s.emptyBody }}</div>
+                </div>
+              </sc-if>
+            </div>
+            <sc-if value="{{ s.banner }}">
+              <div style="position:absolute;left:262px;right:12px;top:12px;display:flex;align-items:flex-start;gap:12px;padding:12px 16px;border-radius:22px;background:{{ s.bannerBg }};color:{{ s.bannerFg }};box-shadow:var(--shadow-md)">
+                <img src="{{ s.bannerIcon }}" alt="" style="width:20px;height:20px;margin-top:1px;flex:none">
+                <div style="display:flex;flex-direction:column;gap:2px"><b style="font-size:14px">{{ s.bannerTitle }}</b><span style="font-size:12.5px;line-height:1.4;opacity:.9">{{ s.bannerBody }}</span></div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ s.progress }}">
+              <div style="position:absolute;left:330px;top:150px;width:320px;padding:20px 22px;border-radius:28px;background:var(--color-surface);border:1px solid var(--color-divider);box-shadow:var(--shadow-lg);display:flex;flex-direction:column;gap:10px">
+                <div style="font-family:var(--font-heading);font-size:21px;line-height:1.15">Charting the world for the first time</div>
+                <div style="height:8px;border-radius:999px;background:color-mix(in srgb,var(--color-text) 12%,transparent);overflow:hidden"><div style="width:38%;height:100%;border-radius:999px;background:var(--cold)"></div></div>
+                <div style="display:flex;justify-content:space-between;font-size:13px;font-variant-numeric:tabular-nums"><b style="white-space:nowrap">38% · 389 of 1,024 tiles</b><span style="color:var(--muted)">~2 min left</span></div>
+                <div style="font-size:12.5px;line-height:1.45;color:var(--muted)">Tiles sharpen as they finish. Markers appear once the first pass is done. The online list already works.</div>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+</section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;appName&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Farsight&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Branding&quot;},&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;default&quot;:&quot;dark&quot;,&quot;tsType&quot;:&quot;'dark' | 'light'&quot;},&quot;clustering&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;},&quot;serverName&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Example Vikings&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Server data&quot;},&quot;timeOfDay&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;morning&quot;,&quot;day&quot;,&quot;evening&quot;,&quot;night&quot;],&quot;default&quot;:&quot;night&quot;,&quot;tsType&quot;:&quot;'morning' | 'day' | 'evening' | 'night'&quot;,&quot;section&quot;:&quot;Server data&quot;},&quot;fogOfWar&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Map&quot;},&quot;biomePatterns&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Map&quot;}}">
+const N = 1024, R = 10500, MPP = 2 * R / N;
+const BIO = [['Ocean', [40, 70, 98]], ['Meadows', [140, 170, 92]], ['Black Forest', [46, 82, 66]], ['Swamp', [104, 88, 64]], ['Mountains', [230, 228, 222]], ['Plains', [228, 196, 108]], ['Mistlands', [124, 106, 150]], ['Ashlands', [166, 62, 44]], ['Deep North', [190, 216, 234]]];
+const INK = '#26231f', CREAM = '#f5ead8', COLD = '#3d7eab', EMBER = '#c67139', SAGE = '#7a8a5e';
+const IC = {
+  portal: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/>',
+  home: '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+  box: '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
+  bed: '<path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/>',
+  skull: '<circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><path d="M8 20v2h8v-2"/><path d="M16 20a2 2 0 0 0 1.56-3.25 8 8 0 1 0-11.12 0A2 2 0 0 0 8 20"/>',
+  paw: '<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  ship: '<path d="M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1 .6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/><path d="M19.38 20A11.6 11.6 0 0 0 21 14l-9-4-9 4c0 2.9.94 5.34 2.81 7.76"/><path d="M19 13V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v6"/><path d="M12 10v4"/><path d="M12 2v3"/>',
+  cart: '<circle cx="7" cy="18" r="3"/><circle cx="17" cy="18" r="3"/><path d="M3 6h18l-2 9H5z"/>',
+  shield: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>',
+  sign: '<path d="M12 13v8"/><path d="M12 3v3"/><path d="M18 6a2 2 0 0 1 1.387.56l2.307 2.22a1 1 0 0 1 0 1.44l-2.307 2.22A2 2 0 0 1 18 13H6a2 2 0 0 1-1.387-.56l-2.306-2.22a1 1 0 0 1 0-1.44l2.306-2.22A2 2 0 0 1 6 6z"/>',
+  flame: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
+  coins: '<circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/>',
+  arch: '<path d="M4 22V10a8 8 0 0 1 16 0v12"/><path d="M2 22h20"/><path d="M9 22v-6a3 3 0 0 1 6 0v6"/>',
+  mountain: '<path d="m8 3 4 8 5-5 5 15H2L8 3z"/>',
+  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  layers: '<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>',
+  plus: '<path d="M5 12h14"/><path d="M12 5v14"/>', minus: '<path d="M5 12h14"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+  reset: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>', chevL: '<path d="m15 18-6-6 6-6"/>', chevD: '<path d="m6 9 6 6 6-6"/>', chevU: '<path d="m18 15-6-6-6 6"/>', chevR: '<path d="m9 18 6-6-6-6"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
+  moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+  map: '<path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z"/><path d="M15 5.764v15"/><path d="M9 3.236v15"/>',
+  menu: '<line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/>',
+  login: '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" x2="3" y1="12" y2="12"/>',
+  logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>',
+  alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  power: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/>',
+};
+const svgUrl = (t, c) => 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="' + c + '" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round">' + IC[t] + '</svg>');
+const TICON = { portal: 'portal', base: 'home', chest: 'box', bed: 'bed', tomb: 'skull', tame: 'paw', ship: 'ship', cart: 'cart', ward: 'shield', sign: 'sign', altar: 'flame', trader: 'coins', crypt: 'arch', cave: 'mountain', burial: 'arch' };
+const LAYER = { base: 'structures', chest: 'structures', portal: 'portals', bed: 'beds', tomb: 'tombstones', tame: 'tames', ship: 'vehicles', cart: 'vehicles', ward: 'wards', sign: 'signs', altar: 'locations', trader: 'locations', crypt: 'locations', cave: 'locations', burial: 'locations' };
+const KICK = { portal: 'Portal', base: 'Base', chest: 'Chest', bed: 'Bed', tomb: 'Tombstone', tame: 'Tamed creature', ship: 'Ship', cart: 'Cart', ward: 'Ward', sign: 'Sign', altar: 'Boss altar', trader: 'Trader', crypt: 'Sunken crypt', cave: 'Frost cave', burial: 'Burial chamber' };
+const LAYERS = [['biomes', 'Biomes & terrain', 'Terrain', 'mountain'], ['structures', 'Structures & bases', 'Bases', 'home'], ['portals', 'Portals', 'Portals', 'portal'], ['beds', 'Beds', 'Beds', 'bed'], ['tombstones', 'Tombstones', 'Tombstones', 'skull'], ['tames', 'Tamed creatures', 'Tames', 'paw'], ['vehicles', 'Ships & carts', 'Ships & carts', 'ship'], ['wards', 'Wards', 'Wards', 'shield'], ['signs', 'Signs', 'Signs', 'sign'], ['locations', 'Dungeons & locations', 'Locations', 'arch']];
+const TONE = { cold: { bg: 'color-mix(in srgb, var(--cold) 22%, transparent)', fg: 'var(--cold-ink)' }, ember: { bg: 'var(--color-accent-100)', fg: 'var(--color-accent-800)' }, sage: { bg: 'var(--color-accent-2-100)', fg: 'var(--color-accent-2-800)' }, neutral: { bg: 'var(--color-neutral-100)', fg: 'var(--color-neutral-800)' } };
+const BOSSES = ['Eikthyr', 'The Elder', 'Bonemass', 'Moder', 'Yagluth', 'The Queen', 'Fader', 'Kall Fimbulbringer'];
+const SHORT = { 'The Elder': 'Elder', 'The Queen': 'Queen', 'Kall Fimbulbringer': 'Kall' };
+const TT = { session: ['Joins & leaves', 'login'], death: ['Deaths', 'skull'], boss: ['Bosses', 'flame'], build: ['Building', 'home'], portal: ['Portals', 'portal'], tame: ['Tames', 'paw'], event: ['Raids & events', 'alert'], server: ['Server', 'power'] };
+const NOW = 14 + 44 / 60, hm = x => String(Math.floor(x)).padStart(2, '0') + ':' + String(Math.round((x % 1) * 60)).padStart(2, '0');
+const SESSIONS = [['Frøya', [[12 + 4 / 60, null]]], ['Johnny', [[8 + 10 / 60, 9 + 40 / 60], [13 + 32 / 60, null]]], ['Alina', [[0, 1.5], [14 + 6 / 60, null]]], ['Halvor', [[14 + 39 / 60, null]]], ['Bjørn', [[11.25, 14 + 20 / 60]]]];
+const TL_DAYS = [['Today', 'Tue 29 Sep · in-game day 214'], ['Yesterday', 'Mon 28 Sep'], ['Sun 27 Sep', '']];
+const TL_EVENTS = [
+  { d: 0, t: '14:39', type: 'session', who: 'Halvor', text: 'Halvor joined', src: 'log' },
+  { d: 0, t: '14:32', type: 'server', text: 'Autosave finished · map updated', src: 'log' },
+  { d: 0, t: '14:20', type: 'session', who: 'Bjørn', text: 'Bjørn left after 3h 05m', src: 'log' },
+  { d: 0, t: '14:20', type: 'death', who: 'Halvor', text: 'New tombstone: Halvor, near a sunken crypt in the Swamp', src: 'save', ref: 'tomb' },
+  { d: 0, t: '14:12', type: 'portal', who: 'Halvor', text: 'New portal “copper”, not paired with anything yet', src: 'save', ref: 'copper' },
+  { d: 0, t: '14:06', type: 'session', who: 'Alina', text: 'Alina joined', src: 'log' },
+  { d: 0, t: '13:40', type: 'death', who: 'Alina', text: 'New tombstone: Alina, in the Mistlands', src: 'save', ref: 'tombAlina' },
+  { d: 0, t: '13:32', type: 'session', who: 'Johnny', text: 'Johnny joined', src: 'log' },
+  { d: 0, t: '13:20', type: 'event', text: 'Raid underway near Lox Ranch', src: 'save', ref: 'ranch' },
+  { d: 0, t: '12:40', type: 'death', who: 'Johnny', text: 'New tombstone: Johnny, in the Mountains', src: 'save', ref: 'tombJohnny' },
+  { d: 0, t: '12:20', type: 'tame', who: 'Johnny', text: 'New tame: Big Mama (Lox, ★★) at Lox Ranch', src: 'save', ref: 'bigmama' },
+  { d: 0, t: '12:04', type: 'session', who: 'Frøya', text: 'Frøya joined', src: 'log' },
+  { d: 0, t: '11:40', type: 'build', who: 'Johnny', text: 'Lox Ranch grew by 86 pieces', src: 'save', ref: 'ranch' },
+  { d: 0, t: '11:15', type: 'session', who: 'Bjørn', text: 'Bjørn joined', src: 'log' },
+  { d: 0, t: '09:40', type: 'session', who: 'Johnny', text: 'Johnny left after 1h 30m', src: 'log' },
+  { d: 0, t: '08:10', type: 'session', who: 'Johnny', text: 'Johnny joined', src: 'log' },
+  { d: 0, t: '06:00', type: 'server', text: 'Server restarted · version 1.0.16', src: 'log' },
+  { d: 0, t: '01:30', type: 'session', who: 'Alina', text: 'Alina left after 3h 12m', src: 'log' },
+  { d: 1, t: '22:50', type: 'boss', text: 'Moder defeated · world progress updated', src: 'save', ref: 'moder' },
+  { d: 1, t: '22:18', type: 'session', who: 'Alina', text: 'Alina joined', src: 'log' },
+  { d: 1, t: '21:30', type: 'portal', who: 'Alina', text: 'Portal “mistlands-camp” now paired with Skovheim', src: 'save', ref: 'mcamp' },
+  { d: 1, t: '20:00', type: 'build', who: 'Alina', text: 'New base: Mistgate Outpost', src: 'save', ref: 'mist' },
+  { d: 1, t: '19:45', type: 'session', who: 'Johnny', text: 'Johnny joined', src: 'log' },
+  { d: 1, t: '19:40', type: 'session', who: 'Frøya', text: 'Frøya joined', src: 'log' },
+  { d: 2, t: '18:10', type: 'event', text: 'Raid underway at Skovheim', src: 'save', ref: 'home' },
+  { d: 2, t: '17:00', type: 'tame', who: 'Frøya', text: 'New tame: Skoll (Wolf, ★★) at Mountain Lodge', src: 'save', ref: 'skoll' },
+  { d: 2, t: '16:20', type: 'server', text: 'Updated to 1.0.16, world backup taken', src: 'log' },
+];
+const PROFILES = {
+  'Frøya': { first: '12 Mar 2026 · day 1', lastSeen: '', week: '14h 20m', all: '212h', sessions: 96, days: [2.5, 0, 3, 4.5, 1, 0.5, 2.7], portals: ['home', 'lox', 'trader', 'elder'], tames: ['Skoll', 'Hati', 'Grå', 'Freki'], deaths: 41, deathsWeek: 3 },
+  'Johnny': { first: '12 Mar 2026 · day 1', lastSeen: '', week: '9h 05m', all: '168h', sessions: 88, days: [0, 2, 1.5, 3, 0, 0, 2.7], portals: ['bonemass', 'yagluth', 'tar-pit', 'moder'], tames: ['Big Mama', 'Tuva', 'Olaf', 'Smørbukk', 'Knut'], deaths: 57, deathsWeek: 4 },
+  'Alina': { first: '20 Mar 2026 · day 18', lastSeen: '', week: '11h 40m', all: '150h', sessions: 71, days: [1, 3, 0, 2, 2.5, 1.2, 2.1], portals: ['swamp1', 'swamp2', 'mistlands-camp', 'crypts'], tames: ['Ulla', 'Tass', 'Brann'], deaths: 38, deathsWeek: 2 },
+  'Halvor': { first: '2 Apr 2026 · day 44', lastSeen: '', week: '6h 10m', all: '97h', sessions: 52, days: [0, 1.5, 2, 0, 2.5, 0, 0.1], portals: ['harbour', 'copper', 'silver'], tames: [], deaths: 64, deathsWeek: 5 },
+  'Bjørn': { first: '9 Jun 2026 · day 131', lastSeen: '24 min ago', week: '7h 45m', all: '61h', sessions: 30, days: [0, 0, 2, 1.5, 0, 1.2, 3.1], portals: ['silver'], tames: [], deaths: 22, deathsWeek: 1 },
+};
+const REF = { tomb: m => m.type === 'tomb' && m.fresh, copper: m => m.tag === 'copper', tombAlina: m => m.type === 'tomb' && m.player === 'Alina', tombJohnny: m => m.type === 'tomb' && m.player === 'Johnny', bigmama: m => m.name === 'Big Mama', ranch: m => m.title === 'Lox Ranch', moder: m => m.boss === 'Moder', mcamp: m => m.tag === 'mistlands-camp' && !m.hub, mist: m => m.title === 'Mistgate Outpost', skoll: m => m.name === 'Skoll', home: m => m.title === 'Skovheim' };
+const fmtN = n => (n < 0 ? '−' : '') + Math.abs(Math.round(n)).toLocaleString('en-US');
+const dir8 = (dx, dz) => ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'][Math.round(((Math.atan2(dx, dz) * 180 / Math.PI) + 360) % 360 / 45) % 8];
+const toP = (wx, wz) => [(wx / R + 1) / 2 * N, (1 - wz / R) / 2 * N];
+const toW = (px, py) => [(px / N * 2 - 1) * R, (1 - py / N * 2) * R];
+const hex = c => '#' + c.map(v => v.toString(16).padStart(2, '0')).join('');
+
+function genWorld(patterns) {
+  const seed = 11.7;
+  const hash = (x, y) => { const s = Math.sin(x * 127.1 + y * 311.7 + seed * 17.17) * 43758.5453; return s - Math.floor(s); };
+  const noise = (x, y) => { const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy, u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy); const a = hash(ix, iy), b = hash(ix + 1, iy), c = hash(ix, iy + 1), d = hash(ix + 1, iy + 1); return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v; };
+  const fbm = (x, y, o) => { let s = 0, a = .5, f = 1, t = 0; for (let k = 0; k < o; k++) { s += a * noise(x * f, y * f); t += a; f *= 2.03; a *= .5; } return s / t; };
+  const sm = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const lv = new Float32Array(N * N), bio = new Uint8Array(N * N).fill(255);
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const k = j * N + i, wx = (i / N * 2 - 1) * R, wz = (1 - j / N * 2) * R, d = Math.hypot(wx, wz);
+    if (d > 10000) { lv[k] = -1; continue; }
+    let h = fbm(wx / 2300, wz / 2300, 5) - 0.5;
+    h += 0.3 * (1 - sm(0, 1500, d)); h -= 0.45 * sm(9200, 10000, d);
+    lv[k] = h;
+    if (h < 0) { bio[k] = 0; continue; }
+    const bn = fbm(wx / 1600 + 40, wz / 1600 - 70, 4);
+    let b;
+    if (wz > 0 && Math.hypot(wx, wz + 4000) > 12400) b = 8;
+    else if (wz < 0 && Math.hypot(wx, wz - 4000) > 12400) b = 7;
+    else if (h > 0.15 && d > 900) b = 4;
+    else if (d < 1300) b = 1;
+    else if (d < 3200) b = bn > 0.55 ? 2 : 1;
+    else if (d < 5200) b = (bn < 0.42 && h < 0.08) ? 3 : bn > 0.6 ? 5 : 2;
+    else if (d < 7400) b = (bn < 0.38 && h < 0.08) ? 3 : bn < 0.6 ? 5 : bn < 0.68 ? 2 : 6;
+    else b = bn < 0.52 ? 6 : bn < 0.62 ? 5 : 2;
+    bio[k] = b;
+  }
+  const cv = document.createElement('canvas'); cv.width = cv.height = N;
+  const ctx = cv.getContext('2d'), im = ctx.createImageData(N, N), D = im.data;
+  for (let k = 0; k < N * N; k++) {
+    const b = bio[k]; if (b === 255) continue;
+    const i = k % N, j = (k / N) | 0; let r, g, bl;
+    if (b === 0) { const t = Math.min(1, -lv[k] / 0.2); r = 86 + (36 - 86) * t; g = 132 + (64 - 132) * t; bl = 152 + (94 - 152) * t; }
+    else {
+      [r, g, bl] = BIO[b][1];
+      let s = 1 + (lv[k - N - 1] - lv[k + N + 1]) * (b === 4 ? 34 : 20);
+      if (lv[k] < 0.012 && b !== 4 && b < 7) { r = r * .45 + 214 * .55; g = g * .45 + 196 * .55; bl = bl * .45 + 150 * .55; }
+      if (bio[k - 1] === 0 || bio[k + 1] === 0 || bio[k - N] === 0 || bio[k + N] === 0) s *= 0.62;
+      if (patterns) {
+        if (b === 3 && i % 5 === 0 && j % 5 === 0) s *= 0.7;
+        if (b === 6 && (i + j) % 7 === 0) s *= 0.86;
+        if (b === 7 && ((i - j) % 6 + 6) % 6 === 0) s *= 0.8;
+        if (b === 5 && i % 8 === 0 && j % 4 === 0) s *= 0.88;
+      }
+      s = Math.max(.72, Math.min(1.25, s)); r *= s; g *= s; bl *= s;
+    }
+    const wx = (i / N * 2 - 1) * R, wz = (1 - j / N * 2) * R, d = Math.hypot(wx, wz);
+    if (Math.abs(((wx % 2000) + 2000) % 2000) < MPP * .6 || Math.abs(((wz % 2000) + 2000) % 2000) < MPP * .6) { r *= .9; g *= .9; bl *= .9; }
+    const gr = (hash(i * 1.31, j * .77) - .5) * 12;
+    r = r * .88 + 226 * .12 + gr; g = g * .88 + 204 * .12 + gr; bl = bl * .88 + 164 * .12 + gr;
+    if (d > 9870) { r *= .55; g *= .5; bl *= .45; }
+    D[k * 4] = r; D[k * 4 + 1] = g; D[k * 4 + 2] = bl; D[k * 4 + 3] = 255;
+  }
+  ctx.putImageData(im, 0, 0);
+  const lo = document.createElement('canvas'); lo.width = lo.height = 40; lo.getContext('2d').drawImage(cv, 0, 0, 40, 40);
+  return { cv, bio, low: lo.toDataURL() };
+}
+
+class Component extends DCLogic {
+  state = { ready: false, mapUrl: null, lowUrl: null, view: { z: 0.84, ox: 470, oy: 20 }, sel: null, panelOpen: true, tab: 'players', layersOpen: false, q: '', focus: false, cur: null, toast: null, themeOverride: null, timeline: false, joinOpen: false, joinPlat: 'pc', serverMenu: false, profile: null, wxOpen: false, tlWho: 'all', tl: { session: true, death: true, boss: true, build: true, portal: true, tame: true, event: true, server: true },
+    layers: { biomes: true, structures: true, portals: true, beds: false, tombstones: true, tames: true, vehicles: true, wards: false, signs: false, locations: true, portalLinks: true } };
+  mapRef = React.createRef();
+  markers = []; pairs = [];
+
+  componentDidMount() {
+    this._t = setTimeout(() => this.build(), 40);
+    const el = this.mapRef.current;
+    if (el) {
+      this._wheel = e => { e.preventDefault(); e.stopPropagation(); const [sx, sy] = this.local(e); this.zoomAt(sx, sy, Math.exp(-e.deltaY * 0.0016)); };
+      el.addEventListener('wheel', this._wheel, { passive: false });
+    }
+  }
+  componentWillUnmount() { clearTimeout(this._t); const el = this.mapRef.current; if (el && this._wheel) el.removeEventListener('wheel', this._wheel); }
+  componentDidUpdate(pp) { if ((pp.biomePatterns !== this.props.biomePatterns || pp.fogOfWar !== this.props.fogOfWar) && this.bio) this.paint(); }
+
+  paint() {
+    const w = genWorld(this.props.biomePatterns ?? true);
+    this.bio = w.bio;
+    if (!this.markers.length) this.buildData();
+    this.finish(w);
+  }
+  finish(w) {
+    const cv = w.cv, ctx = cv.getContext('2d');
+    if ((this.props.fogOfWar ?? true) && this.ex) {
+      const ZN = this.ZN, mk = document.createElement('canvas'); mk.width = mk.height = ZN;
+      const mc = mk.getContext('2d'), id = mc.createImageData(ZN, ZN);
+      for (let z = 0; z < ZN; z++) for (let x = 0; x < ZN; x++) if (this.ex[z * ZN + x]) { const k = ((ZN - 1 - z) * ZN + x) * 4; id.data[k] = id.data[k + 1] = id.data[k + 2] = id.data[k + 3] = 255; }
+      mc.putImageData(id, 0, 0);
+      const fg = document.createElement('canvas'); fg.width = fg.height = N; const fc = fg.getContext('2d');
+      fc.fillStyle = '#cfbe9c'; fc.fillRect(0, 0, N, N);
+      const g = fc.getImageData(0, 0, N, N), D = g.data; for (let k = 0; k < D.length; k += 4) { const v = (Math.random() - .5) * 18; D[k] += v; D[k + 1] += v; D[k + 2] += v; } fc.putImageData(g, 0, 0);
+      fc.strokeStyle = 'rgba(120,98,66,.12)'; fc.lineWidth = 1; for (let x = -N; x < N; x += 9) { fc.beginPath(); fc.moveTo(x, 0); fc.lineTo(x + N, N); fc.stroke(); }
+      const sz = ZN * 64 * N / (2 * R), off = (-(ZN / 2) * 64 / R + 1) / 2 * N;
+      fc.globalCompositeOperation = 'destination-out'; fc.filter = 'blur(3px)'; fc.drawImage(mk, off, off, sz, sz); fc.filter = 'none';
+      ctx.save(); ctx.globalCompositeOperation = 'source-atop'; ctx.drawImage(fg, 0, 0); ctx.restore();
+    }
+    const lo = document.createElement('canvas'); lo.width = lo.height = 40; lo.getContext('2d').drawImage(cv, 0, 0, 40, 40);
+    const low = lo.toDataURL();
+    cv.toBlob(b => { if (this.state.mapUrl) URL.revokeObjectURL(this.state.mapUrl); this.setState({ mapUrl: URL.createObjectURL(b), lowUrl: low, ready: true }); });
+  }
+  build() { this.paint(); }
+
+  local(e) { const el = this.mapRef.current, r = el.getBoundingClientRect(), sc = r.width / el.offsetWidth; return [(e.clientX - r.left) / sc, (e.clientY - r.top) / sc, sc]; }
+  zoomAt(sx, sy, f) { this.setState(s => { const v = s.view, z = Math.max(0.5, Math.min(12, v.z * f)), k = z / v.z; return { view: { z, ox: sx - (sx - v.ox) * k, oy: sy - (sy - v.oy) * k } }; }); }
+  centerOn(m, z) { const cx = this.state.panelOpen ? 900 : 720, cy = 470; this.setState({ view: { z, ox: cx - m.px * z, oy: cy - m.py * z } }); }
+  select(id) { this.setState({ sel: id, layersOpen: false }); }
+  toastUrl(url, title, shown) { try { navigator.clipboard && navigator.clipboard.writeText(url).catch(() => {}); } catch (e) {} clearTimeout(this._tt); this.setState({ toast: shown || url, toastTitle: title || 'Link copied' }); this._tt = setTimeout(() => this.setState({ toast: null }), 2600); }
+  byId(id) { return this.markers.find(m => m.id === id); }
+
+  buildData() {
+    if (!this.bio) this.bio = genWorld(true).bio;
+    const bio = this.bio;
+    const spotAt = (b, w) => { const [cx, cy] = toP(w[0], w[1]); for (let r = 0; r < 300; r += 2) { const n = Math.max(1, Math.floor(r * .8)); for (let k = 0; k < n; k++) { const t = k / n * 2 * Math.PI, x = Math.round(cx + Math.cos(t) * r), y = Math.round(cy + Math.sin(t) * r); if (x > 3 && y > 3 && x < N - 4 && y < N - 4 && bio[y * N + x] === b && bio[y * N + x + 2] === b && bio[(y + 2) * N + x] === b && bio[y * N + x - 2] === b) return toW(x, y); } } return w; };
+    const spot = (b, ang, dist) => { const a = ang * Math.PI / 180; return spotAt(b, [Math.sin(a) * dist, Math.cos(a) * dist]); };
+    const off = (w, dx, dz) => [w[0] + dx, w[1] + dz];
+    const M = []; let uid = 0;
+    const add = (type, w, o = {}) => { const [px, py] = toP(w[0], w[1]); const b = bio[Math.round(py) * N + Math.round(px)]; const m = Object.assign({ id: type + '-' + (++uid), type, layer: LAYER[type], wx: w[0], wz: w[1], px, py, biome: (BIO[b] || BIO[0])[0], terms: [] }, o); M.push(m); return m; };
+
+    const home = spot(1, 40, 500), ranch = spot(5, 110, 4300), stilt = spot(3, 200, 3900), harbour = spot(1, 300, 1700), lodge = spot(4, 20, 3300), mist = spot(6, 250, 7700);
+    const trader = spot(2, 150, 2600), elder = spot(2, 80, 2400), bone = spot(3, 160, 4400), moder = spot(4, 330, 4800), yag = spot(5, 60, 6200), queen = spot(6, 280, 8400), fader = spot(7, 180, 9500), eik = spot(1, 190, 700), kall = spot(8, 10, 9400), hildir = spot(1, 250, 1200), bogwitch = spot(3, 175, 4300);
+    const crypts = [spot(3, 210, 4100), spot(3, 140, 4700), spot(3, 230, 3600)], caves = [spot(4, 10, 3500), spot(4, 340, 5200)], burials = [spot(2, 90, 2000), spot(2, 130, 2900), spot(2, 60, 2700)];
+
+    const B = (w, title, builder, pieces, others) => add('base', w, { title, builder, pieces, others, terms: [builder, others, title].join(' ').toLowerCase().split(/[ ,]+/) });
+    B(home, 'Skovheim', 'Frøya', 2184, 'Johnny, Alina, Halvor');
+    B(ranch, 'Lox Ranch', 'Johnny', 612, '—');
+    B(stilt, 'Stilt House', 'Alina', 344, 'Halvor');
+    B(harbour, "Halvor's Harbour", 'Halvor', 488, 'Johnny');
+    B(lodge, 'Mountain Lodge', 'Frøya', 521, 'Johnny');
+    B(mist, 'Mistgate Outpost', 'Alina', 203, 'Johnny');
+    const baseByPos = [[home, 'Skovheim'], [ranch, 'Lox Ranch'], [stilt, 'Stilt House'], [harbour, "Halvor's Harbour"], [lodge, 'Mountain Lodge'], [mist, 'Mistgate Outpost']];
+    baseByPos.forEach(([w, n]) => add('ward', off(w, 8, 8), { title: n + ' ward', owner: n === 'Skovheim' || n === 'Mountain Lodge' ? 'Frøya' : n === 'Lox Ranch' ? 'Johnny' : n === "Halvor's Harbour" ? 'Halvor' : 'Alina', place: n }));
+
+    const far = { home: off(lodge, 40, -30), swamp1: off(stilt, -40, 30), swamp2: off(crypts[1], 60, 40), 'mistlands-camp': off(mist, 50, 50), lox: off(ranch, -60, 40), trader: off(trader, 70, 50), elder: off(elder, 60, -50), bonemass: off(bone, 70, 40), moder: off(moder, -60, 50), yagluth: off(yag, 60, 60), harbour: off(harbour, -50, 40), crypts: off(crypts[2], -60, -40), silver: off(caves[1], 50, -60), 'tar-pit': spot(5, 95, 6900) };
+    const hubC = off(home, 0, -170);
+    Object.keys(far).forEach((tag, idx) => {
+      const a = add('portal', off(hubC, (idx % 5 - 2) * 55, -Math.floor(idx / 5) * 55), { title: tag, tag, paired: true, hub: true, terms: [tag] });
+      const b = add('portal', far[tag], { title: tag, tag, paired: true, terms: [tag] });
+      a.partnerId = b.id; b.partnerId = a.id; this.pairs.push([a, b]);
+    });
+    const copperW = spot(2, 120, 2200);
+    add('portal', copperW, { title: 'copper', tag: 'copper', paired: false, terms: ['copper'] });
+
+    [['Frøya', home, -60, 40], ['Johnny', home, -75, 40], ['Alina', home, -60, 55], ['Halvor', home, -75, 55], ['Johnny', ranch, 40, 10], ['Frøya', lodge, 30, 20]].forEach(([o, w, dx, dz]) => add('bed', off(w, dx, dz), { title: o + "'s bed", owner: o }));
+
+    add('tomb', off(crypts[0], 80, -60), { title: 'Halvor', player: 'Halvor', after: '14:20', prev: '14:00', count: 31, fresh: true });
+    add('tomb', off(mist, -350, 260), { title: 'Alina', player: 'Alina', after: '13:40', prev: '13:20', count: 18 });
+    add('tomb', off(moder, -240, 150), { title: 'Johnny', player: 'Johnny', after: '12:40', prev: '12:20', count: 26 });
+
+    const T = (w, name, species, lvl, place) => add('tame', w, { title: name, name, species, lvl, place, terms: [name.toLowerCase(), species.toLowerCase()] });
+    [['Skoll', 2], ['Hati', 1], ['Grå', 0], ['Freki', 1]].forEach(([n, l], i) => T(off(lodge, -40 + i * 26, -50), n, 'Wolf', l, 'Mountain Lodge'));
+    [['Ulla', 2], ['Tass', 0], ['Brann', 1]].forEach(([n, l], i) => T(off(home, 90 + i * 24, 70), n, 'Wolf', l, 'Skovheim'));
+    [['Big Mama', 2], ['Tuva', 1], ['Olaf', 0], ['Smørbukk', 1], ['Knut', 0]].forEach(([n, l], i) => T(off(ranch, 70 + (i % 3) * 30, -60 - Math.floor(i / 3) * 30), n, 'Lox', l, 'Lox Ranch'));
+
+    add('ship', spotAt(0, harbour), { title: 'Longship', near: "Halvor's Harbour" });
+    add('ship', spotAt(0, stilt), { title: 'Karve', near: 'Stilt House' });
+    add('cart', off(home, 60, -40), { title: 'Cart', near: 'Skovheim' });
+    add('cart', off(ranch, -40, -40), { title: 'Cart', near: 'Lox Ranch' });
+
+    const S = (w, text, by) => add('sign', w, { title: '“' + text + '”', text, by, terms: [text.toLowerCase()] });
+    S(off(home, 260, -60), 'Lox farm this way →', 'Johnny');
+    S(off(crypts[0], -90, 70), 'Iron crypt — cleared day 187', 'Halvor');
+    S(spot(2, 70, 1900), 'Do not feed the trolls', 'Alina');
+    S(off(caves[1], -70, -40), 'Silver vein here, bring a pick', 'Frøya');
+    S(off(harbour, -80, -30), 'Mind the serpents', 'Halvor');
+    S(off(home, -120, 80), 'Skovheim — est. day 3', 'Frøya');
+
+    add('trader', trader, { title: 'Haldor', sells: 'Gear, upgrades, pocket expansions', terms: ['trader', 'haldor'] });
+    add('trader', hildir, { title: 'Hildir', sells: 'Clothing & cosmetics', terms: ['trader', 'hildir'] });
+    add('trader', bogwitch, { title: 'Bog Witch', sells: 'Ingredients & trinkets', terms: ['trader', 'bog witch'] });
+    [[eik, 0], [elder, 1], [bone, 2], [moder, 3], [yag, 4], [queen, 5], [fader, 6], [kall, 7]].forEach(([w, i]) => add('altar', w, { title: BOSSES[i], boss: BOSSES[i], defeated: i < 4, terms: [BOSSES[i].toLowerCase()] }));
+    crypts.forEach(w => add('crypt', w, { title: 'Sunken crypt' }));
+    caves.forEach(w => add('cave', w, { title: 'Frost cave' }));
+    burials.forEach(w => add('burial', w, { title: 'Burial chamber' }));
+    const ZN = 330, ZH = ZN / 2, ex = new Uint8Array(ZN * ZN);
+    const mark = (wx, wz, r) => { const cx = Math.floor(wx / 64) + ZH, cz = Math.floor(wz / 64) + ZH; for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) if (dx * dx + dz * dz <= r * r) { const x = cx + dx, z = cz + dz; if (x >= 0 && z >= 0 && x < ZN && z < ZN) ex[z * ZN + x] = 1; } };
+    let sd = 7; const rnd = () => (sd = (sd * 16807) % 2147483647) / 2147483647;
+    const trail = (p, q, r) => { const d = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1, n = Math.ceil(d / 48), nx = -(q[1] - p[1]) / d, nz = (q[0] - p[0]) / d, amp = d * 0.16 * (rnd() - .5); for (let k = 0; k <= n; k++) { const t = k / n, w = Math.sin(t * Math.PI) * amp + Math.sin(t * 9) * 40; mark(p[0] + (q[0] - p[0]) * t + nx * w, p[1] + (q[1] - p[1]) * t + nz * w, r); } };
+    mark(0, 0, 15);
+    for (let k = 0; k < 46; k++) { const an = rnd() * Math.PI * 2, d = 600 + rnd() * 2200; mark(Math.sin(an) * d, Math.cos(an) * d, 2 + Math.floor(rnd() * 4)); }
+    [ranch, stilt, harbour, lodge, mist, trader, elder, bone, moder, yag, eik, hildir, bogwitch, ...crypts, ...caves, ...burials, far['tar-pit'], copperW].forEach(v => { trail(home, v, 2); mark(v[0], v[1], 4); });
+    M.forEach(m => { if (m.layer !== 'locations') mark(m.wx, m.wz, 3); });
+    const isEx = (wx, wz) => { const x = Math.floor(wx / 64) + ZH, z = Math.floor(wz / 64) + ZH; return x >= 0 && z >= 0 && x < ZN && z < ZN && ex[z * ZN + x] === 1; };
+    M.forEach(m => { m.explored = isEx(m.wx, m.wz); });
+    let tot = 0, got = 0; for (let z = 0; z < ZN; z++) for (let x = 0; x < ZN; x++) { const wx = (x - ZH + .5) * 64, wz = (z - ZH + .5) * 64; if (wx * wx + wz * wz < 1e8) { tot++; got += ex[z * ZN + x]; } }
+    this.ex = ex; this.ZN = ZN; this.isEx = isEx; this.exPct = Math.round(got / tot * 100);
+    this.markers = M;
+    this.forceUpdate();
+  }
+
+  pinStyle(m) {
+    switch (m.type) {
+      case 'base': return { s: 36, bg: CREAM, border: INK, iconC: INK };
+      case 'portal': return m.paired ? { s: 28, bg: COLD, border: CREAM, iconC: CREAM } : { s: 28, bg: COLD, border: CREAM, iconC: CREAM, ring: '0 0 0 3px ' + EMBER + ', 0 0 0 7px rgba(198,113,57,.35)' };
+      case 'tomb': return { s: 28, bg: EMBER, border: CREAM, iconC: CREAM };
+      case 'altar': return { s: 30, bg: m.defeated ? SAGE : INK, border: CREAM, iconC: CREAM };
+      default: return { s: 26, bg: INK, border: CREAM, iconC: CREAM };
+    }
+  }
+  proj(v, W, H, layers, cluster, sel, interactive) {
+    const fog = this.props.fogOfWar ?? true; const vis = this.markers.filter(m => layers[m.layer] && (!fog || m.explored));
+    const pts = vis.map(m => ({ m, x: v.ox + m.px * v.z, y: v.oy + m.py * v.z })).filter(p => p.x > -40 && p.y > -40 && p.x < W + 40 && p.y < H + 40);
+    const groups = [];
+    for (const p of pts) {
+      let g = null;
+      if (cluster && p.m.id !== sel) g = groups.find(g => !g.lock && Math.hypot(g.x - p.x, g.y - p.y) < 26);
+      if (g) { g.items.push(p); const n = g.items.length; g.x += (p.x - g.x) / n; g.y += (p.y - g.y) / n; }
+      else groups.push({ items: [p], x: p.x, y: p.y, lock: p.m.id === sel });
+    }
+    const pins = groups.map(g => {
+      if (g.items.length > 1) {
+        const s = 34 + Math.min(12, g.items.length);
+        const kinds = [...new Set(g.items.map(i => KICK[i.m.type]))].slice(0, 3).join(', ');
+        return { l: g.x - s / 2, t: g.y - s / 2, s, bg: INK, border: CREAM, shadow: '0 0 0 5px rgba(38,35,31,.25), 0 3px 8px rgba(0,0,0,.35)', isCluster: true, count: g.items.length, hasIcon: false, hasLabel: false, title: g.items.length + ' markers · ' + kinds,
+          onClick: interactive ? (e => { e.stopPropagation(); if (this.moved > 4) return; this.zoomAt(g.x, g.y, 2.4); }) : undefined };
+      }
+      const m = g.items[0].m, st = this.pinStyle(m), isSel = m.id === sel;
+      return { l: g.x - st.s / 2, t: g.y - st.s / 2, s: st.s, is: Math.round(st.s * .52), bg: st.bg, border: st.border, icon: svgUrl(TICON[m.type], st.iconC), hasIcon: true, isCluster: false,
+        shadow: isSel ? '0 0 0 4px #7fb2d6, 0 0 0 8px rgba(127,178,214,.35), 0 4px 12px rgba(0,0,0,.4)' : (st.ring || '0 2px 6px rgba(0,0,0,.35)'),
+        hasLabel: m.type === 'base' && v.z >= 0.7, label: m.title, title: KICK[m.type] + ' · ' + m.title,
+        onClick: interactive ? (e => { e.stopPropagation(); if (this.moved > 4) return; this.select(m.id); }) : undefined };
+    });
+    const lines = !(layers.portals && layers.portalLinks) ? [] : this.pairs.map(([a, b]) => {
+      const x1 = v.ox + a.px * v.z, y1 = v.oy + a.py * v.z, x2 = v.ox + b.px * v.z, y2 = v.oy + b.py * v.z, hot = sel === a.id || sel === b.id;
+      return { l: x1, t: y1, w: Math.hypot(x2 - x1, y2 - y1), a: Math.atan2(y2 - y1, x2 - x1), b: hot ? '3px solid #7fb2d6' : '2px dashed #9cc4e0', o: hot ? 1 : (sel ? .25 : .6) };
+    });
+    const wards = !layers.wards ? [] : this.markers.filter(m => m.type === 'ward').map(m => { const d = 2 * 32 / MPP * v.z; return { l: v.ox + m.px * v.z - d / 2, t: v.oy + m.py * v.z - d / 2, d }; }).filter(w => w.d > 5);
+    return { pins, lines, wards, transform: `translate(${v.ox}px, ${v.oy}px) scale(${v.z})` };
+  }
+
+  card(m, icT) {
+    const c = { id: m.id, type: m.type, kicker: KICK[m.type], title: m.title, icon: svgUrl(TICON[m.type], this.pinStyle(m).iconC), discBg: this.pinStyle(m).bg, where: `X ${fmtN(m.wx)} · Z ${fmtN(m.wz)} · ${m.biome}`, badges: [], facts: [], items: [], note: '', partnerId: null, ic: { x: svgUrl('x', icT), link: svgUrl('link', icT) } };
+    const bd = (text, tone) => c.badges.push(Object.assign({ text }, TONE[tone]));
+    const f = (k, v) => c.facts.push({ k, v });
+    const q = (this.state.q || '').toLowerCase().trim();
+    switch (m.type) {
+      case 'portal': {
+        f('Tag', '“' + m.tag + '”');
+        if (m.paired) {
+          const p = this.byId(m.partnerId), km = (Math.hypot(p.wx - m.wx, p.wz - m.wz) / 1000).toFixed(1);
+          bd('Paired', 'cold'); f('Partner', `${p.hub ? 'Skovheim portal hall' : p.biome} · ${km} km ${dir8(p.wx - m.wx, p.wz - m.wz)}`);
+          c.note = m.hub ? `One of 14 portals in Skovheim’s portal hall.` : `Leads back to the portal hall at Skovheim.`; c.partnerId = p.id;
+        } else { bd('Unpaired', 'ember'); c.note = 'No other portal carries the tag “copper”, so this one leads nowhere. Build a partner with the same tag, or retag it.'; }
+        break;
+      }
+      case 'chest': f('Container', m.container); f('In', m.place); c.items = m.items.map(([name, count]) => ({ name, count, weight: q && name.toLowerCase().includes(q) ? 700 : 400, color: q && name.toLowerCase().includes(q) ? 'var(--cold-ink)' : 'inherit' })); c.note = 'Contents as of the 14:32 save.'; break;
+      case 'tomb': if (m.fresh) bd('New since last check', 'ember'); f('Player', m.player); f('Appeared', 'after save at ' + m.after); f('Items inside', m.count); c.note = `Saves only show it wasn’t there at ${m.prev} and was at ${m.after}. The exact time of death isn’t recorded.`; break;
+      case 'tame': bd('Tamed', 'sage'); f('Name', m.name); f('Species', m.species); f('Level', m.lvl ? '★'.repeat(m.lvl) + '  (' + m.lvl + '-star)' : 'No stars'); f('Near', m.place); break;
+      case 'base': f('Builder', m.builder); f('Pieces', m.pieces.toLocaleString('en-US')); f('Also built by', m.others); f('Wards', '1 active'); c.note = 'Builder = whoever placed the most pieces here.'; break;
+      case 'altar': m.defeated ? bd('Defeated', 'sage') : bd('Not yet defeated', 'neutral'); f('Forsaken', m.boss); f('Biome', m.biome); c.note = m.defeated ? 'The world remembers this victory. Its trophy hangs at Skovheim.' : 'Still waiting for a brave crew.'; break;
+      case 'sign': f('Placed by', m.by); c.title = m.text; c.note = 'Sign text as of the last save.'; break;
+      case 'ward': f('Owner', m.owner); f('At', m.place); f('Radius', '32 m'); break;
+      case 'bed': f('Owner', m.owner); c.note = 'Spawn point for ' + m.owner + '.'; break;
+      case 'ship': case 'cart': f('Near', m.near); c.note = 'Position as of the last save; it may have sailed since.'; break;
+      case 'trader': f('Sells', m.sells); c.note = 'Trader camp. Shown because someone has been here.'; break;
+      default: c.note = 'Shown because someone has explored this area. Locations in unexplored areas stay hidden.';
+    }
+    c.hasBadges = c.badges.length > 0; c.hasFacts = c.facts.length > 0; c.hasItems = c.items.length > 0; c.hasNote = !!c.note; c.hasJump = !!c.partnerId;
+    return c;
+  }
+
+  renderVals() {
+    const s = this.state;
+    const theme = s.themeOverride || this.props.theme || 'dark';
+    const dark = theme === 'dark', T = dark ? '#efe6d6' : '#201e1d', BG = dark ? '#161513' : '#f5ead8', coldC = dark ? '#7fb2d6' : '#2f6c94';
+    const cluster = this.props.clustering ?? true;
+    const EM0 = dark ? '#f6a06b' : '#b2622d', SG0 = dark ? '#ccdbb2' : '#56633f', aBg0 = { ember: 'var(--color-accent-100)', n: 'color-mix(in srgb, var(--color-text) 8%, transparent)', sage: 'var(--color-accent-2-100)' };
+    const ic = { homeInk: svgUrl('home', '#26231f'), portalCream: svgUrl('portal', '#f5ead8'), skullCream: svgUrl('skull', '#f5ead8'), chevD: svgUrl('chevD', T), chevU: svgUrl('chevU', T), x: svgUrl('x', T), copy: svgUrl('copy', T), copyBg: svgUrl('copy', BG), theme: svgUrl(dark ? 'sun' : 'moon', T), chevL: svgUrl('chevL', T), chevR: svgUrl('chevR', T), search: svgUrl('search', T), layers: svgUrl('layers', T), plus: svgUrl('plus', T), minus: svgUrl('minus', T), reset: svgUrl('reset', T), linkBg: svgUrl('link', BG), mapCold: svgUrl('map', coldC), menu: svgUrl('menu', T), xBg: svgUrl('x', BG), moonSage: svgUrl('moon', dark ? '#ccdbb2' : '#56633f') };
+    const v = s.view, ready = s.ready && this.markers.length > 0;
+    const dv = ready ? this.proj(v, 1440, 900, s.layers, cluster, s.sel, true) : { pins: [], lines: [], wards: [], transform: '' };
+    const home = this.markers.find(m => m.title === 'Skovheim');
+    const sel = s.sel && this.byId(s.sel);
+    let pop = { show: false };
+    if (sel && ready) {
+      const x = v.ox + sel.px * v.z, y = v.oy + sel.py * v.z;
+      let l = x + 26; if (l + 312 > 1424) l = x - 26 - 312;
+      pop = { show: true, l, t: Math.max(96, Math.min(900 - 440, y - 60)), card: this.card(sel, T) };
+    }
+    const tlOpen = s.panelOpen && s.timeline, fogOn = this.props.fogOfWar ?? true;
+    const tone = { session: [aBg0.n, T], death: [aBg0.ember, EM0], boss: [aBg0.sage, SG0], build: [aBg0.n, T], portal: ['color-mix(in srgb, var(--cold) 22%, transparent)', coldC], tame: [aBg0.sage, SG0], event: [aBg0.ember, EM0], server: [aBg0.n, T] };
+    const EV = TL_EVENTS.filter(e => s.tl[e.type] && (s.tlWho === 'all' || e.who === s.tlWho));
+    const tlGroups = TL_DAYS.map((d, di) => ({ label: d[0], sub: d[1], items: EV.filter(e => e.d === di).map(e => {
+      const m = e.ref && this.markers.find(REF[e.ref]); const ok = !!m && (!fogOn || m.explored);
+      const ic0 = e.type === 'session' ? (e.text.includes('left') ? 'logout' : 'login') : TT[e.type][1];
+      return { time: e.t, text: e.text, icon: svgUrl(ic0, tone[e.type][1]), bg: tone[e.type][0], src: e.src === 'log' ? 'Server log' : 'World save · ' + (e.save || e.t), srcDot: e.src === 'log' ? 'var(--color-accent)' : 'var(--cold)', hasMap: ok,
+        onMap: e2 => { e2.stopPropagation(); if (m) { this.centerOn(m, 4); this.select(m.id); } } }; }) })).filter(g => g.items.length);
+    const tlChips = Object.keys(TT).map(k => { const on = s.tl[k]; return { label: TT[k][0], on, count: TL_EVENTS.filter(e => e.type === k && (s.tlWho === 'all' || e.who === s.tlWho)).length, icon: svgUrl(TT[k][1], on ? T : (dark ? '#a19786' : '#82796a')), op: on ? 1 : .6,
+      bg: on ? 'color-mix(in srgb, var(--cold) 16%, transparent)' : 'transparent', border: on ? 'var(--cold)' : 'var(--color-divider)', fg: on ? 'var(--color-text)' : 'var(--muted)',
+      toggle: () => this.setState(st => ({ tl: Object.assign({}, st.tl, { [k]: !st.tl[k] }) })) }; });
+    const tlWho = ['all', 'Johnny', 'Alina', 'Halvor', 'Frøya', 'Bjørn'].map(n => { const on = s.tlWho === n; return { name: n === 'all' ? 'Everyone' : n, initial: n === 'all' ? '★' : n[0], bg: on ? 'var(--color-text)' : 'color-mix(in srgb, var(--color-text) 7%, transparent)', fg: on ? 'var(--color-bg)' : 'var(--color-text)', avBg: on ? 'var(--color-bg)' : 'var(--color-accent-200)', avFg: on ? 'var(--color-text)' : 'var(--color-accent-800)', pick: () => this.setState({ tlWho: n }) }; });
+    const sessions = SESSIONS.filter(r => s.tlWho === 'all' || r[0] === s.tlWho).map(([name, spans]) => ({ name, bars: spans.map(([a, b]) => { const live = b === null, e = live ? NOW : b; return { l: a / 24 * 100, w: (e - a) / 24 * 100, bg: live ? 'var(--color-accent)' : 'var(--color-neutral-400)', title: name + ' · ' + hm(a) + '–' + (live ? 'now' : hm(b)) }; }) }));
+    const PL = { pc: ['PC (Steam)', ['Start Game, pick your character, then Start.', 'Open the Join Game tab and choose Join IP.', 'Paste the join code or the address below, then Connect.', 'Enter the server password.']],
+      xbox: ['Xbox', ['Start Game and pick your character.', 'Open Join Game and add a server by join code.', 'Type the 6-digit code.', 'Enter the server password.']],
+      ps5: ['PS5', ['Start Game and pick your character.', 'Open Join Game and add a server by join code.', 'Type the 6-digit code.', 'Enter the server password.']],
+      switch: ['Switch 2', ['Start Game and pick your character.', 'Open Join Game and add a server by join code.', 'Type the 6-digit code.', 'Enter the server password.']] };
+    const join = { isPC: s.joinPlat === 'pc', isConsole: s.joinPlat !== 'pc', steps: PL[s.joinPlat][1].map((text, i) => ({ n: i + 1, text })),
+      plats: Object.keys(PL).map(k => ({ label: PL[k][0], bg: s.joinPlat === k ? 'var(--color-surface)' : 'transparent', fg: s.joinPlat === k ? 'var(--color-text)' : 'var(--muted)', pick: () => this.setState({ joinPlat: k }) })) };
+    const codeStates = [
+      { kicker: 'Live', status: 'From server log', dot: 'var(--color-accent)', border: 'color-mix(in srgb, var(--color-accent) 45%, transparent)', code: '318 742', codeColor: 'var(--color-text)', note: 'Read from “registered with join code 318742” at 06:00. Shown with a Copy button.' },
+      { kicker: 'Restarting', status: 'Waiting for new code', dot: 'var(--cold)', border: 'var(--cold)', code: '— — —', codeColor: 'var(--muted)', note: 'The old code is hidden as soon as the log shows a shutdown, so nobody copies a dead one. A new code usually appears within a minute.' },
+      { kicker: 'Offline', status: 'Last seen 03:12', dot: 'var(--color-neutral-500)', border: 'var(--color-divider)', code: 'No code', codeColor: 'var(--muted)', note: 'There’s no active session to join. The address stays listed for PC players and will work once the server is back.' },
+    ];
+    const SV = [[this.props.serverName || 'Example Vikings', 'Day 214 · 4 of 8 bosses', 'var(--color-accent)', '4/10'], ['Ashen Crew', 'Day 61 · 1 of 8 bosses', 'var(--color-accent)', '1/10'], ['Example (2024)', 'Archived world · read-only map', 'var(--color-neutral-500)', '—']];
+    const servers = SV.map(([name, sub, dot, count], i) => ({ name, sub, dot, count, bg: i === 0 ? 'color-mix(in srgb, var(--cold) 14%, transparent)' : 'transparent', border: i === 0 ? 'var(--cold)' : 'var(--color-divider)',
+      pick: () => { this.setState({ serverMenu: false }); if (i) this.toastUrl('', 'Prototype: only ' + SV[0][0] + ' has data', 'In the real app this would load ' + name); } }));
+    const cnt = k => this.markers.filter(m => m.layer === k).length;
+    const linksOn = s.layers.portalLinks, pOn = s.layers.portals;
+    const portalSub = { subOn: linksOn, subCount: this.pairs.length + ' pairs', check: svgUrl('check', BG), cbBg: linksOn ? 'var(--cold)' : 'transparent', cbBorder: linksOn ? 'var(--cold)' : 'color-mix(in srgb, var(--color-text) 40%, transparent)', subOp: pOn ? 1 : .4, subCursor: pOn ? 'pointer' : 'not-allowed',
+      subToggle: e => { e.stopPropagation(); if (!pOn) return; this.setState(st => ({ layers: Object.assign({}, st.layers, { portalLinks: !st.layers.portalLinks }) })); } };
+    const layers = LAYERS.map(([k, label, short, icon]) => {
+      const on = s.layers[k];
+      return { key: k, label, short, icon: svgUrl(icon, CREAM), count: k === 'biomes' ? 9 : cnt(k), op: on ? 1 : .35, track: on ? 'var(--cold)' : 'color-mix(in srgb, var(--color-text) 22%, transparent)', knob: on ? 19 : 3,
+        sub: k === 'portals' ? '1 unpaired' : k === 'tombstones' ? '1 new since 14:20' : k === 'locations' ? 'Only where someone has been' : '', subColor: k === 'portals' || k === 'tombstones' ? 'var(--color-accent-700)' : 'var(--muted)',
+        tile: on ? 'color-mix(in srgb, var(--cold) 16%, transparent)' : 'transparent', tileBorder: on ? 'var(--cold)' : 'var(--color-divider)',
+        toggle: () => this.setState(st => ({ layers: Object.assign({}, st.layers, { [k]: !st.layers[k] }) })),
+        hasSub: k === 'portals', ...(k === 'portals' ? portalSub : {}) };
+    });
+    const q = s.q.toLowerCase().trim();
+    let results = [];
+    if (q && ready) {
+      for (const m of this.markers) {
+        if (!['portal', 'sign', 'tame', 'base', 'altar', 'trader'].includes(m.type)) continue;
+        if ((this.props.fogOfWar ?? true) && !m.explored) continue;
+        let sub = null;
+        if (m.terms.some(t => t && t.includes(q))) sub = m.type === 'portal' ? (m.paired ? (m.hub ? 'Portal · Skovheim hall' : 'Portal · ' + m.biome) : 'Portal · unpaired · ' + m.biome) : m.type === 'base' ? `Base by ${m.builder} · ${m.pieces.toLocaleString('en-US')} pieces` : m.type === 'tame' ? `${m.species} · ${m.place}` : KICK[m.type] + ' · ' + m.biome;
+        if (sub) { const st = this.pinStyle(m); results.push({ title: m.type === 'sign' ? m.text : m.title, sub, bg: st.bg, icon: svgUrl(TICON[m.type], st.iconC), onPick: e => { e.preventDefault(); this.centerOn(m, 5); this.setState({ sel: m.id, focus: false }); } }); }
+        if (results.length >= 8) break;
+      }
+    }
+    const hints = ['swamp', 'copper', 'Frøya', 'Big Mama', 'trolls'].map(t => ({ text: t, onPick: e => { e.preventDefault(); this.setState({ q: t, focus: true }); } }));
+    const tomb = this.markers.find(m => m.type === 'tomb' && m.fresh);
+    const aBg = { ember: 'var(--color-accent-100)', n: 'color-mix(in srgb, var(--color-text) 8%, transparent)', sage: 'var(--color-accent-2-100)' };
+    const EM = dark ? '#f6a06b' : '#b2622d';
+    const activity = [
+      { icon: svgUrl('login', EM), bg: aBg.ember, text: 'Halvor joined', time: '5 min' },
+      { icon: svgUrl('skull', EM), bg: aBg.ember, text: 'New tombstone near the Swamp (Halvor)', time: 'save 14:20', onClick: () => { if (tomb) { this.centerOn(tomb, 4); this.select(tomb.id); } }, cursor: 'pointer' },
+      { icon: svgUrl('logout', T), bg: aBg.n, text: 'Bjørn left', time: '24 min' },
+      { icon: svgUrl('login', EM), bg: aBg.ember, text: 'Alina joined', time: '38 min' },
+      { icon: svgUrl('login', EM), bg: aBg.ember, text: 'Johnny joined', time: '1 h 12 m' },
+      { icon: svgUrl('flame', dark ? '#ccdbb2' : '#56633f'), bg: aBg.sage, text: 'Bonemass defeated', time: 'day 198' },
+    ].map(a => Object.assign({ cursor: 'default' }, a));
+    const baseCount = n => this.markers.filter(m => m.type === 'base' && m.builder === n).length;
+    const openP = name => () => this.setState({ profile: name, timeline: false, panelOpen: true });
+    const players = [['Johnny', '1h 12m'], ['Alina', '38m'], ['Halvor', '5m'], ['Frøya', '2h 40m']].map(([name, session]) => { const b = baseCount(name); return { name, session, initial: name[0], bases: b + (b === 1 ? ' base' : ' bases'), open: openP(name) }; });
+    const recent = [{ name: 'Bjørn', initial: 'B', session: 'last seen 24 min ago', open: openP('Bjørn') }];
+    const DAYS = ['W', 'T', 'F', 'S', 'S', 'M', 'T'];
+    const buildProf = (name, interactive) => {
+      const P = PROFILES[name]; if (!P) return null;
+      const onl = players.find(p => p.name === name);
+      const go = m => interactive && m ? (() => { this.centerOn(m, 4); this.select(m.id); }) : undefined;
+      const max = Math.max(...P.days, 1);
+      const bases = this.markers.filter(m => m.type === 'base' && m.builder === name).map(m => ({ name: m.title, sub: m.pieces.toLocaleString('en-US') + ' pieces · ' + m.biome, onMap: go(m) }));
+      const beds = this.markers.filter(m => m.type === 'bed' && m.owner === name);
+      const portals = P.portals.map(tag => { const m = this.markers.find(x => x.tag === tag && !x.hub); return { tag, onMap: go(m), border: m && !m.paired ? 'var(--color-accent)' : 'var(--color-divider)' }; });
+      const tames = this.markers.filter(m => m.type === 'tame' && P.tames.includes(m.name)).map(m => ({ name: m.name, species: m.species }));
+      const tombs = this.markers.filter(m => m.type === 'tomb' && m.player === name).map(m => ({ text: 'Tombstone in the ' + m.biome + ' · since save ' + m.after, onMap: go(m) }));
+      return { name, initial: name[0], dot: onl ? 'var(--color-accent)' : 'var(--color-neutral-400)', status: onl ? 'Online now · ' + onl.session : 'Offline · ' + P.lastSeen, statusColor: onl ? 'var(--color-accent-700)' : 'var(--muted)',
+        stats: [{ k: 'This week', v: P.week }, { k: 'All time', v: P.all }, { k: 'Sessions', v: String(P.sessions) }],
+        days: P.days.map((v, i) => ({ d: DAYS[i], label: v ? (v % 1 ? v.toFixed(1) : v) : '', pct: Math.round(v / max * 78), bg: i === 6 ? 'var(--color-accent)' : 'var(--color-neutral-400)', weight: i === 6 ? 700 : 400, color: i === 6 ? 'var(--color-text)' : 'var(--muted)' })),
+        first: P.first, last: onl ? 'Online now' : P.lastSeen, beds: beds.length ? beds.length + ' · ' + [...new Set(beds.map(b => { const n = this.markers.filter(x => x.type === 'base').sort((p, q) => Math.hypot(p.wx - b.wx, p.wz - b.wz) - Math.hypot(q.wx - b.wx, q.wz - b.wz))[0]; return n ? n.title : b.biome; }))].join(', ') : 'None placed',
+        bases, noBases: !bases.length, portals, portalCount: portals.length + ' portals', tames, noTames: !tames.length, tameCount: tames.length ? String(tames.length) : '',
+        tombs, deathLine: P.deaths + ' spotted · ' + P.deathsWeek + ' this week' };
+    };
+    const prof = s.profile && ready ? buildProf(s.profile, true) : { stats: [], days: [], bases: [], portals: [], tames: [], tombs: [] };
+    const profM = ready ? buildProf('Frøya', false) : { stats: [], days: [], bases: [], portals: [], tames: [], tombs: [] };
+    const WS = [['Combat', 'Hard', 1], ['Death penalty', 'Casual · keep gear', 1], ['Resources', '1.5×', 1], ['Raids', 'Less often', 1], ['Portals', 'Ores & metals allowed', 1], ['Map', 'Enabled', 0], ['Passive enemies', 'Off', 0], ['No build cost', 'Off', 0]];
+    const worldSettings = WS.map(([k, v, c]) => ({ k, v, fg: c ? 'var(--color-accent-700)' : 'var(--color-text)' }));
+    const TOD = { morning: ['Morning', '07:10', 'sun', 29.9, 'Midday in ~6 min', 'Clear'], day: ['Day', '12:40', 'sun', 52.8, 'Dusk in ~7 min', 'Clear'], evening: ['Evening', '18:50', 'sun', 78.5, 'Night in ~4 min', 'Light rain'], night: ['Night', '23:10', 'moon', 96.5, 'Dawn in ~7 min', 'Light rain'] };
+    const tk = TOD[this.props.timeOfDay] ? this.props.timeOfDay : 'night', td = TOD[tk];
+    const tod = { label: td[0], clock: td[1], icon: svgUrl(td[2], tk === 'night' ? '#b5d4ea' : (dark ? '#ffc6a5' : '#8c491a')), pct: td[3], next: td[4], wxLine: 'Meadows: ' + td[5].toLowerCase(), wxShort: td[5], discBg: tk === 'night' ? 'color-mix(in srgb, var(--cold) 25%, transparent)' : 'var(--color-accent-100)' };
+    const nightFilter = tk === 'night' ? 'brightness(.8) saturate(.8) hue-rotate(-12deg)' : tk === 'evening' ? 'brightness(.94) sepia(.15)' : 'none';
+    const WX = [['Meadows', td[5], 'Clear', 'Clear'], ['Black Forest', 'Fog', 'Fog', 'Rain'], ['Swamp', 'Rain', 'Rain', 'Storm'], ['Mountains', 'Snow', 'Blizzard', 'Snow'], ['Plains', 'Clear', 'Clear', 'Haze'], ['Mistlands', 'Mist', 'Mist', 'Rain']];
+    const wxRows = WX.map(([name, now, next, later]) => ({ name, now, next, later, hex: hex(BIO.find(b => b[0] === name)[1]) }));
+    const bosses = BOSSES.map((full, i) => { const d = i < 4, name = SHORT[full] || full; return { name, num: ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII'][i], bg: d ? 'var(--color-accent)' : 'transparent', fg: d ? 'var(--color-bg)' : 'var(--muted)', bs: d ? 'solid' : 'dashed', bc: d ? 'var(--color-accent)' : 'color-mix(in srgb, var(--color-text) 35%, transparent)', label: d ? 'var(--color-text)' : 'var(--muted)' }; });
+    // Scale bar
+    const target = 110 / v.z * MPP, nice = [50, 100, 200, 250, 500, 1000, 2000, 2500, 5000].find(n => n >= target * .7) || 5000;
+    const scale = { w: Math.round(nice / MPP * v.z), label: nice >= 1000 ? nice / 1000 + ' km' : nice + ' m' };
+    let cur = { coords: 'X — · Z —', biome: 'Hover the map' };
+    if (s.cur && this.bio) { const px = (s.cur[0] - v.ox) / v.z, py = (s.cur[1] - v.oy) / v.z, [wx, wz] = toW(px, py), b = (px >= 0 && py >= 0 && px < N && py < N) ? this.bio[Math.floor(py) * N + Math.floor(px)] : 255; cur = { coords: `X ${fmtN(wx)} · Z ${fmtN(wz)}`, biome: b === 255 ? 'World edge' : ((this.props.fogOfWar ?? true) && this.isEx && !this.isEx(wx, wz)) ? 'Unexplored' : BIO[b][0] }; }
+    // Static frames
+    let m1 = { pins: [], lines: [], transform: '' }, m4 = { pins: [], lines: [], transform: '', card: null }, st = { pins: [], transform: '' }, gallery = [];
+    if (ready && home) {
+      const z1 = 1.35; m1 = this.proj({ z: z1, ox: 195 - home.px * z1, oy: 400 - home.py * z1 }, 390, 844, s.layers, true, null, false);
+      const cp = this.markers.find(m => m.tag === 'copper'); const z4 = 2.2;
+      m4 = this.proj({ z: z4, ox: 195 - cp.px * z4, oy: 300 - cp.py * z4 }, 390, 844, s.layers, true, cp.id, false); m4.card = this.card(cp, T);
+      const zs = 0.42; st = this.proj({ z: zs, ox: 480 - 512 * zs, oy: 230 - 512 * zs }, 720, 460, s.layers, true, null, false);
+      const g = (label, pred) => { const m = this.markers.find(pred); return m ? { label, card: this.card(m, T) } : null; };
+      gallery = [g('Portal · paired', m => m.tag === 'swamp1' && !m.hub), g('Portal · unpaired', m => m.tag === 'copper'), g('Location · dungeon', m => m.type === 'crypt' && m.explored), g('Tombstone', m => m.type === 'tomb' && m.fresh), g('Tamed creature', m => m.name === 'Skoll'), g('Base', m => m.title === 'Skovheim'), g('Boss altar · defeated', m => m.boss === 'Bonemass'), g('Boss altar · not defeated', m => m.boss === 'Yagluth')].filter(Boolean);
+    }
+    const states = [
+      { label: 'Server offline', img: s.mapUrl, filter: 'grayscale(.55) brightness(.8)', rendering: 'auto', pins: true, pinOp: .75, dot: 'var(--color-neutral-500)', status: 'Offline', statusColor: 'var(--muted)', count: '—/10', showPlayers: false, showEmpty: true, emptyTitle: 'Server is resting', emptyBody: 'Nobody can join until it’s back. The map shows the final save before shutdown (03:10).', banner: true, bannerBg: 'var(--color-text)', bannerFg: 'var(--color-bg)', bannerIcon: svgUrl('power', BG), bannerTitle: 'Server offline · last seen online today 03:12 (11 h ago)', bannerBody: 'The map is still here to browse. We’ll switch back to live as soon as it answers.' },
+      { label: 'Nobody online', img: s.mapUrl, filter: 'none', rendering: 'auto', pins: true, pinOp: 1, dot: 'var(--color-accent)', status: 'Online', statusColor: 'var(--color-accent-700)', count: '0/10', showPlayers: false, showEmpty: true, emptyTitle: 'The longhouse is quiet', emptyBody: 'Nobody’s online right now. Johnny was the last to leave, 2 h ago. The fire’s still warm.', banner: false },
+      { label: 'Map generating · first run', img: s.lowUrl, filter: 'blur(3px) saturate(.8)', rendering: 'pixelated', pins: false, pinOp: 0, dot: 'var(--color-accent)', status: 'Online', statusColor: 'var(--color-accent-700)', count: '4/10', showPlayers: true, showEmpty: false, banner: false, progress: true },
+      { label: 'Stale map data', img: s.mapUrl, filter: 'sepia(.35) brightness(.9)', rendering: 'auto', pins: true, pinOp: .85, dot: 'var(--color-accent)', status: 'Online', statusColor: 'var(--color-accent-700)', count: '4/10', showPlayers: true, showEmpty: false, banner: true, bannerBg: 'var(--color-accent-100)', bannerFg: 'var(--color-accent-800)', bannerIcon: svgUrl('alert', dark ? '#ffe1d0' : '#643312'), bannerTitle: 'Map last updated 3 h 41 min ago · saves usually every ~20 min', bannerBody: 'Autosave may be failing, or the world file isn’t being read. Markers may be out of date; the online list is still live.' },
+    ];
+    return {
+      theme, ready, notReady: !ready, mapUrl: s.mapUrl, mapRef: this.mapRef, dv, ic, mapFilter: (s.layers.biomes ? '' : 'grayscale(1) contrast(.85) brightness(1.08) ') + (nightFilter === 'none' ? '' : nightFilter) || 'none',
+      cursor: this.drag ? 'grabbing' : 'grab',
+      onDown: e => {
+        if (e.button !== 0) return; const [, , sc] = this.local(e); this.moved = 0;
+        this.drag = { x: e.clientX, y: e.clientY, ox: s.view.ox, oy: s.view.oy, sc };
+        const mv = ev => { const d = this.drag; if (!d) return; const dx = (ev.clientX - d.x) / d.sc, dy = (ev.clientY - d.y) / d.sc; this.moved = Math.max(this.moved, Math.abs(dx) + Math.abs(dy)); if (this.moved > 3) this.setState(st => ({ view: { z: st.view.z, ox: d.ox + dx, oy: d.oy + dy } })); };
+        const up = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); this.drag = null; this.forceUpdate(); };
+        window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+      },
+      onMove: e => { const [sx, sy] = this.local(e); this._cur = [sx, sy]; if (!this._raf) this._raf = requestAnimationFrame(() => { this._raf = 0; this.setState({ cur: this._cur }); }); },
+      onLeave: () => this.setState({ cur: null }),
+      onMapClick: () => { if (this.moved > 4) return; this.setState({ sel: null, layersOpen: false }); },
+      pop, deselect: () => this.setState({ sel: null }),
+      jump: id => { const m = this.byId(id); if (m) { this.centerOn(m, Math.max(3, s.view.z)); this.select(id); } },
+      serverName: this.props.serverName || 'Example Vikings', servers, serverCount: servers.length, serverMenu: s.serverMenu, toggleServerMenu: () => this.setState({ serverMenu: !s.serverMenu }), appName: this.props.appName || 'Farsight', appInitial: (this.props.appName || 'Farsight').trim().charAt(0).toUpperCase(),
+      toast: { show: !!s.toast, url: s.toast, title: s.toastTitle || 'Link copied' },
+      joinOpen: s.joinOpen, openJoin: () => this.setState({ joinOpen: true, layersOpen: false }), closeJoin: () => this.setState({ joinOpen: false }), stop: e => e.stopPropagation(),
+      copyCode: () => this.toastUrl('318742', 'Join code copied', '318 742'), copyAddr: () => this.toastUrl('play.example.net:2456', 'Address copied'),
+      join, codeStates,
+      panelOpen: s.panelOpen, panelClosed: !s.panelOpen, panelNormal: s.panelOpen && !s.timeline && !s.profile, profileShow: s.panelOpen && !!s.profile && !s.timeline, closeProfile: () => this.setState({ profile: null }),
+      prof, profM, recent, worldSettings, worldPreset: 'Custom · based on Normal', tod, wxRows, wxOpen: s.wxOpen, toggleWx: () => this.setState({ wxOpen: !s.wxOpen, layersOpen: false }), wxBorder: s.wxOpen ? 'var(--cold)' : 'var(--color-divider)', nightFilter, timelineShow: tlOpen,
+      openTimeline: () => this.setState({ timeline: true, panelOpen: true, profile: null }), closeTimeline: () => this.setState({ timeline: false }),
+      resetTl: () => this.setState({ tlWho: 'all', tl: { session: true, death: true, boss: true, build: true, portal: true, tame: true, event: true, server: true } }),
+      tlGroups, tlChips, tlWho, tlEmpty: tlGroups.length === 0, sessions, nowPct: NOW / 24 * 100, togglePanel: () => this.setState({ panelOpen: !s.panelOpen }),
+      toggleTheme: () => this.setState({ themeOverride: dark ? 'light' : 'dark' }),
+      tabs: { isPlayers: s.tab === 'players', isWorld: s.tab === 'world', pBg: s.tab === 'players' ? 'var(--color-surface)' : 'transparent', pFg: s.tab === 'players' ? 'var(--color-text)' : 'var(--muted)', wBg: s.tab === 'world' ? 'var(--color-surface)' : 'transparent', wFg: s.tab === 'world' ? 'var(--color-text)' : 'var(--muted)' },
+      tabPlayers: () => this.setState({ tab: 'players' }), tabWorld: () => this.setState({ tab: 'world' }),
+      showAltar: () => { const m = this.markers.find(x => x.boss === 'Yagluth'); if (m) { this.centerOn(m, 3); this.select(m.id); } },
+      players, activity, activityShort: activity.slice(0, 3), bosses,
+      layers, legend: BIO.map(([name, c]) => ({ name, hex: hex(c) })).concat([{ name: 'Unexplored', hex: '#cfbe9c' }]), layersOpen: s.layersOpen, toggleLayers: () => this.setState({ layersOpen: !s.layersOpen }),
+      q: s.q, onQ: e => this.setState({ q: e.target.value }), onFocus: () => this.setState({ focus: true, layersOpen: false }), onBlur: () => setTimeout(() => this.setState({ focus: false }), 120),
+      search: { open: s.focus, empty: !q, results, none: !!q && results.length === 0, hints },
+      chrome: { pillL: tlOpen ? 552 : s.panelOpen ? 376 : 190, readL: tlOpen ? 552 : s.panelOpen ? 376 : 16, layerCount: LAYERS.filter(([k]) => s.layers[k]).length, layBorder: s.layersOpen ? 'var(--cold)' : 'var(--color-divider)' },
+      zoomIn: () => this.zoomAt(s.panelOpen ? 900 : 720, 470, 1.6), zoomOut: () => this.zoomAt(s.panelOpen ? 900 : 720, 470, 1 / 1.6),
+      resetView: () => this.setState({ view: { z: 0.84, ox: (s.panelOpen ? 900 : 720) - 512 * 0.84, oy: 20 }, sel: null }),
+      scale, cur, m1, m4, st, gallery, states, portalSub, exploredPct: this.exPct || 0,
+    };
+  }
+}
+</script>
+</body>
+</html>
