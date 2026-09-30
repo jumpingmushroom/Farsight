@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // Fix round 1: gzip;q=0 (in any spelling) means "not acceptable", and a
@@ -164,7 +165,9 @@ func TestGzipJSONPanicBeforeThresholdPropagatesToRecoverer(t *testing.T) {
 // the connection: the client must see a network error or a read error,
 // never a clean, fully-decodable 200 body.
 func TestGzipJSONAbortsConnectionOnPanicAfterCompressionStarts(t *testing.T) {
-	var logged bytes.Buffer
+	// The handler goroutine logs while this one reads: syncBuffer, and wait
+	// for it, since the client can see the abort before the log line lands.
+	var logged syncBuffer
 	log := slog.New(slog.NewTextHandler(&logged, nil))
 	big := bytes.Repeat([]byte("a"), 2000)
 	h := recoverer(log, gzipJSON(log, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -187,7 +190,11 @@ func TestGzipJSONAbortsConnectionOnPanicAfterCompressionStarts(t *testing.T) {
 		}
 	}
 
-	if logged.Len() == 0 {
+	deadline := time.Now().Add(2 * time.Second)
+	for logged.String() == "" && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if logged.String() == "" {
 		t.Error("the panic was not logged anywhere (recoverer was bypassed and gzipJSON didn't log it)")
 	}
 }

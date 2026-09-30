@@ -196,12 +196,18 @@ func TestWatcherClosesFollowersOnCancel(t *testing.T) {
 	appendLine(t, filepath.Join(dir, "valheim-server-stdout---supervisor-aaaa.log"), "09/29/2026 10:00:00: Game server connected\n")
 	appendLine(t, filepath.Join(dir, "supervisord.log"), "2026-09-29 09:00:00,000 INFO spawned: 'valheim-server' with pid 1\n")
 
-	w := &Watcher{Dir: dir, Loc: oslo(t), Poll: 20 * time.Millisecond, Emit: func([]Event) {}}
+	w := &Watcher{Dir: dir, Loc: oslo(t), Emit: func([]Event) {}, testTick: make(chan time.Time), testPolled: make(chan struct{})}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { w.Run(ctx); close(done) }()
 
-	waitFor(t, func() bool { return w.srv != nil && w.srv.f != nil })
+	// Force one poll and wait for it: the handshake orders Run's writes
+	// before these reads (polling the fields directly is a data race).
+	w.testTick <- time.Now()
+	<-w.testPolled
+	if w.srv == nil || w.srv.f == nil {
+		t.Fatalf("server follower not open after a poll: %+v", w.srv)
+	}
 
 	cancel()
 	<-done
