@@ -3,8 +3,12 @@
   2026-10-01): Leaflet with the world CRS and the server's fog tiles (terrain
   with the fog of war drawn in) over a parchment-filled world disc, so a tile
   still loading looks fogged, never bare. The map is created once; the tile
-  layer is replaced when the server, tile key or fog key changes. Leaflet's
-  own zoom animation is on: the fog is in the tiles, so it can't lag them.
+  layer is replaced when the server, tile key or fog key changes — the old
+  layer stays until the new one's first tile loads (or a timeout), so a fog
+  key change (virtually every save while players explore) never flashes the
+  whole map to bare parchment (fix round 1, item 1; scheduleTileSwap).
+  Leaflet's own zoom animation is on: the fog is in the tiles, so it can't
+  lag them.
 
   Panes: disc 150 (below tiles 200), portalLines 380, markers use Leaflet's
   markerPane (600). The popover is DOM, not a pane.
@@ -14,6 +18,7 @@
 	import { onMount, untrack } from 'svelte';
 	import { tileUrl } from '$lib/api';
 	import { CRS, MAX_BOUNDS, WORLD_BOUNDS, WORLD_RADIUS, toLatLng } from '$lib/geo';
+	import { scheduleTileSwap, type SwappableLayer } from '$lib/tile-swap';
 	import type { Card, SnapshotView } from '$lib/types';
 
 	let {
@@ -162,7 +167,11 @@
 	});
 
 	// Tile layer: replaced when the server, tile key or fog key changes.
-	// Fog tiles exist natively up to zoom 6.
+	// Fog tiles exist natively up to zoom 6. The new layer is added over
+	// whatever is already there; scheduleTileSwap removes the old one(s)
+	// once the new layer's tiles are in (or after a timeout), so the view
+	// is never left showing the bare world disc mid-swap.
+	let liveTileLayers: SwappableLayer[] = [];
 	$effect(() => {
 		const m = map;
 		const src = tileSrc;
@@ -176,9 +185,7 @@
 			bounds: WORLD_BOUNDS,
 			keepBuffer: 2
 		}).addTo(m);
-		return () => {
-			layer.remove();
-		};
+		return scheduleTileSwap(layer, liveTileLayers);
 	});
 
 	// Tile-pane filter (layers off, offline, stale; §3.22).

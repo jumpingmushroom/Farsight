@@ -2,6 +2,8 @@
 // a seeded farsight on a free port and exports it as process.env.BASE_URL
 // (workers inherit the runner's environment).
 import { test as base, expect, type BrowserContext, type Page } from '@playwright/test';
+import { gzipSync } from 'node:zlib';
+
 import type { Card } from '../../src/lib/types';
 
 /**
@@ -106,6 +108,26 @@ export async function overrideCard(page: Page, edit: (c: Card) => Card): Promise
 /** An RFC 3339 time `sec` seconds ago. */
 export function ago(sec: number): string {
 	return new Date(Date.now() - sec * 1000).toISOString();
+}
+
+/**
+ * Posts a snapshot to the seeded `demo` server, gzip + bearer, as a real
+ * agent would (global-setup.ts's own `postHeartbeat` does the same for
+ * events). Uses the base URL and agent token global-setup.ts exports on
+ * `process.env`, which worker processes inherit.
+ */
+export async function postSnapshot(snapshot: unknown): Promise<void> {
+	const body = gzipSync(JSON.stringify(snapshot));
+	const res = await fetch(`${process.env.BASE_URL}/ingest/demo/snapshot`, {
+		method: 'POST',
+		headers: {
+			Authorization: `Bearer ${process.env.FARSIGHT_SEED_TOKEN}`,
+			'Content-Type': 'application/json',
+			'Content-Encoding': 'gzip'
+		},
+		body
+	});
+	if (!res.ok) throw new Error(`postSnapshot: ${res.status} ${await res.text()}`);
 }
 
 /** The RGB of the page's pixel at (x, y), read from a screenshot. */

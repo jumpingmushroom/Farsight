@@ -303,9 +303,14 @@ function portalMarker(m: Marker, byId: Map<string, Marker>, tagCount: Map<string
 	} else {
 		d.badges = [{ text: 'Unpaired', tone: 'ember' }];
 		const n = tagCount.get(tag) ?? 1;
+		// `m.pair` is also blank when the server kept this portal but filtered
+		// its partner out as unexplored (fix round 1, item 4): tagCount only
+		// counts markers the server actually sent, so a hidden partner looks
+		// identical to no partner existing. Say only what's true either way —
+		// nothing here claims no partner exists, or tells the player to build
+		// or retag one.
 		if (!tag) d.note = 'This portal has no tag, so it leads nowhere.';
-		else if (n <= 1)
-			d.note = `No other portal carries the tag “${tag}”, so this one leads nowhere. Build a partner with the same tag, or retag it.`;
+		else if (n <= 1) d.note = `No explored portal carries the tag “${tag}”, so it leads nowhere yet.`;
 		else d.note = `${n} portals share the tag “${tag}”, so the game can’t pair them.`;
 	}
 	return finish(d);

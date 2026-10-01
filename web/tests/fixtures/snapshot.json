@@ -155,9 +155,9 @@
     {
       "id": "portal-4",
       "kind": "portal",
-      "x": -1000.25,
+      "x": 8000.0,
       "y": 112.0,
-      "z": 1000.0,
+      "z": -3000.0,
       "label": "mountain",
       "pair": "portal-3"
     },
@@ -233,6 +233,15 @@
       "y": 34.0,
       "z": -1150.0,
       "label": "To the copper mine"
+    },
+    {
+      "id": "tame-4",
+      "kind": "tame",
+      "x": -8000.0,
+      "y": 34.0,
+      "z": 3000.0,
+      "species": "Boar",
+      "label": "Shadow"
     }
   ],
   "bases": [

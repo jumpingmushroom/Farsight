@@ -211,6 +211,28 @@
 		schedulePopover();
 	});
 
+	// Fix round 1, item 3: with zoom animation on, Leaflet fires 'move'/'zoom'
+	// (which reposition the popover above) only once, at the END of the
+	// ~250 ms transition, so the popover would otherwise sit still while its
+	// pin animates away underneath it, then snap. Of the review's two
+	// options — reproject it every animation frame via Leaflet's internal
+	// zoom-anim machinery, or hide it for the animation's duration — this
+	// takes the simpler, still-correct one: hide at zoomstart, let the
+	// existing move/zoom listener recompute and show it at zoomend.
+	$effect(() => {
+		const m = map;
+		if (!m) return;
+		const hide = () => {
+			if (popover) popover = undefined;
+		};
+		m.on('zoomstart', hide);
+		m.on('zoomend', schedulePopover);
+		return () => {
+			m.off('zoomstart', hide);
+			m.off('zoomend', schedulePopover);
+		};
+	});
+
 	onDestroy(() => {
 		if (frame) cancelAnimationFrame(frame);
 	});

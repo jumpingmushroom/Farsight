@@ -148,9 +148,23 @@ describe('buildMarkers: card content (§4.2 with MVP adaptations)', () => {
 		expect(m.card.badges).toEqual([{ text: 'Unpaired', tone: 'ember' }]);
 		expect(m.card.facts).toEqual([{ k: 'Tag', v: '“copper”' }]);
 		expect(m.card.partnerId).toBeUndefined();
-		expect(m.card.note).toBe(
-			'No other portal carries the tag “copper”, so this one leads nowhere. Build a partner with the same tag, or retag it.'
-		);
+		expect(m.card.note).toBe('No explored portal carries the tag “copper”, so it leads nowhere yet.');
+	});
+
+	// Fix round 1, item 4: the server blanks `pair` both when a portal
+	// genuinely has no partner and when its partner was filtered out as
+	// unexplored, so the client can't tell those apart — the note must stay
+	// accurate (and give no "build one"/"retag it" advice) either way.
+	test('unpaired portal whose partner is simply unexplored gets the same honest note', () => {
+		const snap = fixtureSnapshot();
+		// portal-3's tag ("copper") is unique in the fixture, so this is
+		// indistinguishable, from the client's view, from a hidden partner
+		// sharing the same tag: both are "no EXPLORED portal carries it".
+		const m = byId(buildMarkers(snap), 'portal-3');
+		expect(m.pin.ring).toBe(true);
+		expect(m.card.note).not.toMatch(/build a partner|retag/i);
+		expect(m.card.note).not.toMatch(/no other portal/i);
+		expect(m.card.note).toBe('No explored portal carries the tag “copper”, so it leads nowhere yet.');
 	});
 
 	test('three portals sharing a tag', () => {

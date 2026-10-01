@@ -1,9 +1,14 @@
 // Desktop (1440×900) e2e against the seeded `demo` and unseeded `quiet`
 // servers (global-setup.ts). Numbered tests follow the Task 9 brief; the
-// "carried" ones are the regressions carried over from reviews.
+// "carried" ones are the regressions carried over from reviews; the "fix"
+// ones are regressions carried over from code review fix rounds.
 import { test as pwTest } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { checkGuard, expect, pinsOfKind, screenPixel, test, tilesLoaded, unlock, watchGuard, worldToScreen } from './helpers';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { checkGuard, expect, pinsOfKind, postSnapshot, screenPixel, test, tilesLoaded, unlock, watchGuard, worldToScreen } from './helpers';
+
+const FIXTURE_SNAPSHOT = fileURLToPath(new URL('../fixtures/snapshot.json', import.meta.url));
 
 const search = (page: Page) => page.getByRole('combobox', { name: 'Search the map' });
 const serverCard = (page: Page) => page.getByRole('region', { name: 'Server' });
@@ -97,18 +102,75 @@ test('3 · fog tiles load with the snapshot’s fog key; no fog canvas; zoom ani
 test('fog · terrain deep in unexplored land is fog-coloured on screen, explored land is not', async ({ page }) => {
 	await unlock(page);
 	await tilesLoaded(page);
+	// worldToScreen reads the world disc's own on-screen box, so compute
+	// both screen points before hiding it below.
 	// x = −8 000 m is 6 km west of every explored zone (they span −1 920…4 600 m).
 	const fogged = await worldToScreen(page, -8000, 0);
+	// (−500, 300) is three zones inside the explored area, away from pins:
+	// the flat fake terrain shows there (meadow green, 163,178,92).
+	const clear = await worldToScreen(page, -500, 300);
+	// Hide the disc pane (z-index 150, below the tiles at 200): without
+	// this, a fogged sample would also pass if the tile were transparent
+	// over the parchment disc fill, which is the same colour (fix round 1,
+	// item 5). Hiding it proves the tile pixel itself carries the fog.
+	await page.addStyleTag({ content: '.leaflet-disc-pane { display: none !important; }' });
 	const [r, g, b] = await screenPixel(page, fogged.x, fogged.y);
 	// #cfbe9c ± the grain (±9) and hatching; the fake terrain there is meadow or forest green.
 	expect(Math.abs(r - 0xcf), `r ${r}`).toBeLessThanOrEqual(20);
 	expect(Math.abs(g - 0xbe), `g ${g}`).toBeLessThanOrEqual(20);
 	expect(Math.abs(b - 0x9c), `b ${b}`).toBeLessThanOrEqual(20);
-	// (−500, 300) is three zones inside the explored area, away from pins:
-	// the flat fake terrain shows there (meadow green, 163,178,92).
-	const clear = await worldToScreen(page, -500, 300);
 	const [cr, cg, cb] = await screenPixel(page, clear.x, clear.y);
 	expect(Math.abs(cr - 0xcf) + Math.abs(cg - 0xbe) + Math.abs(cb - 0x9c), `rgb ${cr},${cg},${cb}`).toBeGreaterThan(60);
+});
+
+test('fix · a fog-key change never bares the map (the old tiles stay until the new ones are in)', async ({ page }) => {
+	// Waits out a full CARD_EVERY_MS (15 s) poll cycle, with margin for a
+	// busy CI box; the default 30 s test timeout is too tight for that plus
+	// everything else below.
+	test.setTimeout(60_000);
+	await unlock(page);
+	await tilesLoaded(page);
+
+	// Track, every animation frame, whether at least one rendered terrain
+	// tile is on screen. A frame with none between the new fog key landing
+	// and its tiles finishing would be the old remove-then-add regression
+	// (fix round 1, item 1): the whole map briefly bares to the parchment
+	// disc.
+	await page.evaluate(() => {
+		const w = window as unknown as { __zero: number; __frames: number; __stop: boolean };
+		w.__zero = 0;
+		w.__frames = 0;
+		w.__stop = false;
+		const tick = () => {
+			if (document.querySelectorAll('img.leaflet-tile-loaded').length === 0) w.__zero++;
+			w.__frames++;
+			if (!w.__stop) requestAnimationFrame(tick);
+		};
+		requestAnimationFrame(tick);
+	});
+
+	// Re-post the seeded snapshot with one more explored zone (a new fog
+	// key) and a newer savedAt, as a real save would; the browser picks it
+	// up on its next card poll (≤ 15 s).
+	const snapshot = JSON.parse(readFileSync(FIXTURE_SNAPSHOT, 'utf8'));
+	snapshot.saveId = 'fix-round-1-fog-swap';
+	snapshot.savedAt = new Date().toISOString();
+	snapshot.readAt = snapshot.savedAt;
+	snapshot.exploredZones.push([100, 100]);
+	const nextSnapshot = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/servers/demo/snapshot', {
+		timeout: 40_000
+	});
+	await postSnapshot(snapshot);
+	await nextSnapshot;
+	await tilesLoaded(page);
+
+	const r = await page.evaluate(() => {
+		const w = window as unknown as { __zero: number; __frames: number; __stop: boolean };
+		w.__stop = true;
+		return { zero: w.__zero, frames: w.__frames };
+	});
+	expect(r.frames).toBeGreaterThan(5);
+	expect(r.zero, 'frames with no loaded terrain tile on screen').toBe(0);
 });
 
 test('4 · online tab: players, recently online and activity', async ({ page }) => {
@@ -166,7 +228,10 @@ test('7 · layers: beds on adds beds, portals off removes portal pins and lines'
 	const lines = page.locator('.leaflet-portalLines-pane path');
 	// Anything on the map (a pin or a cluster's tooltip) that mentions a kind.
 	const mentions = (kind: string) => page.locator(`.leaflet-marker-icon[title*="${kind}"]`);
-	await expect(lines).toHaveCount(2);
+	// Only one line: portal-3's partner (portal-4, the "mountain" tag) is
+	// unexplored and filtered out (fix round 1, item 6), so only the "home"
+	// pair (portal-1/portal-2) still draws one.
+	await expect(lines).toHaveCount(1);
 	await expect(mentions('Bed')).toHaveCount(0);
 
 	await page.getByRole('button', { name: /^Layers ·/ }).click();
@@ -249,15 +314,31 @@ test('11 · the crypt outside the explored cells never appears', async ({ page }
 	const snapshot = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/servers/demo/snapshot');
 	await unlock(page);
 	// The server filters markers, locations and bases by the 12 m explored
-	// mask: only the inside crypt ships, every marker and base is inside.
+	// mask: only the inside crypt ships, and both markers deliberately
+	// placed outside every explored cell (fix round 1, item 6) are gone too.
 	const body = await (await snapshot).json();
 	expect(body.explored).toMatchObject({ source: 'zones', cell: 12, size: 2048 });
 	const crypts = (body.locations as { id: string; type: string }[]).filter((l) => l.type === 'SunkenCrypt4');
 	expect(crypts.map((l) => l.id)).toEqual(['loc-140']);
 	expect((body.locations as { id: string }[]).map((l) => l.id)).not.toContain('loc-311');
-	expect(body.markers).toHaveLength(13);
+	const markerIds = (body.markers as { id: string }[]).map((m) => m.id);
+	expect(markerIds).not.toContain('portal-4');
+	expect(markerIds).not.toContain('tame-4');
+	expect(body.markers).toHaveLength(12);
 	expect(body.bases).toHaveLength(2);
 	await markersReady(page);
+
+	// portal-3's partner (portal-4, "mountain") was filtered out: it shows
+	// as unpaired, with an honest note that neither claims no partner
+	// exists nor tells the player to build or retag one (fix round 1,
+	// item 4).
+	await search(page).fill('mountain');
+	const mountainOptions = page.getByRole('listbox', { name: 'Search results' }).getByRole('option');
+	await expect(mountainOptions).toHaveCount(1);
+	await mountainOptions.first().click();
+	await expect(markerCard(page).locator('.badge')).toHaveText(['Unpaired']);
+	await expect(markerCard(page)).toContainText('No explored portal carries the tag “mountain”, so it leads nowhere yet.');
+
 	// Dungeons aren't searchable (plan ruling "Search": portal, base, tame,
 	// sign, altar, trader), so neither crypt comes up.
 	await search(page).fill('Sunken');

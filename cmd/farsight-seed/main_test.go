@@ -220,11 +220,12 @@ func TestRunExploredRasterisesTheFixtureZones(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Every fixture marker is explored and the one outside crypt is not
-	// (TestFixtures checks the same on zones).
+	// Every fixture marker is explored except portal-4 and tame-4, and the
+	// one outside crypt is not (TestFixtures checks the same on zones; fix
+	// round 1, item 6 added the two outside markers).
 	for _, mk := range rec.snap.Markers {
-		if !m.At(float64(mk.X), float64(mk.Z)) {
-			t.Errorf("marker %s not explored", mk.ID)
+		if got, want := m.At(float64(mk.X), float64(mk.Z)), mk.ID != "portal-4" && mk.ID != "tame-4"; got != want {
+			t.Errorf("marker %s explored = %v, want %v", mk.ID, got, want)
 		}
 	}
 	for _, l := range rec.snap.Locations {
@@ -332,13 +333,23 @@ func TestFixtures(t *testing.T) {
 		t.Fatalf("%d locations outside explored zones, want exactly the one crypt", outside)
 	}
 	counts := map[string]int{}
+	outsideMarkers := 0
 	for _, m := range snap.Markers {
 		counts[m.Kind]++
 		if !explored[zone(m.X, m.Z)] {
-			t.Errorf("marker %s outside explored zones", m.ID)
+			outsideMarkers++
+			// Fix round 1, item 6: portal-4 (mountain's partner) and tame-4
+			// are deliberately placed outside every explored zone, so the
+			// server filters them (and blanks portal-3's pair).
+			if m.ID != "portal-4" && m.ID != "tame-4" {
+				t.Errorf("marker %s outside explored zones", m.ID)
+			}
 		}
 	}
-	if counts["portal"] != 5 || counts["bed"] != 2 || counts["tombstone"] != 1 || counts["tame"] != 3 || counts["sign"] != 2 {
+	if outsideMarkers != 2 {
+		t.Fatalf("%d markers outside explored zones, want exactly portal-4 and tame-4", outsideMarkers)
+	}
+	if counts["portal"] != 5 || counts["bed"] != 2 || counts["tombstone"] != 1 || counts["tame"] != 4 || counts["sign"] != 2 {
 		t.Fatalf("marker counts = %v", counts)
 	}
 
