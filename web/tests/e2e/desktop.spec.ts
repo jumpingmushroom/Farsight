@@ -6,7 +6,19 @@ import { test as pwTest } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { checkGuard, expect, pinsOfKind, postSnapshot, screenPixel, test, tilesLoaded, unlock, watchGuard, worldToScreen } from './helpers';
+import {
+	checkGuard,
+	expect,
+	pinsOfKind,
+	postSnapshot,
+	refreshNow,
+	screenPixel,
+	test,
+	tilesLoaded,
+	unlock,
+	watchGuard,
+	worldToScreen
+} from './helpers';
 
 const FIXTURE_SNAPSHOT = fileURLToPath(new URL('../fixtures/snapshot.json', import.meta.url));
 
@@ -77,6 +89,34 @@ test('fix · switching server clears the typed search query and closes the resul
 	await expect(page.getByRole('listbox', { name: 'Search results' })).toHaveCount(0);
 });
 
+test('fix · switching to a server with no tiles leaves none of the old server’s on screen', async ({ page }) => {
+	// Fix round 2, item 1: AtlasMap used to defer removing the old tile
+	// layer on *any* change, not just a fog-key-only one, so demo's terrain
+	// stayed on screen under "Quiet Fjord" (which has no snapshot, so no
+	// tiles) until something else happened to clear it. The switcher must
+	// be used for the final switch (not a page reload, which would remount
+	// AtlasMap fresh and never exercise the bug): first both servers are
+	// unlocked via the share-link flow (as test 2 does), landing on quiet;
+	// the switcher goes to demo (tiles appear in the one mounted AtlasMap),
+	// then — the actual check — back to quiet.
+	await unlock(page, 'demo');
+	await page.goto('about:blank');
+	await page.goto('/#s=quiet&k=quiet-pass');
+	await expect(switcher(page)).toHaveAccessibleName('Switch server: Quiet Fjord');
+
+	await switcher(page).click();
+	await page.getByRole('listbox', { name: 'Servers' }).getByRole('option', { name: /^Demo/ }).click();
+	await expect(switcher(page)).toHaveAccessibleName('Switch server: Demo');
+	await tilesLoaded(page);
+	await expect(page.locator('img.leaflet-tile')).not.toHaveCount(0);
+
+	await switcher(page).click();
+	await page.getByRole('listbox', { name: 'Servers' }).getByRole('option', { name: /Quiet Fjord/ }).click();
+	await expect(switcher(page)).toHaveAccessibleName('Switch server: Quiet Fjord');
+
+	await expect(page.locator('img.leaflet-tile')).toHaveCount(0);
+});
+
 test('3 · fog tiles load with the snapshot’s fog key; no fog canvas; zoom animation on', async ({ page }) => {
 	const tileUrls: string[] = [];
 	page.on('request', (r) => {
@@ -124,11 +164,10 @@ test('fog · terrain deep in unexplored land is fog-coloured on screen, explored
 });
 
 test('fix · a fog-key change never bares the map (the old tiles stay until the new ones are in)', async ({ page }) => {
-	// Waits out a full CARD_EVERY_MS (15 s) poll cycle, with margin for a
-	// busy CI box; the default 30 s test timeout is too tight for that plus
-	// everything else below.
-	test.setTimeout(60_000);
-	await unlock(page);
+	// `swap` is a dedicated server (global-setup.ts), seeded once and never
+	// touched by anything else, so reposting to it below can't race a
+	// parallel test's view of demo's state (fix round 2, item 2).
+	await unlock(page, 'swap');
 	await tilesLoaded(page);
 
 	// Track, every animation frame, whether at least one rendered terrain
@@ -149,18 +188,20 @@ test('fix · a fog-key change never bares the map (the old tiles stay until the 
 		requestAnimationFrame(tick);
 	});
 
-	// Re-post the seeded snapshot with one more explored zone (a new fog
-	// key) and a newer savedAt, as a real save would; the browser picks it
-	// up on its next card poll (≤ 15 s).
+	// Re-post swap's seeded snapshot with one more explored zone (a new fog
+	// key, same server id and tile key) and a newer savedAt, as a real save
+	// would.
 	const snapshot = JSON.parse(readFileSync(FIXTURE_SNAPSHOT, 'utf8'));
+	snapshot.serverId = 'swap';
 	snapshot.saveId = 'fix-round-1-fog-swap';
 	snapshot.savedAt = new Date().toISOString();
 	snapshot.readAt = snapshot.savedAt;
 	snapshot.exploredZones.push([100, 100]);
-	const nextSnapshot = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/servers/demo/snapshot', {
-		timeout: 40_000
-	});
-	await postSnapshot(snapshot);
+	const nextSnapshot = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/servers/swap/snapshot');
+	await postSnapshot('swap', snapshot);
+	// Forces state.svelte.ts's immediate refresh-on-visible (around lines
+	// 146–149) instead of waiting out its 15 s poll (fix round 2, item 2).
+	await refreshNow(page);
 	await nextSnapshot;
 	await tilesLoaded(page);
 

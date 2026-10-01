@@ -3,10 +3,17 @@
   2026-10-01): Leaflet with the world CRS and the server's fog tiles (terrain
   with the fog of war drawn in) over a parchment-filled world disc, so a tile
   still loading looks fogged, never bare. The map is created once; the tile
-  layer is replaced when the server, tile key or fog key changes — the old
-  layer stays until the new one's first tile loads (or a timeout), so a fog
-  key change (virtually every save while players explore) never flashes the
-  whole map to bare parchment (fix round 1, item 1; scheduleTileSwap).
+  layer is replaced when the server, tile key or fog key changes.
+
+  A fog-key-only change (same server id, same tile-set key — virtually every
+  save while players explore) defers removing the old layer until the new
+  one's first tile loads, or a timeout, so the map never flashes to bare
+  parchment (fix round 1, item 1; scheduleTileSwap). Any other change — the
+  server id or tile key differs, or there is nothing to show (`tileSrc`
+  undefined: a server switch, no snapshot yet, tiles not complete) — clears
+  every live layer immediately instead, so the previous server's or world's
+  terrain never lingers under the next one (fix round 2, item 1).
+
   Leaflet's own zoom animation is on: the fog is in the tiles, so it can't
   lag them.
 
@@ -18,7 +25,7 @@
 	import { onMount, untrack } from 'svelte';
 	import { tileUrl } from '$lib/api';
 	import { CRS, MAX_BOUNDS, WORLD_BOUNDS, WORLD_RADIUS, toLatLng } from '$lib/geo';
-	import { scheduleTileSwap, type SwappableLayer } from '$lib/tile-swap';
+	import { applyTileLayer, clearAllLayers, type SwappableLayer } from '$lib/tile-swap';
 	import type { Card, SnapshotView } from '$lib/types';
 
 	let {
@@ -161,31 +168,49 @@
 		map = m;
 		onready?.(m);
 		return () => {
+			// Explicit, not left to m.remove()'s own teardown: every live (or
+			// still-pending-retirement) layer goes, even one a deferred swap
+			// hasn't gotten to yet (fix round 2, item 1).
+			clearAllLayers(liveTileLayers);
 			map = undefined;
 			m.remove();
 		};
 	});
 
 	// Tile layer: replaced when the server, tile key or fog key changes.
-	// Fog tiles exist natively up to zoom 6. The new layer is added over
-	// whatever is already there; scheduleTileSwap removes the old one(s)
-	// once the new layer's tiles are in (or after a timeout), so the view
-	// is never left showing the bare world disc mid-swap.
+	// Fog tiles exist natively up to zoom 6.
+	//
+	// applyTileLayer defers removing the old layer only for a fog-key-only
+	// change (the identity string below is unchanged): the new layer is
+	// added over the old one, removed once the new layer's tiles are in (or
+	// after a timeout). Any other change — no `src`, or the server id or
+	// tile key differs from what's live — clears every live layer
+	// immediately first (including one a still-pending swap hasn't retired
+	// yet), then adds the new one undeferred, so a server switch or a lost
+	// snapshot never leaves the previous server's terrain on screen (fix
+	// round 2, item 1).
 	let liveTileLayers: SwappableLayer[] = [];
+	let liveTileIdentity: string | undefined;
 	$effect(() => {
 		const m = map;
+		if (!m) return;
 		const src = tileSrc;
-		if (!m || !src) return;
-		const layer = L.tileLayer(src, {
-			tileSize: 256,
-			minZoom: 0,
-			maxNativeZoom: 6,
-			maxZoom: 6,
-			noWrap: true,
-			bounds: WORLD_BOUNDS,
-			keepBuffer: 2
-		}).addTo(m);
-		return scheduleTileSwap(layer, liveTileLayers);
+		const identity = card && card.tiles.key ? `${card.id}|${card.tiles.key}` : undefined;
+		const sameIdentity = !!src && identity === liveTileIdentity;
+		liveTileIdentity = identity;
+
+		const layer = src
+			? L.tileLayer(src, {
+					tileSize: 256,
+					minZoom: 0,
+					maxNativeZoom: 6,
+					maxZoom: 6,
+					noWrap: true,
+					bounds: WORLD_BOUNDS,
+					keepBuffer: 2
+				}).addTo(m)
+			: undefined;
+		return applyTileLayer(liveTileLayers, layer, sameIdentity);
 	});
 
 	// Tile-pane filter (layers off, offline, stale; §3.22).

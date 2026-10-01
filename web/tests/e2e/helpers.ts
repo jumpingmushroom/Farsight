@@ -69,7 +69,14 @@ export const test = base.extend<{ guard: void }>({
 });
 export { expect };
 
-export const PASS: Record<string, string> = { demo: 'demo-pass', quiet: 'quiet-pass' };
+export const PASS: Record<string, string> = { demo: 'demo-pass', quiet: 'quiet-pass', swap: 'swap-pass' };
+
+/**
+ * Agent tokens for the servers global-setup.ts seeds directly (not through
+ * the shared `FARSIGHT_SEED_TOKEN`/demo keep-alive): `postSnapshot`'s
+ * default.
+ */
+export const SEED_TOKENS: Record<string, string> = { demo: 'demo-token', swap: 'swap-token' };
 
 /**
  * Opens a share link for `server` and waits until the app has consumed it:
@@ -111,23 +118,39 @@ export function ago(sec: number): string {
 }
 
 /**
- * Posts a snapshot to the seeded `demo` server, gzip + bearer, as a real
- * agent would (global-setup.ts's own `postHeartbeat` does the same for
- * events). Uses the base URL and agent token global-setup.ts exports on
- * `process.env`, which worker processes inherit.
+ * Posts a snapshot to a seeded server, gzip + bearer, as a real agent would
+ * (global-setup.ts's own `postHeartbeat` does the same for events). Uses
+ * the base URL global-setup.ts exports on `process.env`, which worker
+ * processes inherit; `token` defaults to `SEED_TOKENS[server]`.
  */
-export async function postSnapshot(snapshot: unknown): Promise<void> {
+export async function postSnapshot(server: string, snapshot: unknown, token = SEED_TOKENS[server]): Promise<void> {
 	const body = gzipSync(JSON.stringify(snapshot));
-	const res = await fetch(`${process.env.BASE_URL}/ingest/demo/snapshot`, {
+	const res = await fetch(`${process.env.BASE_URL}/ingest/${server}/snapshot`, {
 		method: 'POST',
 		headers: {
-			Authorization: `Bearer ${process.env.FARSIGHT_SEED_TOKEN}`,
+			Authorization: `Bearer ${token}`,
 			'Content-Type': 'application/json',
 			'Content-Encoding': 'gzip'
 		},
 		body
 	});
 	if (!res.ok) throw new Error(`postSnapshot: ${res.status} ${await res.text()}`);
+}
+
+/**
+ * Makes the page's `state.svelte.ts` refresh immediately instead of waiting
+ * out its 15 s poll: it refetches on `visibilitychange` while the page is
+ * visible (state.svelte.ts's `onVisible` handler), so this forces
+ * `document.visibilityState` to `'visible'` (it's a read-only getter) before
+ * dispatching the event, in case the page isn't the OS-focused tab.
+ */
+export async function refreshNow(page: Page): Promise<void> {
+	await page.evaluate(() => {
+		if (document.visibilityState !== 'visible') {
+			Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+		}
+		document.dispatchEvent(new Event('visibilitychange'));
+	});
 }
 
 /** The RGB of the page's pixel at (x, y), read from a screenshot. */

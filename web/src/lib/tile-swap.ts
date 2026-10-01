@@ -1,9 +1,18 @@
-// AtlasMap.svelte's tile-layer swap (fix round 1, item 1): adding a new
-// Leaflet tile layer and immediately removing the old one leaves the map
-// bare (parchment disc showing through) until the new layer's tiles have
-// loaded. Instead the old layer stays until the new one's first `load`
-// event, or `timeoutMs` as a fallback, whichever comes first — so the view
-// is always covered by *some* tiles.
+// AtlasMap.svelte's tile-layer swap.
+//
+// Fix round 1, item 1: adding a new Leaflet tile layer and immediately
+// removing the old one leaves the map bare (parchment disc showing through)
+// until the new layer's tiles have loaded. Instead the old layer stays
+// until the new one's first `load` event, or `timeoutMs` as a fallback,
+// whichever comes first — so the view is always covered by *some* tiles.
+//
+// Fix round 2, item 1: that deferral is only correct for a fog-key-only
+// change (same server id, same tile-set key — virtually every save while
+// players explore). For any other change — the server id or tile key
+// differs, or there is nothing to show — the old layer(s) must go
+// immediately, or the previous server's or world's terrain lingers under
+// the next one (or forever, if there never is a next one). `applyTileLayer`
+// is the single entry point AtlasMap.svelte calls; it picks between the two.
 //
 // This is kept Leaflet-agnostic (duck-typed on the handful of methods used)
 // so it can be unit tested without a real map or DOM.
@@ -65,4 +74,39 @@ export function scheduleTileSwap(
 		if (timer !== undefined) clearTimer(timer);
 		layer.off('load', retire);
 	};
+}
+
+/** Removes and drops every layer currently tracked in `pending` (mutated in place, emptied). */
+export function clearAllLayers(pending: SwappableLayer[]): void {
+	for (const old of pending.splice(0)) old.remove();
+}
+
+/**
+ * One AtlasMap tile-layer effect run's worth of reconciliation (fix round
+ * 2, item 1). `next` is the new layer, already added to the map by the
+ * caller, or undefined when there is nothing to show this run (no fog key
+ * yet, no snapshot, a server switch, tiles not complete).
+ *
+ * - `sameIdentity` false (including whenever `next` is undefined): every
+ *   layer in `pending` is removed and dropped immediately — the swap is
+ *   never deferred across a server or tile-set change, so stale terrain
+ *   never lingers under (or instead of) the next thing shown.
+ * - `sameIdentity` true: `next` is handed to `scheduleTileSwap` instead, so
+ *   the old layer(s) stay until `next` loads or a timeout elapses.
+ *
+ * Returns a cleanup function for the caller's effect, exactly as
+ * `scheduleTileSwap` does (a no-op when `next` is undefined, since nothing
+ * was scheduled).
+ */
+export function applyTileLayer(
+	pending: SwappableLayer[],
+	next: SwappableLayer | undefined,
+	sameIdentity: boolean,
+	timeoutMs = TILE_SWAP_TIMEOUT_MS,
+	setTimer: typeof setTimeout = setTimeout,
+	clearTimer: typeof clearTimeout = clearTimeout
+): () => void {
+	if (!sameIdentity) clearAllLayers(pending);
+	if (!next) return () => {};
+	return scheduleTileSwap(next, pending, timeoutMs, setTimer, clearTimer);
 }
