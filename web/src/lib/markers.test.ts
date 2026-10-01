@@ -1,7 +1,5 @@
 import './testing/leaflet-node';
 import { describe, expect, test } from 'vitest';
-import { maskForZones, zoneMask } from './fog';
-import { zoneOf } from './geo';
 import {
 	BIOME_LEGEND,
 	LAYERS,
@@ -17,7 +15,7 @@ import {
 	type LayerKey,
 	type MapMarker
 } from './markers';
-import { fixtureSnapshot, fixtureWorld } from './testing/markers-fixture';
+import { fixtureMask, fixtureSnapshot, fixtureWorld } from './testing/markers-fixture';
 
 const INK = '#26231f';
 const CREAM = '#f5ead8';
@@ -116,10 +114,9 @@ describe('buildMarkers: kinds, types, layers and pins (§4.1, §8)', () => {
 		expect(m.card.discBg).toBe(pin.bg);
 	});
 
-	test('positions, zones and the where line (U+2212 minus)', () => {
+	test('positions and the where line (U+2212 minus)', () => {
 		const m = byId(build(), 'portal-3');
 		expect([m.x, m.z]).toEqual([-1234.4, 3050]);
-		expect(m.zone).toEqual(zoneOf(-1234.4, 3050));
 		expect(m.card.where).toBe('X −1,234 · Z 3,050');
 	});
 
@@ -151,9 +148,23 @@ describe('buildMarkers: card content (§4.2 with MVP adaptations)', () => {
 		expect(m.card.badges).toEqual([{ text: 'Unpaired', tone: 'ember' }]);
 		expect(m.card.facts).toEqual([{ k: 'Tag', v: '“copper”' }]);
 		expect(m.card.partnerId).toBeUndefined();
-		expect(m.card.note).toBe(
-			'No other portal carries the tag “copper”, so this one leads nowhere. Build a partner with the same tag, or retag it.'
-		);
+		expect(m.card.note).toBe('No explored portal carries the tag “copper”, so it leads nowhere yet.');
+	});
+
+	// Fix round 1, item 4: the server blanks `pair` both when a portal
+	// genuinely has no partner and when its partner was filtered out as
+	// unexplored, so the client can't tell those apart — the note must stay
+	// accurate (and give no "build one"/"retag it" advice) either way.
+	test('unpaired portal whose partner is simply unexplored gets the same honest note', () => {
+		const snap = fixtureSnapshot();
+		// portal-3's tag ("copper") is unique in the fixture, so this is
+		// indistinguishable, from the client's view, from a hidden partner
+		// sharing the same tag: both are "no EXPLORED portal carries it".
+		const m = byId(buildMarkers(snap), 'portal-3');
+		expect(m.pin.ring).toBe(true);
+		expect(m.card.note).not.toMatch(/build a partner|retag/i);
+		expect(m.card.note).not.toMatch(/no other portal/i);
+		expect(m.card.note).toBe('No explored portal carries the tag “copper”, so it leads nowhere yet.');
 	});
 
 	test('three portals sharing a tag', () => {
@@ -301,10 +312,9 @@ describe('buildMarkers: card content (§4.2 with MVP adaptations)', () => {
 });
 
 describe('visibleMarkers', () => {
-	const snap = fixtureSnapshot();
-	const mask = zoneMask(snap.exploredZones);
+	const mask = fixtureMask();
 
-	test('fog on hides fogged-out zones; fog off shows them', () => {
+	test('fog on hides fogged-out cells; fog off shows them', () => {
 		const all = build();
 		const on = visibleMarkers(all, ALL_ON, mask, true, 4).map((m) => m.id);
 		expect(on).not.toContain('tombstone-1');
@@ -333,8 +343,7 @@ describe('visibleMarkers', () => {
 
 describe('layerCounts', () => {
 	test('counts what is visible after fog filtering, with pairs and unpaired', () => {
-		const snap = fixtureSnapshot();
-		const c = layerCounts(build(), maskForZones(snap.exploredZones), true);
+		const c = layerCounts(build(), fixtureMask(), true);
 		expect(c).toEqual({
 			biomes: 9,
 			structures: 1,
@@ -347,7 +356,7 @@ describe('layerCounts', () => {
 			unpaired: 5,
 			pairs: 1
 		});
-		const nofog = layerCounts(build(), maskForZones(snap.exploredZones), false);
+		const nofog = layerCounts(build(), fixtureMask(), false);
 		expect(nofog.tombstones).toBe(1);
 		expect(nofog.locations).toBe(5);
 	});
@@ -362,10 +371,7 @@ describe('portalPairs', () => {
 
 	test('no pair when an end is hidden', () => {
 		const all = build();
-		const snap = fixtureSnapshot();
-		const [zx, zz] = zoneOf(3100, 100);
-		const zones = snap.exploredZones.filter(([x, z]) => !(x === zx && z === zz));
-		const vis = visibleMarkers(all, ALL_ON, zoneMask(zones), true, 4);
+		const vis = visibleMarkers(all, ALL_ON, fixtureMask(['portal-2']), true, 4);
 		expect(portalPairs(vis)).toEqual([]);
 		expect(portalPairs(visibleMarkers(all, { ...ALL_ON, portals: false }, undefined, false, 4))).toEqual([]);
 	});

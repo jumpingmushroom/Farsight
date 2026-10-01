@@ -7,10 +7,18 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"image"
+	"image/color"
+	"image/draw"
+	"image/png"
 	"io"
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -21,6 +29,9 @@ import (
 
 	"github.com/jumpingmushroom/farsight/internal/auth"
 	"github.com/jumpingmushroom/farsight/internal/config"
+	"github.com/jumpingmushroom/farsight/internal/explored"
+	"github.com/jumpingmushroom/farsight/internal/extract"
+	"github.com/jumpingmushroom/farsight/internal/fog"
 	"github.com/jumpingmushroom/farsight/internal/ingest"
 	"github.com/jumpingmushroom/farsight/internal/logwatch"
 	"github.com/jumpingmushroom/farsight/internal/tileset"
@@ -166,7 +177,7 @@ func TestLockedRoutesAre404(t *testing.T) {
 	for _, p := range []string{
 		"/api/servers/alpha",
 		"/api/servers/alpha/snapshot",
-		"/tiles/alpha/" + key + "/0/0/0.png",
+		"/tiles/alpha/" + key + "/0123456789abcdef/0/0/0.png",
 	} {
 		for _, cookie := range []string{"", "garbage", strings.Repeat("x", 5000)} {
 			r := e.get(p, cookie)
@@ -490,7 +501,8 @@ func TestCard(t *testing.T) {
 	if len(w.Bosses) != 2 || w.Bosses[0]["key"] != "defeated_eikthyr" || w.Bosses[0]["defeated"] != true || w.Bosses[1]["defeated"] != false {
 		t.Errorf("bosses: %v", w.Bosses)
 	}
-	wantPct := math.Round(900/float64(referenceZoneCount())*100*10) / 10
+	// The 30x30 zones cover cells −2…157 on each axis (centres −24…1884 m).
+	wantPct := math.Round(160*160/float64(referenceCellCount())*1000) / 10
 	if w.ExploredPct != wantPct || wantPct == 0 {
 		t.Errorf("exploredPct = %v, want %v", w.ExploredPct, wantPct)
 	}
@@ -510,13 +522,14 @@ func TestCard(t *testing.T) {
 	}
 }
 
-// referenceZoneCount counts 64 m zones whose centre lies within 10 500 m,
+// referenceCellCount counts 12 m cells whose centre lies within 10 500 m,
 // independently of the implementation.
-func referenceZoneCount() int {
+func referenceCellCount() int {
 	n := 0
-	for x := -200; x <= 200; x++ {
-		for z := -200; z <= 200; z++ {
-			if math.Hypot(float64(x*64), float64(z*64)) <= 10500 {
+	for px := 0; px < 2048; px++ {
+		for py := 0; py < 2048; py++ {
+			x, z := float64((px-1024)*12), float64((py-1024)*12)
+			if x*x+z*z <= 10500*10500 {
 				n++
 			}
 		}
@@ -524,26 +537,7 @@ func referenceZoneCount() int {
 	return n
 }
 
-func TestExploredPct(t *testing.T) {
-	var all [][2]int16
-	for x := -170; x <= 170; x++ {
-		for z := -170; z <= 170; z++ {
-			all = append(all, [2]int16{int16(x), int16(z)}) // includes out-of-world zones
-		}
-	}
-	all = append(all, [2]int16{0, 0}, [2]int16{1, 1}) // duplicates
-	if got := exploredPct(all); got != 100 {
-		t.Errorf("all zones = %v, want 100", got)
-	}
-	if got := exploredPct(nil); got != 0 {
-		t.Errorf("none = %v, want 0", got)
-	}
-}
-
-func TestTotalZonesAndSaveInterval(t *testing.T) {
-	if totalZones != referenceZoneCount() || totalZones < 84000 || totalZones > 85200 {
-		t.Errorf("totalZones = %d, reference %d", totalZones, referenceZoneCount())
-	}
+func TestSaveInterval(t *testing.T) {
 	ts := func(secs ...int) []time.Time {
 		var out []time.Time
 		for _, s := range secs {
@@ -572,8 +566,9 @@ func TestTotalZonesAndSaveInterval(t *testing.T) {
 	}
 }
 
-// Case 8: the snapshot API filters locations to explored zones.
-func TestSnapshotAPIFiltersLocations(t *testing.T) {
+// Case 8: the snapshot API filters markers, locations and bases to the
+// explored mask, and carries the mask and its fog key.
+func TestSnapshotAPIFiltersToTheExploredMask(t *testing.T) {
 	e := newEnv(t)
 	if err := e.post("alpha", "alpha-token", "snapshot", testSnapshot("s1", at(-3*time.Minute))); err != nil {
 		t.Fatal(err)
@@ -585,6 +580,8 @@ func TestSnapshotAPIFiltersLocations(t *testing.T) {
 	}
 	var s struct {
 		SavedAt       string           `json:"savedAt"`
+		FogKey        string           `json:"fogKey"`
+		Explored      explored.Encoded `json:"explored"`
 		ExploredZones [][2]int         `json:"exploredZones"`
 		Markers       []map[string]any `json:"markers"`
 		Locations     []map[string]any `json:"locations"`
@@ -592,63 +589,313 @@ func TestSnapshotAPIFiltersLocations(t *testing.T) {
 		Players       []map[string]any `json:"players"`
 	}
 	r.json(t, &s)
-	if len(s.Locations) != 1 || s.Locations[0]["id"] != "loc-kept" {
-		t.Errorf("locations = %v", s.Locations)
+	ids := func(items []map[string]any) string {
+		var out []string
+		for _, it := range items {
+			out = append(out, it["id"].(string))
+		}
+		return strings.Join(out, ",")
 	}
-	if s.SavedAt != rfc(at(-3*time.Minute)) || len(s.ExploredZones) != 901 || len(s.Markers) != 1 ||
-		len(s.Bases) != 1 || len(s.Players) != 1 {
-		t.Errorf("snapshot body: savedAt=%s zones=%d markers=%d bases=%d players=%d",
-			s.SavedAt, len(s.ExploredZones), len(s.Markers), len(s.Bases), len(s.Players))
+	if ids(s.Locations) != "loc-kept" || ids(s.Markers) != "m1" || ids(s.Bases) != "b1" {
+		t.Errorf("kept locations=%s markers=%s bases=%s", ids(s.Locations), ids(s.Markers), ids(s.Bases))
+	}
+	if s.SavedAt != rfc(at(-3*time.Minute)) || len(s.ExploredZones) != 901 || len(s.Players) != 1 {
+		t.Errorf("snapshot body: savedAt=%s zones=%d players=%d", s.SavedAt, len(s.ExploredZones), len(s.Players))
+	}
+	if !regexp.MustCompile(`^[0-9a-f]{16}$`).MatchString(s.FogKey) || s.Explored.Source != explored.SourceZones {
+		t.Errorf("fogKey=%q explored.source=%q", s.FogKey, s.Explored.Source)
+	}
+	m, err := explored.Decode(s.Explored)
+	if err != nil || !m.At(70, 20) || m.At(-5000, -5000) {
+		t.Errorf("explored mask: err=%v", err)
 	}
 	if r.header.Get("Cache-Control") != "no-store" {
 		t.Errorf("cache-control = %q", r.header.Get("Cache-Control"))
 	}
 }
 
-func TestLocationZone(t *testing.T) {
-	cases := []struct {
-		x, z   float32
-		zx, zz int
-	}{
-		{0, 0, 0, 0}, {31.9, -32, 0, 0}, {32, -32.1, 1, -1}, {70, 20, 1, 0}, {-96.5, 95, -2, 1},
+// Fix 4: a kept portal whose pair names a partner that was filtered out
+// as unexplored must have its own pair blanked, so the response reveals
+// only that the kept portal exists, not that an unexplored partner does.
+// A pair kept on both ends is left alone.
+func TestSnapshotBlanksAPairToAFilteredPartner(t *testing.T) {
+	e := newEnv(t)
+	snap := testSnapshot("s1", at(-time.Minute))
+	snap.Markers = append(snap.Markers,
+		extract.Marker{ID: "p-kept", Kind: "portal", X: 1, Z: 2, Label: "home", Pair: "p-dropped"},
+		extract.Marker{ID: "p-dropped", Kind: "portal", X: -5000, Z: -5000, Label: "home", Pair: "p-kept"},
+		extract.Marker{ID: "p-kept-2", Kind: "portal", X: 3, Z: 4, Label: "away", Pair: "p-kept-3"},
+		extract.Marker{ID: "p-kept-3", Kind: "portal", X: 5, Z: 6, Label: "away", Pair: "p-kept-2"},
+	)
+	if err := e.post("alpha", "alpha-token", "snapshot", snap); err != nil {
+		t.Fatal(err)
 	}
-	for _, c := range cases {
-		if zx, zz := locationZone(c.x, c.z); zx != c.zx || zz != c.zz {
-			t.Errorf("zone(%v,%v) = %d,%d want %d,%d", c.x, c.z, zx, zz, c.zx, c.zz)
+	cookie := e.mustUnlock("alpha")
+	var s struct {
+		Markers []extract.Marker `json:"markers"`
+	}
+	e.get("/api/servers/alpha/snapshot", cookie).json(t, &s)
+	byID := make(map[string]extract.Marker, len(s.Markers))
+	for _, m := range s.Markers {
+		byID[m.ID] = m
+	}
+	if _, ok := byID["p-dropped"]; ok {
+		t.Fatalf("unexplored portal was not filtered: %+v", byID)
+	}
+	if got := byID["p-kept"].Pair; got != "" {
+		t.Errorf("p-kept.pair = %q, want blank (partner was filtered out)", got)
+	}
+	if got := byID["p-kept-2"].Pair; got != "p-kept-3" {
+		t.Errorf("p-kept-2.pair = %q, want p-kept-3 (both kept)", got)
+	}
+	if got := byID["p-kept-3"].Pair; got != "p-kept-2" {
+		t.Errorf("p-kept-3.pair = %q, want p-kept-2 (both kept)", got)
+	}
+}
+
+// snapshotView is the part of the snapshot API the fog tests read.
+type snapshotView struct {
+	FogKey   string           `json:"fogKey"`
+	Explored explored.Encoded `json:"explored"`
+}
+
+func (e *env) snapshotView(cookie string) snapshotView {
+	e.t.Helper()
+	r := e.get("/api/servers/alpha/snapshot", cookie)
+	if r.code != 200 {
+		e.t.Fatalf("snapshot: %d %s", r.code, r.body)
+	}
+	var v snapshotView
+	r.json(e.t, &v)
+	return v
+}
+
+// An old-format snapshot (exploredZones only) and a new one (explored)
+// both yield a fog key; the key follows exploration, not saves.
+func TestOldAndNewSnapshotFormatsBothYieldAFogKey(t *testing.T) {
+	e := newEnv(t)
+	cookie := e.mustUnlock("alpha")
+	if err := e.post("alpha", "alpha-token", "snapshot", testSnapshot("old", at(-3*time.Minute))); err != nil {
+		t.Fatal(err)
+	}
+	old := e.snapshotView(cookie)
+	if old.FogKey == "" || old.Explored.Source != explored.SourceZones {
+		t.Fatalf("old format: %+v", old)
+	}
+
+	m := explored.New()
+	for py := 1000; py < 1100; py++ {
+		for px := 1000; px < 1100; px++ {
+			m.Set(px, py)
+		}
+	}
+	enc := explored.Encode(m, explored.SourceTables)
+	s1 := testSnapshot("new-1", at(-2*time.Minute))
+	s1.Explored = &enc
+	if err := e.post("alpha", "alpha-token", "snapshot", s1); err != nil {
+		t.Fatal(err)
+	}
+	v1 := e.snapshotView(cookie)
+	if v1.Explored.Source != explored.SourceTables || v1.FogKey == old.FogKey || v1.Explored.Bits != enc.Bits {
+		t.Fatalf("new format: source=%q key=%q (old %q)", v1.Explored.Source, v1.FogKey, old.FogKey)
+	}
+	var c cardJSON
+	e.get("/api/servers/alpha", cookie).json(t, &c)
+	if c.World == nil || c.World.ExploredPct != m.Percent() {
+		t.Fatalf("card exploredPct = %+v, want %v", c.World, m.Percent())
+	}
+
+	s2 := testSnapshot("new-2", at(-time.Minute)) // a later save, same exploration
+	s2.Explored = &enc
+	if err := e.post("alpha", "alpha-token", "snapshot", s2); err != nil {
+		t.Fatal(err)
+	}
+	if v2 := e.snapshotView(cookie); v2.FogKey != v1.FogKey {
+		t.Fatalf("fog key changed without new exploration: %q -> %q", v1.FogKey, v2.FogKey)
+	}
+}
+
+func TestIngestRejectsABadExploredMask(t *testing.T) {
+	e := newEnv(t)
+	good := explored.Encode(explored.New(), explored.SourceTables)
+	for name, bad := range map[string]explored.Encoded{
+		"cell": {Source: good.Source, Cell: 64, Size: good.Size, Bits: good.Bits},
+		"bits": {Source: good.Source, Cell: good.Cell, Size: good.Size, Bits: "AAAA"},
+	} {
+		snap := testSnapshot("bad-"+name, at(-time.Minute))
+		snap.Explored = &bad
+		err := e.post("alpha", "alpha-token", "snapshot", snap)
+		var se *ingest.StatusError
+		if !errors.As(err, &se) || se.Code != 400 {
+			t.Errorf("%s: err = %v, want 400", name, err)
 		}
 	}
 }
 
-// Case 9: tiles.
-func TestTiles(t *testing.T) {
+// Case 9: fog tiles.
+func TestFogTiles(t *testing.T) {
 	e := newEnv(t)
 	cookie := e.mustUnlock("alpha")
 	key := e.tiles.Key(testSeed, testGen)
-	tile := "/tiles/alpha/" + key + "/0/0/0.png"
-
-	if r := e.get(tile, cookie); r.code != 404 {
+	url := func(fogKey string, z, x, y int) string {
+		return fmt.Sprintf("/tiles/alpha/%s/%s/%d/%d/%d.png", key, fogKey, z, x, y)
+	}
+	if r := e.get(url("0123456789abcdef", 0, 0, 0), cookie); r.code != 404 {
 		t.Fatalf("before snapshot: %d", r.code)
 	}
+	if err := e.post("alpha", "alpha-token", "snapshot", testSnapshot("s1", at(-2*time.Minute))); err != nil {
+		t.Fatal(err)
+	}
+	fk := e.snapshotView(cookie).FogKey
+	if r := e.get(url(fk, 0, 0, 0), cookie); r.code != 404 {
+		t.Fatalf("tiles still queued: %d", r.code)
+	}
+	e.waitTiles()
+
+	immutable := func(r resp) {
+		t.Helper()
+		if cc := r.header.Get("Cache-Control"); cc != "public, max-age=31536000, immutable" {
+			t.Errorf("cache-control = %q", cc)
+		}
+		if ct := r.header.Get("Content-Type"); ct != "image/png" {
+			t.Errorf("content-type = %q", ct)
+		}
+	}
+
+	// Clear (z5 17,14 lies deep inside the explored block): the terrain
+	// file, byte for byte.
+	r := e.get(url(fk, 5, 17, 14), cookie)
+	disk, err := os.ReadFile(filepath.Join(e.tiles.Dir(testSeed, testGen), "5", "17", "14.png"))
+	if err != nil || r.code != 200 || !bytes.Equal(r.body, disk) {
+		t.Fatalf("clear tile: %d, same as disk %v (%v)", r.code, bytes.Equal(r.body, disk), err)
+	}
+	immutable(r)
+
+	// Fog (z5 2,16, 8.5 km west of anything explored): the texture alone.
+	// Its terrain file was never written, so this path reads no terrain.
+	r = e.get(url(fk, 5, 2, 16), cookie)
+	if r.code != 200 {
+		t.Fatalf("fog tile: %d %s", r.code, r.body)
+	}
+	immutable(r)
+	img := decodeTile(t, r.body)
+	for _, p := range [][2]int{{0, 0}, {17, 200}, {255, 255}} {
+		cr, cg, cb := fog.TexturePixel(2*256+p[0], 16*256+p[1])
+		if c := img.NRGBAAt(p[0], p[1]); c != (color.NRGBA{cr, cg, cb, 255}) {
+			t.Errorf("fog tile pixel %v = %v, want the texture", p, c)
+		}
+	}
+
+	// Edge (z5 16,15: the block's west and south rims run through it):
+	// terrain in the middle, partly fogged at the rim.
+	r = e.get(url(fk, 5, 16, 15), cookie)
+	if r.code != 200 {
+		t.Fatalf("edge tile: %d %s", r.code, r.body)
+	}
+	immutable(r)
+	img = decodeTile(t, r.body)
+	if c := img.NRGBAAt(128, 128); c != testTerrain {
+		t.Errorf("edge tile centre = %v, want terrain %v", c, testTerrain)
+	}
+	if c := img.NRGBAAt(0, 128); c == testTerrain {
+		t.Errorf("edge tile west rim = %v, want fog blended in", c)
+	}
+	if again := e.get(url(fk, 5, 16, 15), cookie); !bytes.Equal(again.body, r.body) {
+		t.Error("a repeat request composed a different tile")
+	}
+
+	// z6 32,30: from its z5 parent 16,15, upscaled.
+	r = e.get(url(fk, 6, 32, 30), cookie)
+	if r.code != 200 {
+		t.Fatalf("z6 tile: %d %s", r.code, r.body)
+	}
+	if c := decodeTile(t, r.body).NRGBAAt(255, 0); c != testTerrain {
+		t.Errorf("z6 tile inside the block = %v, want terrain", c)
+	}
+
+	for _, p := range []string{
+		"/tiles/alpha/1-0-r1/" + fk + "/0/0/0.png", // wrong tiles key
+		url(fk, 7, 0, 0), // z out of range
+		url(fk, 0, 1, 0), // x out of range for z
+		"/tiles/alpha/" + key + "/" + fk + "/0/0/-1.png", // negative
+		"/tiles/alpha/" + key + "/" + fk + "/0/0/0",      // no .png
+		"/tiles/alpha/" + key + "/" + fk + "/0/0/0.jpg",  // not .png
+		"/tiles/alpha/" + key + "/" + fk + "/a/0/0.png",  // not a number
+		url(fk, 5, 15, 15),                   // edge tile, terrain missing on disk
+		"/tiles/alpha/" + key + "/0/0/0.png", // the removed raw route
+	} {
+		if r := e.get(p, cookie); r.code != 404 {
+			t.Errorf("%s: %d, want 404", p, r.code)
+		}
+	}
+	if r := e.get(url(fk, 5, 17, 14), ""); r.code != 404 {
+		t.Errorf("no cookie: %d", r.code)
+	}
+
+	// New exploration: a new fog key; the old one is gone.
+	m := explored.New()
+	for py := 1000; py < 1100; py++ {
+		for px := 1000; px < 1100; px++ {
+			m.Set(px, py)
+		}
+	}
+	enc := explored.Encode(m, explored.SourceTables)
+	s2 := testSnapshot("s2", at(-time.Minute))
+	s2.Explored = &enc
+	if err := e.post("alpha", "alpha-token", "snapshot", s2); err != nil {
+		t.Fatal(err)
+	}
+	fk2 := e.snapshotView(cookie).FogKey
+	// The old key still looks like a fog key, so it now redirects to the
+	// live one (fix round 1, item 2) rather than 404ing.
+	stale := e.getNoRedirect(url(fk, 0, 0, 0), cookie)
+	if fk2 == fk || stale.code != 302 || stale.header.Get("Location") != url(fk2, 0, 0, 0) || e.get(url(fk2, 0, 0, 0), cookie).code != 200 {
+		t.Errorf("after new exploration: key %q -> %q (stale redirect %d %q)", fk, fk2, stale.code, stale.header.Get("Location"))
+	}
+
+	var c cardJSON
+	e.get("/api/servers/alpha", cookie).json(t, &c)
+	if c.Tiles.State != "complete" || c.Tiles.Key != key || c.Tiles.Done != 1 || c.Tiles.Total != 1 {
+		t.Errorf("card tiles = %+v", c.Tiles)
+	}
+}
+
+func decodeTile(t *testing.T, b []byte) *image.NRGBA {
+	t.Helper()
+	img, err := png.Decode(bytes.NewReader(b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := img.Bounds(); b.Dx() != 256 || b.Dy() != 256 {
+		t.Fatalf("tile is %v", b)
+	}
+	out := image.NewNRGBA(img.Bounds())
+	draw.Draw(out, out.Rect, img, image.Point{}, draw.Src)
+	return out
+}
+
+// Fix round 1, item 4: a z6 tile classed Clear must serve the upscaled
+// terrain (composed, not ServeFile: only z0-z5 Clear tiles reach that
+// path), not 404 and not the fog texture.
+func TestFogTilesZ6Clear(t *testing.T) {
+	e := newEnv(t)
+	cookie := e.mustUnlock("alpha")
+	key := e.tiles.Key(testSeed, testGen)
 	if err := e.post("alpha", "alpha-token", "snapshot", testSnapshot("s1", at(-time.Minute))); err != nil {
 		t.Fatal(err)
 	}
-	if r := e.get(tile, cookie); r.code != 404 {
-		t.Fatalf("queued: %d", r.code)
-	}
+	fk := e.snapshotView(cookie).FogKey
+	e.waitTiles()
 
-	e.runTiles()
-	close(e.release)
-	deadline := time.Now().Add(5 * time.Second)
-	for e.tiles.Status(testSeed, testGen).State != tileset.StateComplete {
-		if time.Now().After(deadline) {
-			t.Fatal("render did not complete")
-		}
-		time.Sleep(2 * time.Millisecond)
-	}
-
-	r := e.get(tile, cookie)
-	if r.code != 200 || string(r.body) != "\x89PNG fake" {
-		t.Fatalf("complete: %d %q", r.code, r.body)
+	// z6 34,28: a child quadrant of z5 17,14, which TestFogTiles already
+	// establishes is Clear (656...1312 m: deep inside the explored
+	// block). EdgeWidth only shrinks from z5 to z6, and a child tile's
+	// cells are a subset of its parent's, so a Clear z5 parent's children
+	// stay Clear at z6.
+	url := fmt.Sprintf("/tiles/alpha/%s/%s/6/34/28.png", key, fk)
+	r := e.get(url, cookie)
+	if r.code != 200 {
+		t.Fatalf("z6 clear tile: %d %s", r.code, r.body)
 	}
 	if cc := r.header.Get("Cache-Control"); cc != "public, max-age=31536000, immutable" {
 		t.Errorf("cache-control = %q", cc)
@@ -656,30 +903,11 @@ func TestTiles(t *testing.T) {
 	if ct := r.header.Get("Content-Type"); ct != "image/png" {
 		t.Errorf("content-type = %q", ct)
 	}
-
-	for _, p := range []string{
-		"/tiles/alpha/1-0-r1/0/0/0.png",      // wrong key
-		"/tiles/alpha/" + key + "/6/0/0.png", // z out of range
-		"/tiles/alpha/" + key + "/0/1/0.png", // x out of range for z
-		"/tiles/alpha/" + key + "/0/0/-1.png",
-		"/tiles/alpha/" + key + "/0/0/0",     // no .png
-		"/tiles/alpha/" + key + "/1/0/0.png", // in range but missing on disk
-		"/tiles/alpha/" + key + "/0/0/0.jpg",
-		"/tiles/alpha/" + key + "/a/0/0.png",
-	} {
-		if r := e.get(p, cookie); r.code != 404 {
-			t.Errorf("%s: %d, want 404", p, r.code)
+	img := decodeTile(t, r.body)
+	for _, p := range [][2]int{{0, 0}, {255, 0}, {0, 255}, {255, 255}} {
+		if c := img.NRGBAAt(p[0], p[1]); c != testTerrain {
+			t.Errorf("z6 clear tile pixel %v = %v, want upscaled terrain %v", p, c, testTerrain)
 		}
-	}
-	if r := e.get(tile, ""); r.code != 404 {
-		t.Errorf("no cookie: %d", r.code)
-	}
-
-	// Card reports the complete set.
-	var c cardJSON
-	e.get("/api/servers/alpha", cookie).json(t, &c)
-	if c.Tiles.State != "complete" || c.Tiles.Key != key || c.Tiles.Done != 1 || c.Tiles.Total != 1 {
-		t.Errorf("card tiles = %+v", c.Tiles)
 	}
 }
 
@@ -1024,16 +1252,9 @@ func TestGzipJSONCompressesLargePayloadsOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	key := e.tiles.Key(testSeed, testGen)
-	e.runTiles()
-	close(e.release)
-	deadline := time.Now().Add(5 * time.Second)
-	for e.tiles.Status(testSeed, testGen).State != tileset.StateComplete {
-		if time.Now().After(deadline) {
-			t.Fatal("render did not complete")
-		}
-		time.Sleep(2 * time.Millisecond)
-	}
-	tile := e.do("GET", "/tiles/alpha/"+key+"/0/0/0.png", nil, map[string]string{"Accept-Encoding": "gzip"}, cookie)
+	e.waitTiles()
+	fk := e.snapshotView(cookie).FogKey
+	tile := e.do("GET", "/tiles/alpha/"+key+"/"+fk+"/0/0/0.png", nil, map[string]string{"Accept-Encoding": "gzip"}, cookie)
 	if tile.code != 200 {
 		t.Fatalf("tile: %d", tile.code)
 	}

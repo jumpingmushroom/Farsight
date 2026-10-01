@@ -24,7 +24,6 @@
 -->
 <script lang="ts">
 	import type L from 'leaflet';
-	import { maskForZones } from '$lib/fog';
 	import { mapView } from '$lib/derive';
 	import {
 		buildMarkers,
@@ -73,7 +72,7 @@
 
 	const card = $derived(app.card?.id === app.currentId ? app.card : undefined);
 	const summary = $derived(app.servers.find((s) => s.id === app.currentId));
-	const mask = $derived(app.snapshot ? maskForZones(app.snapshot.exploredZones) : undefined);
+	const mask = $derived(app.snapshot?.mask);
 	const view = $derived(card ? mapView(card, app.now, app.tileSamples, layers.biomes) : undefined);
 	const markersOn = $derived(!!view?.markersOn);
 
@@ -240,7 +239,6 @@
 		defaultZoom={DEFAULT_ZOOM}
 		{dim}
 		filter={view?.filter ?? ''}
-		fog={fog && view?.overlay.kind !== 'charting'}
 		onready={(m) => {
 			map = m;
 			zoom = m.getZoom();

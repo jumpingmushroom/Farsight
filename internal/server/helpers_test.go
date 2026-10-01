@@ -5,6 +5,9 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -105,11 +108,7 @@ func newEnvBurst(t *testing.T, burst int) *env {
 		case <-ctx.Done():
 			return ctx.Err()
 		}
-		p := filepath.Join(dir, "0", "0", "0.png")
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			return err
-		}
-		if err := os.WriteFile(p, []byte("\x89PNG fake"), 0o644); err != nil {
+		if err := writeTestTiles(dir); err != nil {
 			return err
 		}
 		progress(1, 1)
@@ -129,6 +128,49 @@ func newEnvBurst(t *testing.T, burst int) *env {
 	e.srv = httptest.NewServer(h)
 	t.Cleanup(e.srv.Close)
 	return e
+}
+
+// testTerrain is the colour of every tile writeTestTiles writes.
+var testTerrain = color.NRGBA{R: 40, G: 120, B: 60, A: 255}
+
+// writeTestTiles writes the few terrain tiles the tests read, each a solid
+// testTerrain PNG: z0 (everything), z5 16,15 (x and z 0…656 m: the
+// explored block's south-west corner runs through it) and z5 17,14
+// (656…1312 m: deep inside the block).
+func writeTestTiles(dir string) error {
+	img := image.NewNRGBA(image.Rect(0, 0, 256, 256))
+	for i := 0; i < len(img.Pix); i += 4 {
+		img.Pix[i], img.Pix[i+1], img.Pix[i+2], img.Pix[i+3] = testTerrain.R, testTerrain.G, testTerrain.B, testTerrain.A
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return err
+	}
+	for _, t := range [][3]int{{0, 0, 0}, {5, 16, 15}, {5, 17, 14}} {
+		p := filepath.Join(dir, strconv.Itoa(t[0]), strconv.Itoa(t[1]), strconv.Itoa(t[2])+".png")
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(p, buf.Bytes(), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// waitTiles starts the tile worker, lets the fake render finish and waits
+// for the set to be complete.
+func (e *env) waitTiles() {
+	e.t.Helper()
+	e.runTiles()
+	close(e.release)
+	deadline := time.Now().Add(5 * time.Second)
+	for e.tiles.Status(testSeed, testGen).State != tileset.StateComplete {
+		if time.Now().After(deadline) {
+			e.t.Fatal("render did not complete")
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
 }
 
 // newEnvSplit is newEnv, but builds the public and ingest handlers
@@ -223,6 +265,28 @@ func (e *env) do(method, path string, body []byte, hdr map[string]string, cookie
 
 func (e *env) get(path, cookie string) resp { return e.do("GET", path, nil, nil, cookie) }
 
+// getNoRedirect is get but reports a 3xx response itself instead of
+// following it, so a test can see the redirect's status, Location and
+// Cache-Control (fix round 1, item 2: the fog-tile stale-key redirect).
+func (e *env) getNoRedirect(path, cookie string) resp {
+	e.t.Helper()
+	req, err := http.NewRequest("GET", e.srv.URL+path, nil)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	if cookie != "" {
+		req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: cookie})
+	}
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	res, err := client.Do(req)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer res.Body.Close()
+	b, _ := io.ReadAll(res.Body)
+	return resp{code: res.StatusCode, header: res.Header, body: b}
+}
+
 // unlock POSTs /api/unlock and returns the response plus the new cookie
 // value (empty if none was set).
 func (e *env) unlock(server, pass, cookie string) (resp, *http.Cookie) {
@@ -277,9 +341,10 @@ func (e *env) rawIngest(server, kind, token string, body []byte, gz bool) resp {
 	return e.do("POST", "/ingest/"+server+"/"+kind, body, hdr, "")
 }
 
-// testSnapshot builds an alpha snapshot: a 30x30 block of explored zones
-// at the origin plus one explored zone far outside the world radius, one
-// location in an explored zone and one in an unexplored zone.
+// testSnapshot builds an alpha snapshot in the pre-mask format (only
+// exploredZones): a 30x30 block of explored zones at the origin plus one
+// zone far outside the world radius, and one location, marker and base in
+// explored cells and one of each far outside them.
 func testSnapshot(saveID string, savedAt time.Time) extract.Snapshot {
 	var zones [][2]int16
 	for x := int16(0); x < 30; x++ {
@@ -306,8 +371,14 @@ func testSnapshot(saveID string, savedAt time.Time) extract.Snapshot {
 			{ID: "loc-kept", Kind: "location", Type: "Eikthyrnir", X: 70, Z: 20},      // zone (1,0): explored
 			{ID: "loc-dropped", Kind: "location", Type: "GDKing", X: -5000, Z: -5000}, // zone (-78,-78): not
 		},
-		Markers: []extract.Marker{{ID: "m1", Kind: "pin", X: 1, Z: 2, Label: "home"}},
-		Bases:   []extract.Base{{ID: "b1", Name: "Home", X: 3, Z: 4, Radius: 20, Pieces: 100, Builders: []extract.Builder{}}},
+		Markers: []extract.Marker{
+			{ID: "m1", Kind: "pin", X: 1, Z: 2, Label: "home"},
+			{ID: "m-far", Kind: "pin", X: -5000, Z: -5000, Label: "far"},
+		},
+		Bases: []extract.Base{
+			{ID: "b1", Name: "Home", X: 3, Z: 4, Radius: 20, Pieces: 100, Builders: []extract.Builder{}},
+			{ID: "b-far", Name: "Far", X: -5000, Z: 5000, Radius: 20, Pieces: 50, Builders: []extract.Builder{}},
+		},
 		Players: []extract.Player{{ID: 1, Name: "Alice"}},
 	}
 }

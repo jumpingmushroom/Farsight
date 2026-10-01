@@ -117,9 +117,24 @@ export interface Base {
 	builders: Builder[];
 }
 
+/** The explored mask as the API sends it (see explored.ts). */
+export interface Explored {
+	source: 'tables' | 'zones';
+	cell: number;
+	size: number;
+	/** base64 of gzip of the bitset. */
+	bits: string;
+}
+
 export interface SnapshotView {
 	savedAt: string;
-	exploredZones: [number, number][];
+	/** Names the fog tiles drawn from this snapshot's mask. */
+	fogKey: string;
+	explored: Explored;
+	/** Kept by the server until every client has moved to `explored`; unused. */
+	exploredZones?: [number, number][];
+	/** `explored`, decoded by getSnapshot (client-side only; absent if it can't be). */
+	mask?: Uint8Array;
 	markers: Marker[];
 	locations: Marker[];
 	bases: Base[];

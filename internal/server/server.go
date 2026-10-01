@@ -1,6 +1,6 @@
 // Package server is the farsight central backend's HTTP layer: agent
 // ingest (snapshots and log events), visitor unlock, the per-server card
-// and map-data API, and world map tile serving.
+// and map-data API, and fogged world map tile serving.
 package server
 
 import (
@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"runtime"
 	"strings"
 	"time"
 
@@ -46,7 +47,9 @@ const maxCookieLen = 4096
 
 type server struct {
 	Deps
-	tokens *tokenCache
+	tokens   *tokenCache
+	worlds   *worldCache
+	fogTiles *tileCache
 	// dummyHash is compared against for unlock attempts on an unknown
 	// server, so the response time doesn't reveal which ids exist. It is
 	// generated once, on first use, at the configured hashes' cost.
@@ -70,6 +73,8 @@ func newServer(d Deps) *server {
 	return &server{
 		Deps:           d,
 		tokens:         newTokenCache(),
+		worlds:         newWorldCache(d.Store, d.Log),
+		fogTiles:       newTileCache(fogTileCacheBytes, runtime.GOMAXPROCS(0)),
 		dummyHash:      newDummyHash(dummyCost(d.Config)),
 		dummyTokenHash: newDummyHash(dummyTokenCost(d.Config)),
 	}
@@ -111,7 +116,7 @@ func NewHandlers(d Deps) (public, ingest http.Handler) {
 	mux.Handle("GET /api/servers/{id}", gzipJSON(s.Log, http.HandlerFunc(s.card)))
 	mux.Handle("GET /api/servers/{id}/snapshot", gzipJSON(s.Log, http.HandlerFunc(s.snapshot)))
 
-	mux.HandleFunc("GET /tiles/{id}/{key}/{z}/{x}/{y}", s.tile)
+	mux.HandleFunc("GET /tiles/{id}/{key}/{fog}/{z}/{x}/{y}", s.fogTile)
 
 	// Anything else under the API prefixes is a JSON 404, never the UI.
 	// "/ingest/" is already registered above when SplitIngest is true.

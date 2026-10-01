@@ -6,10 +6,10 @@
 // for Leaflet divIcons.
 
 import { BOSS_BIOME } from './derive';
+import { isExplored } from './explored';
 import { fmtInt, fmtKm, fmtN } from './format';
-import { dir8, distance, zoneOf } from './geo';
+import { dir8, distance } from './geo';
 import { iconSvg, type IconName } from './icons/paths';
-import { ZN, ZOFF } from './fog';
 import type { Base, Marker, SnapshotView, WorldCard } from './types';
 
 export type { IconName } from './icons/paths';
@@ -88,7 +88,6 @@ export interface MapMarker {
 	layer: LayerKey;
 	x: number;
 	z: number;
-	zone: [number, number];
 	title: string;
 	tooltip: string;
 	pin: Pin;
@@ -224,7 +223,6 @@ function finish(d: Draft): MapMarker {
 		layer: LAYER_OF[d.type],
 		x: d.x,
 		z: d.z,
-		zone: zoneOf(d.x, d.z),
 		title: d.title,
 		tooltip: `${kicker} · ${d.tooltipTitle ?? d.title}`,
 		pin,
@@ -305,9 +303,14 @@ function portalMarker(m: Marker, byId: Map<string, Marker>, tagCount: Map<string
 	} else {
 		d.badges = [{ text: 'Unpaired', tone: 'ember' }];
 		const n = tagCount.get(tag) ?? 1;
+		// `m.pair` is also blank when the server kept this portal but filtered
+		// its partner out as unexplored (fix round 1, item 4): tagCount only
+		// counts markers the server actually sent, so a hidden partner looks
+		// identical to no partner existing. Say only what's true either way —
+		// nothing here claims no partner exists, or tells the player to build
+		// or retag one.
 		if (!tag) d.note = 'This portal has no tag, so it leads nowhere.';
-		else if (n <= 1)
-			d.note = `No other portal carries the tag “${tag}”, so this one leads nowhere. Build a partner with the same tag, or retag it.`;
+		else if (n <= 1) d.note = `No explored portal carries the tag “${tag}”, so it leads nowhere yet.`;
 		else d.note = `${n} portals share the tag “${tag}”, so the game can’t pair them.`;
 	}
 	return finish(d);
@@ -486,14 +489,8 @@ export function buildMarkers(snap: SnapshotView, world?: WorldCard): MapMarker[]
 	return out.sort((a, b) => SORT[a.type] - SORT[b.type]);
 }
 
-function explored(m: MapMarker, mask: Uint8Array): boolean {
-	const col = m.zone[0] + ZOFF;
-	const row = ZOFF - m.zone[1];
-	return col >= 0 && col < ZN && row >= 0 && row < ZN && mask[row * ZN + col] === 1;
-}
-
 function fogVisible(m: MapMarker, mask: Uint8Array | undefined, fog: boolean): boolean {
-	return !fog || !mask || explored(m, mask);
+	return !fog || !mask || isExplored(mask, m.x, m.z);
 }
 
 /** Markers whose layer is on, that are explored (when fog is on), and not zoom-gated. */

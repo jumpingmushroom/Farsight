@@ -2,12 +2,12 @@
   Scale and cursor readout (DESIGN-NOTES §3.14, §5.7, §5.8): the scale-bar
   bracket and label for the map's zoom, then the world coordinates under the
   pointer (rAF-throttled), then a status slot: "World edge" outside the disc,
-  "Unexplored" when the fog is on and the zone isn't explored, otherwise
+  "Unexplored" when the fog is on and the 12 m cell isn't explored, otherwise
   empty (the client has no biome data, [GAP]). Hidden on coarse pointers.
 -->
 <script lang="ts">
 	import type L from 'leaflet';
-	import { isExplored } from '$lib/fog';
+	import { isExplored } from '$lib/explored';
 	import { fmtN } from '$lib/format';
 	import { fromLatLng, insideWorld, scaleBar } from '$lib/geo';
 

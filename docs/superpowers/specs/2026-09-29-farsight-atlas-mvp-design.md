@@ -178,6 +178,7 @@ exactly — this section is kept in sync with that file):
   globalKeys[],
   bosses: [{ key, name, defeated }],                // in game progression order
   exploredZones: [[x,z]…],                          // 64 m zones
+  explored?: { source, cell, size, bits },          // 12 m mask: "tables"|"zones", 12, 2048, base64(gzip(bitset)) (fog spec)
   locations: [{ id, kind, type, label, x, y, z }],  // only types we mark; same shape as markers
   markers: [{ id, kind, x, y, z, label?, owner?, species?, type?, pair? }],
   bases: [{ id, name, x, z, radius, pieces, builders[{id,name?,pieces}] }],
@@ -224,14 +225,14 @@ worlds); the name defaults to
   all 1,365 tiles of the z0–z5 pyramid (downsampled levels included; `done`
   reaches `total` only once the completion marker is written) and feeds the
   design's "Charting the world for the first time · 28 % · 389 of 1,365
-  tiles" state. Terrain tiles are never fogged. **Fog is a client-side
-  mask** built from `exploredZones`, so a new save never re-renders terrain.
-  The browser draws it as one viewport-sized canvas layer (a tiled layer
-  leaves 1 px seams at fractional zoom).
-  Tiles are served per server and key at `/tiles/{id}/{key}/{z}/{x}/{y}.png`,
-  where `key` is the tile set's directory name
-  (`{seed}-{genVersion}-r{renderVersion}`), only while it is that server's
-  current complete set, and with immutable caching.
+  tiles" state. The rendered terrain tiles on disk are never fogged. Since
+  `2026-10-01-fog-tiles-design.md` the **fog is drawn into the served
+  tiles** from the 12 m explored mask (it was a client-side canvas before).
+  Tiles are served per server, key and fog key at
+  `/tiles/{id}/{key}/{fog}/{z}/{x}/{y}.png` (z0–z6), where `key` is the tile
+  set's directory name (`{seed}-{genVersion}-r{renderVersion}`), only while
+  it is that server's current complete set and `fog` its current fog key,
+  with immutable caching.
 - **Web API (JSON):** see the API contract below.
 - **Auth:** each server has a shared passphrase (bcrypt hash in config).
   `POST /api/unlock {server, passphrase}` sets an HMAC-signed, HttpOnly cookie
@@ -268,10 +269,16 @@ GET  /api/servers/{id}                    -> Card
                 exploredPct, savedAt, readAt, saveIntervalSec?},
        tiles:  {state:"none"|"queued"|"rendering"|"complete"|"refused", done, total, key?}
      }
-GET  /api/servers/{id}/snapshot           -> {savedAt, exploredZones, markers, locations, bases, players}
-                                             (locations filtered to explored zones; 404 if no snapshot)
-GET  /tiles/{id}/{key}/{z}/{x}/{y}.png    -> PNG (only when key is the server's current complete set;
-                                             Cache-Control: public, max-age=31536000, immutable)
+GET  /api/servers/{id}/snapshot           -> {savedAt, fogKey, explored, exploredZones, markers, locations, bases, players}
+                                             (markers, locations and bases filtered to the explored mask, which also
+                                             blanks a kept portal's `pair` when its partner was filtered out, so it
+                                             shows as unpaired rather than revealing a hidden partner; 404 if no
+                                             snapshot)
+GET  /tiles/{id}/{key}/{fog}/{z}/{x}/{y}.png -> PNG, z0–z6 (served when key is the server's current complete set
+                                             and fog its current fog key; a stale but well-formed fog key 302s,
+                                             Cache-Control: no-store, to the same URL under the current fog key; a
+                                             malformed key or a locked server 404s; a served tile's Cache-Control is
+                                             public, max-age=31536000, immutable)
 POST /api/unlock {server, passphrase}     -> 204 + Set-Cookie | 401 {"error":"wrong passphrase"} | 429 {"error":"too many attempts"}
 GET  /healthz                             -> 200 "ok"
 ```
@@ -281,7 +288,7 @@ Status rules, applied at read time:
 - Otherwise `restarting` after `server_stopped`, `starting` after `server_starting` or `server_boot`, and `online` after `server_ready`.
 - `unknown` before any event has been seen.
 
-`exploredPct` = explored zones ÷ zones whose centre lies within 10 500 m (a constant computed once), × 100, rounded to 1 decimal place.
+`exploredPct` = explored 12 m cells ÷ cells whose centre lies within 10 500 m (a constant computed once), × 100, rounded to 1 decimal place.
 
 `saveIntervalSec` = the median gap between the last up to 10 `world_saved` events. It's omitted when there are fewer than 3.
 
@@ -364,10 +371,11 @@ MVP.
 - `logwatch`: tests against `hack/fixtures/valheim-crossplay.log` from the
   cloudcluster repo plus a Steam fixture.
 - `api`: httptest for auth (unlock, cookie, rate limit), ingest token checks,
-  explored-zone filtering.
+  filtering to the explored mask, fog tiles (classes, stale-key redirect,
+  cache).
 - Web: Vitest unit tests for the logic outside components (API client, app
   state, formatters, derived state, markers, clustering, search, geometry,
-  fog masks, share links, clipboard), and Playwright e2e in
+  the 12 m explored mask, tile swaps, share links, clipboard), and Playwright e2e in
   a `desktop` (1440×900) and a `mobile` (390×844, touch) project against a
   real `farsight serve` seeded by `cmd/farsight-seed` (fixture snapshot and
   events with invented names, times shifted to now, a fake complete tile set

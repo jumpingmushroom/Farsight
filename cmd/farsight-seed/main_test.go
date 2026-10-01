@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jumpingmushroom/farsight/internal/explored"
 	"github.com/jumpingmushroom/farsight/internal/extract"
 	"github.com/jumpingmushroom/farsight/internal/logwatch"
 	"github.com/jumpingmushroom/farsight/internal/tiles"
@@ -203,6 +204,49 @@ func TestRunPostsSnapshotAndEvents(t *testing.T) {
 	}
 }
 
+func TestRunExploredRasterisesTheFixtureZones(t *testing.T) {
+	rec := &received{}
+	srv := ingestStub(t, rec)
+	defer srv.Close()
+	cfg := config{URL: srv.URL, Server: "demo", TokenEnv: "T", Snapshot: fixtureSnapshot, Explored: true}
+	getenv := func(string) string { return "demo-token" }
+	if err := run(context.Background(), cfg, getenv, time.Now(), io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if rec.snap.Explored == nil || rec.snap.Explored.Source != explored.SourceZones {
+		t.Fatalf("explored = %+v, want a zones mask", rec.snap.Explored)
+	}
+	m, err := explored.Decode(*rec.snap.Explored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Every fixture marker is explored except portal-4 and tame-4, and the
+	// one outside crypt is not (TestFixtures checks the same on zones; fix
+	// round 1, item 6 added the two outside markers).
+	for _, mk := range rec.snap.Markers {
+		if got, want := m.At(float64(mk.X), float64(mk.Z)), mk.ID != "portal-4" && mk.ID != "tame-4"; got != want {
+			t.Errorf("marker %s explored = %v, want %v", mk.ID, got, want)
+		}
+	}
+	for _, l := range rec.snap.Locations {
+		if got, want := m.At(float64(l.X), float64(l.Z)), l.ID != "loc-311"; got != want {
+			t.Errorf("location %s explored = %v, want %v", l.ID, got, want)
+		}
+	}
+
+	// Without -explored the snapshot goes as written: no mask.
+	rec2 := &received{}
+	srv2 := ingestStub(t, rec2)
+	defer srv2.Close()
+	cfg.URL, cfg.Explored = srv2.URL, false
+	if err := run(context.Background(), cfg, getenv, time.Now(), io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if rec2.snap.Explored != nil {
+		t.Fatal("explored sent without -explored")
+	}
+}
+
 func TestRunNeedsToken(t *testing.T) {
 	cfg := config{URL: "http://127.0.0.1:1", Server: "demo", TokenEnv: "FARSIGHT_SEED_TOKEN", Events: fixtureEvents}
 	err := run(context.Background(), cfg, func(string) string { return "" }, time.Now(), io.Discard)
@@ -289,13 +333,23 @@ func TestFixtures(t *testing.T) {
 		t.Fatalf("%d locations outside explored zones, want exactly the one crypt", outside)
 	}
 	counts := map[string]int{}
+	outsideMarkers := 0
 	for _, m := range snap.Markers {
 		counts[m.Kind]++
 		if !explored[zone(m.X, m.Z)] {
-			t.Errorf("marker %s outside explored zones", m.ID)
+			outsideMarkers++
+			// Fix round 1, item 6: portal-4 (mountain's partner) and tame-4
+			// are deliberately placed outside every explored zone, so the
+			// server filters them (and blanks portal-3's pair).
+			if m.ID != "portal-4" && m.ID != "tame-4" {
+				t.Errorf("marker %s outside explored zones", m.ID)
+			}
 		}
 	}
-	if counts["portal"] != 5 || counts["bed"] != 2 || counts["tombstone"] != 1 || counts["tame"] != 3 || counts["sign"] != 2 {
+	if outsideMarkers != 2 {
+		t.Fatalf("%d markers outside explored zones, want exactly portal-4 and tame-4", outsideMarkers)
+	}
+	if counts["portal"] != 5 || counts["bed"] != 2 || counts["tombstone"] != 1 || counts["tame"] != 4 || counts["sign"] != 2 {
 		t.Fatalf("marker counts = %v", counts)
 	}
 

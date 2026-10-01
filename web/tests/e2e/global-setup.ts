@@ -7,13 +7,18 @@
  *     the temp dir. `farsight-seed` is always built there (cached by go).
  *  2. A fresh temp dir under the OS temp dir holds the config, data dir,
  *     server log and binaries. The config has `demo` (crossplay, address,
- *     Discord hint, max 10) and `quiet` (Steam only, never seeded), with
- *     passphrases and agent tokens hashed by `farsight hash`, cookieSecure
- *     false, and a free 127.0.0.1 port.
+ *     Discord hint, max 10), `quiet` (Steam only, never seeded) and `swap`
+ *     (seeded once here and never touched again by anything shared — see
+ *     below), with passphrases and agent tokens hashed by `farsight hash`,
+ *     cookieSecure false, and a free 127.0.0.1 port.
  *  3. `farsight-seed -fake-tiles` writes a complete tile set before serve
  *     starts, so the snapshot post finds the map ready; serve starts, /healthz
  *     is awaited, then demo's snapshot and events are posted with -shift (the
- *     newest event lands at now − 1 min).
+ *     newest event lands at now − 1 min) and -explored (the snapshot carries
+ *     a 12 m explored mask rasterised from its zones, as a current agent's).
+ *     `swap` gets the same snapshot (same world seed, so it shares demo's
+ *     tile set on disk) but no events, so a test can repost to it with a new
+ *     fog key without racing a parallel test's view of demo's state.
  *  4. Keep-alive: heartbeats go stale 3 min after the last one, and a re-seed
  *     can't refresh them (events dedupe by id). A timer in this (runner)
  *     process posts one fresh heartbeat for demo at once and then every 30 s,
@@ -166,6 +171,14 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 					maxPlayers: 10,
 					passphraseHash: hash('quiet-pass'),
 					agentTokenHash: hash('quiet-token')
+				},
+				{
+					id: 'swap',
+					name: 'Swap Test',
+					crossplay: false,
+					maxPlayers: 10,
+					passphraseHash: hash('swap-pass'),
+					agentTokenHash: hash('swap-token')
 				}
 			]
 		};
@@ -187,7 +200,14 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 		await waitHealthy(base, proc, log);
 
 		process.env.FARSIGHT_SEED_TOKEN = 'demo-token';
-		run(seed, ['-url', base, '-server', 'demo', '-shift', '-snapshot', snapshot, '-events', events]);
+		run(seed, ['-url', base, '-server', 'demo', '-shift', '-explored', '-snapshot', snapshot, '-events', events]);
+		// `swap`: seeded once, here, for the tile-swap e2e test alone (fix
+		// round 2, item 2) — never posted to again by anything shared, so a
+		// test reposting to it (a new fog key) can't race a parallel test's
+		// view of demo's savedAt, fog key or "map updated" pill.
+		run(seed, ['-url', base, '-server', 'swap', '-shift', '-explored', '-snapshot', snapshot], {
+			env: { ...process.env, FARSIGHT_SEED_TOKEN: 'swap-token' }
+		});
 
 		// 4. Keep-alive.
 		let n = 0;

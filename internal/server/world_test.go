@@ -1,0 +1,205 @@
+package server
+
+import (
+	"bytes"
+	"compress/gzip"
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/jumpingmushroom/farsight/internal/explored"
+	"github.com/jumpingmushroom/farsight/internal/extract"
+	"github.com/jumpingmushroom/farsight/internal/fog"
+	"github.com/jumpingmushroom/farsight/internal/store"
+)
+
+var discardLog = slog.New(slog.DiscardHandler)
+
+// Fix 1: a padded-but-valid explored encoding (one a broken or hostile
+// agent could send: Decode only checks the first maskBytes+1 decompressed
+// bytes, so an extra, empty gzip member still decodes) must never reach
+// browsers as received. newWorldState re-encodes the decoded mask, so the
+// stored enc is byte-identical to a canonical Encode of the same mask.
+func TestNewWorldStateCanonicalizesTheExploredEncoding(t *testing.T) {
+	m := explored.New()
+	m.Set(5, 5)
+	m.Set(1000, 1500)
+
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write(m.Bits()); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// An extra, empty gzip member: it decompresses to zero extra bytes
+	// (gzip.Reader concatenates multistream members by default), so
+	// Decode still accepts it, but it pads the wire form.
+	zw2 := gzip.NewWriter(&buf)
+	if err := zw2.Close(); err != nil {
+		t.Fatal(err)
+	}
+	padded := explored.Encoded{
+		Source: explored.SourceTables,
+		Cell:   explored.CellMetres,
+		Size:   explored.Size,
+		Bits:   base64.StdEncoding.EncodeToString(buf.Bytes()),
+	}
+
+	decoded, err := explored.Decode(padded)
+	if err != nil {
+		t.Fatalf("decode padded: %v", err)
+	}
+	canonical := explored.Encode(decoded, explored.SourceTables)
+	if padded.Bits == canonical.Bits {
+		t.Fatal("test input is not actually padded relative to the canonical encoding")
+	}
+
+	snap := &extract.Snapshot{ServerID: "alpha", SaveID: "s1", SavedAt: t0, Explored: &padded}
+	w := newWorldState(snap, discardLog)
+	if w.enc != canonical {
+		t.Errorf("enc = %+v, want canonical %+v", w.enc, canonical)
+	}
+}
+
+// newTestWorldCache is a worldCache over a fresh in-memory store, for
+// tests that drive it directly rather than through the HTTP handlers.
+func newTestWorldCache(t *testing.T) (*worldCache, *store.Store) {
+	t.Helper()
+	st, err := store.Open("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	return newWorldCache(st, discardLog), st
+}
+
+// putTestSnapshot stores a testSnapshot for serverID (testSnapshot always
+// stamps ServerID "alpha"; callers for another id must override it in
+// mutate), optionally mutated before marshalling.
+func putTestSnapshot(t *testing.T, st *store.Store, serverID, saveID string, savedAt time.Time, mutate func(*extract.Snapshot)) {
+	t.Helper()
+	snap := testSnapshot(saveID, savedAt)
+	snap.ServerID = serverID
+	if mutate != nil {
+		mutate(&snap)
+	}
+	blob, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutSnapshot(context.Background(), serverID, saveID, savedAt, snap.ReadAt, blob); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Fix 2: the field and class map depend only on the mask, so a later
+// snapshot whose fog key hasn't changed must reuse the previous state's,
+// not pay the rebuild again. A changed mask gets its own.
+func TestWorldCacheReusesFogDataWhenTheFogKeyIsUnchanged(t *testing.T) {
+	c, st := newTestWorldCache(t)
+	ctx := context.Background()
+	putTestSnapshot(t, st, "alpha", "s1", at(-2*time.Minute), nil)
+
+	ws1, ok, err := c.get(ctx, "alpha")
+	if err != nil || !ok {
+		t.Fatalf("get 1: ok=%v err=%v", ok, err)
+	}
+	field1, classes1 := ws1.fogData()
+
+	// A later save, same exploration: the fog key is unchanged.
+	putTestSnapshot(t, st, "alpha", "s2", at(-time.Minute), nil)
+	ws2, ok, err := c.get(ctx, "alpha")
+	if err != nil || !ok {
+		t.Fatalf("get 2: ok=%v err=%v", ok, err)
+	}
+	if ws2.fogKey != ws1.fogKey {
+		t.Fatalf("fog key changed without new exploration: %q -> %q", ws1.fogKey, ws2.fogKey)
+	}
+	field2, classes2 := ws2.fogData()
+	if field2 != field1 || classes2 != classes1 {
+		t.Errorf("fog data rebuilt for an unchanged fog key: field %p -> %p, classes %p -> %p",
+			field1, field2, classes1, classes2)
+	}
+
+	// More exploration: a new fog key, new fog data.
+	putTestSnapshot(t, st, "alpha", "s3", at(0), func(s *extract.Snapshot) {
+		for x := int16(0); x < 40; x++ {
+			s.ExploredZones = append(s.ExploredZones, [2]int16{x, 40})
+		}
+	})
+	ws3, ok, err := c.get(ctx, "alpha")
+	if err != nil || !ok {
+		t.Fatalf("get 3: ok=%v err=%v", ok, err)
+	}
+	if ws3.fogKey == ws2.fogKey {
+		t.Fatal("fog key unchanged despite new exploration")
+	}
+	field3, _ := ws3.fogData()
+	if field3 == field2 {
+		t.Error("fog data shared across different fog keys")
+	}
+}
+
+// Fix 3: many goroutines call get for the same and different servers
+// while new snapshots are ingested. Every returned state must be
+// complete and its fog key must match the mask it carries. Run under
+// go test -race (CI does; there is no race detector in this sandbox).
+func TestWorldCacheGetIsConsistentUnderConcurrentIngestAndReads(t *testing.T) {
+	c, st := newTestWorldCache(t)
+	ctx := context.Background()
+	ids := []string{"alpha", "beta"}
+	for _, id := range ids {
+		putTestSnapshot(t, st, id, "s0", at(-time.Hour), nil)
+	}
+
+	const readers = 8
+	const saves = 20
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	for i := 0; i < readers; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			id := ids[n%len(ids)]
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				ws, ok, err := c.get(ctx, id)
+				if err != nil {
+					t.Errorf("get(%s): %v", id, err)
+					return
+				}
+				if !ok {
+					t.Errorf("get(%s): not found", id)
+					return
+				}
+				if ws.snap == nil || ws.mask == nil || ws.snap.ServerID != id {
+					t.Errorf("get(%s): incomplete or mismatched state %+v", id, ws)
+					return
+				}
+				if want := fog.Key(ws.enc.Source, ws.mask); ws.fogKey != want {
+					t.Errorf("get(%s): fogKey = %q, want %q for its own mask", id, ws.fogKey, want)
+					return
+				}
+			}
+		}(i)
+	}
+
+	for i := 0; i < saves; i++ {
+		id := ids[i%len(ids)]
+		putTestSnapshot(t, st, id, fmt.Sprintf("s%d", i+1), at(time.Duration(i)*time.Second), nil)
+	}
+	close(stop)
+	wg.Wait()
+}

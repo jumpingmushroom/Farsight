@@ -26,7 +26,7 @@ func legacySaveID(dbPath string) (string, os.FileInfo, error) {
 	return fmt.Sprintf("legacy:%d:%d", fi.ModTime().UnixNano(), fi.Size()), fi, nil
 }
 
-func readLegacy(dbPath, fwlPath string, fn func(*ZDO)) (*World, error) {
+func readLegacy(dbPath, fwlPath string, opt ReadOptions, fn func(*ZDO)) (*World, error) {
 	id, fi, err := legacySaveID(dbPath)
 	if err != nil {
 		return nil, err
@@ -55,7 +55,7 @@ func readLegacy(dbPath, fwlPath string, fn func(*ZDO)) (*World, error) {
 	n := int(r.I32())
 	var z ZDO
 	for i := 0; i < n; i++ {
-		if err := DecodeZDO(r, ver, &z); err != nil {
+		if err := decodeZDO(r, ver, &z, opt.KeepBytes); err != nil {
 			return nil, fmt.Errorf("zdo %d: %w", i, err)
 		}
 		fn(&z)

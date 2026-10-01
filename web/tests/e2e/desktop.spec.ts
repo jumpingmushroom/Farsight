@@ -1,9 +1,26 @@
 // Desktop (1440×900) e2e against the seeded `demo` and unseeded `quiet`
 // servers (global-setup.ts). Numbered tests follow the Task 9 brief; the
-// "carried" ones are the regressions carried over from reviews.
+// "carried" ones are the regressions carried over from reviews; the "fix"
+// ones are regressions carried over from code review fix rounds.
 import { test as pwTest } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { checkGuard, expect, pinsOfKind, test, unlock, watchGuard } from './helpers';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import {
+	checkGuard,
+	expect,
+	pinsOfKind,
+	postSnapshot,
+	refreshNow,
+	screenPixel,
+	test,
+	tilesLoaded,
+	unlock,
+	watchGuard,
+	worldToScreen
+} from './helpers';
+
+const FIXTURE_SNAPSHOT = fileURLToPath(new URL('../fixtures/snapshot.json', import.meta.url));
 
 const search = (page: Page) => page.getByRole('combobox', { name: 'Search the map' });
 const serverCard = (page: Page) => page.getByRole('region', { name: 'Server' });
@@ -72,125 +89,176 @@ test('fix · switching server clears the typed search query and closes the resul
 	await expect(page.getByRole('listbox', { name: 'Search results' })).toHaveCount(0);
 });
 
-test('3 · tiles load from the seeded tile set', async ({ page }) => {
+test('fix · switching to a server with no tiles leaves none of the old server’s on screen', async ({ page }) => {
+	// Fix round 2, item 1: AtlasMap used to defer removing the old tile
+	// layer on *any* change, not just a fog-key-only one, so demo's terrain
+	// stayed on screen under "Quiet Fjord" (which has no snapshot, so no
+	// tiles) until something else happened to clear it. The switcher must
+	// be used for the final switch (not a page reload, which would remount
+	// AtlasMap fresh and never exercise the bug): first both servers are
+	// unlocked via the share-link flow (as test 2 does), landing on quiet;
+	// the switcher goes to demo (tiles appear in the one mounted AtlasMap),
+	// then — the actual check — back to quiet.
+	await unlock(page, 'demo');
+	await page.goto('about:blank');
+	await page.goto('/#s=quiet&k=quiet-pass');
+	await expect(switcher(page)).toHaveAccessibleName('Switch server: Quiet Fjord');
+
+	await switcher(page).click();
+	await page.getByRole('listbox', { name: 'Servers' }).getByRole('option', { name: /^Demo/ }).click();
+	await expect(switcher(page)).toHaveAccessibleName('Switch server: Demo');
+	await tilesLoaded(page);
+	await expect(page.locator('img.leaflet-tile')).not.toHaveCount(0);
+
+	await switcher(page).click();
+	await page.getByRole('listbox', { name: 'Servers' }).getByRole('option', { name: /Quiet Fjord/ }).click();
+	await expect(switcher(page)).toHaveAccessibleName('Switch server: Quiet Fjord');
+
+	await expect(page.locator('img.leaflet-tile')).toHaveCount(0);
+});
+
+test('3 · fog tiles load with the snapshot’s fog key; no fog canvas; zoom animation on', async ({ page }) => {
 	const tileUrls: string[] = [];
 	page.on('request', (r) => {
 		if (r.url().includes('/tiles/')) tileUrls.push(new URL(r.url()).pathname);
 	});
+	const snapshot = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/servers/demo/snapshot');
 	await unlock(page);
-	await expect
-		.poll(() =>
-			page.locator('img.leaflet-tile').evaluateAll((imgs) => imgs.filter((i) => (i as HTMLImageElement).naturalWidth === 256).length)
-		)
-		.toBeGreaterThan(0);
+	const { fogKey } = (await (await snapshot).json()) as { fogKey: string };
+	expect(fogKey).toMatch(/^[0-9a-f]{16}$/);
+	await tilesLoaded(page);
 	expect(tileUrls.length).toBeGreaterThan(0);
-	for (const u of tileUrls) expect(u).toMatch(/^\/tiles\/demo\/12345-2-r\d+\/\d+\/\d+\/\d+\.png$/);
+	for (const u of tileUrls) expect(u).toMatch(new RegExp(`^/tiles/demo/12345-2-r\\d+/${fogKey}/\\d+/\\d+/\\d+\\.png$`));
+	await expect(page.locator('canvas.fs-fog')).toHaveCount(0);
+	await expect(page.locator('.fs-fog-skirt')).toHaveCount(0);
+	// Leaflet adds its zoom-animation proxy only when zoomAnimation is on;
+	// a zoom then animates the map pane.
+	await expect(page.locator('.leaflet-proxy')).toHaveCount(1);
+	const animating = page.waitForSelector('.leaflet-map-pane.leaflet-zoom-anim', { state: 'attached' });
+	await page.getByRole('button', { name: 'Zoom in' }).click();
+	await animating;
 });
 
-test('fix · a fast wheel zoom-out never bares terrain past the shrinking fog canvas', async ({ page }) => {
+test('fog · terrain deep in unexplored land is fog-coloured on screen, explored land is not', async ({ page }) => {
 	await unlock(page);
-	await expect(page.locator('canvas.fs-fog')).toHaveCount(1);
-	const box = (await page.locator('.leaflet-container').first().boundingBox())!;
-	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-	for (let i = 0; i < 6; i++) {
-		await page.mouse.wheel(0, -300);
-		await page.waitForTimeout(400);
-	}
-	await page.waitForTimeout(1000);
-	// Every frame: wherever the (transformed) fog canvas leaves the map
-	// bare, the fog skirt must be showing.
+	await tilesLoaded(page);
+	// worldToScreen reads the world disc's own on-screen box, so compute
+	// both screen points before hiding it below.
+	// x = −8 000 m is 6 km west of every explored zone (they span −1 920…4 600 m).
+	const fogged = await worldToScreen(page, -8000, 0);
+	// (−500, 300) is three zones inside the explored area, away from pins:
+	// the flat fake terrain shows there (meadow green, 163,178,92).
+	const clear = await worldToScreen(page, -500, 300);
+	// Hide the disc pane (z-index 150, below the tiles at 200): without
+	// this, a fogged sample would also pass if the tile were transparent
+	// over the parchment disc fill, which is the same colour (fix round 1,
+	// item 5). Hiding it proves the tile pixel itself carries the fog.
+	await page.addStyleTag({ content: '.leaflet-disc-pane { display: none !important; }' });
+	const [r, g, b] = await screenPixel(page, fogged.x, fogged.y);
+	// #cfbe9c ± the grain (±9) and hatching; the fake terrain there is meadow or forest green.
+	expect(Math.abs(r - 0xcf), `r ${r}`).toBeLessThanOrEqual(20);
+	expect(Math.abs(g - 0xbe), `g ${g}`).toBeLessThanOrEqual(20);
+	expect(Math.abs(b - 0x9c), `b ${b}`).toBeLessThanOrEqual(20);
+	const [cr, cg, cb] = await screenPixel(page, clear.x, clear.y);
+	expect(Math.abs(cr - 0xcf) + Math.abs(cg - 0xbe) + Math.abs(cb - 0x9c), `rgb ${cr},${cg},${cb}`).toBeGreaterThan(60);
+});
+
+test('fix · a fog-key change never bares the map (the old tiles stay until the new ones are in)', async ({ page }, testInfo) => {
+	// `swap` is a dedicated server (global-setup.ts), seeded once and never
+	// touched by anything else, so reposting to it below can't race a
+	// parallel test's view of demo's state (fix round 2, item 2).
+	await unlock(page, 'swap');
+	await tilesLoaded(page);
+
+	// Track, every animation frame, whether at least one rendered terrain
+	// tile is on screen. A frame with none between the new fog key landing
+	// and its tiles finishing would be the old remove-then-add regression
+	// (fix round 1, item 1): the whole map briefly bares to the parchment
+	// disc.
 	await page.evaluate(() => {
-		const w = window as unknown as { __bare: number; __frames: number; __stop: boolean };
-		w.__bare = 0;
+		const w = window as unknown as { __zero: number; __frames: number; __stop: boolean };
+		w.__zero = 0;
 		w.__frames = 0;
 		w.__stop = false;
-		const map = document.querySelector('.leaflet-container')!;
 		const tick = () => {
-			const fog = document.querySelector('canvas.fs-fog');
-			const skirt = document.querySelector<HTMLElement>('.fs-fog-skirt');
-			if (fog) {
-				const a = fog.getBoundingClientRect();
-				const b = map.getBoundingClientRect();
-				const bare = a.left > b.left + 1 || a.top > b.top + 1 || a.right < b.right - 1 || a.bottom < b.bottom - 1;
-				if (bare && (!skirt || skirt.hidden)) w.__bare++;
-				w.__frames++;
-			}
+			if (document.querySelectorAll('img.leaflet-tile-loaded').length === 0) w.__zero++;
+			w.__frames++;
 			if (!w.__stop) requestAnimationFrame(tick);
 		};
 		requestAnimationFrame(tick);
 	});
-	for (let i = 0; i < 4; i++) {
-		await page.mouse.wheel(0, 400);
-		await page.waitForTimeout(60);
-	}
-	await page.waitForTimeout(1500);
+
+	// Re-post swap's seeded snapshot with one more explored zone (a new fog
+	// key, same server id and tile key) and a newer savedAt, as a real save
+	// would. A fixed saveId would hang a CI retry: on retry 1 `swap`
+	// already holds it (INSERT OR IGNORE drops the repost), so savedAt
+	// never changes and nextSnapshot below waits forever. The zone must
+	// differ per attempt too — otherwise a retry re-adds a zone the mask
+	// already has, the fog key doesn't actually change, and the swap this
+	// test is about never happens (final review M4).
+	const snapshot = JSON.parse(readFileSync(FIXTURE_SNAPSHOT, 'utf8'));
+	snapshot.serverId = 'swap';
+	snapshot.saveId = `fog-swap-${Date.now()}`;
+	snapshot.savedAt = new Date().toISOString();
+	snapshot.readAt = snapshot.savedAt;
+	snapshot.exploredZones.push([100 + testInfo.retry, 100]);
+	const nextSnapshot = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/servers/swap/snapshot');
+	await postSnapshot('swap', snapshot);
+	// Forces state.svelte.ts's immediate refresh-on-visible (around lines
+	// 146–149) instead of waiting out its 15 s poll (fix round 2, item 2).
+	await refreshNow(page);
+	await nextSnapshot;
+	await tilesLoaded(page);
+	// The whole round trip is fast now (the visibilitychange fix above),
+	// so wait for a few more rAF ticks to accumulate rather than asserting
+	// on a frame count sampled at one arbitrary instant.
+	await expect
+		.poll(() => page.evaluate(() => (window as unknown as { __frames: number }).__frames))
+		.toBeGreaterThan(5);
+
 	const r = await page.evaluate(() => {
-		const w = window as unknown as { __bare: number; __frames: number; __stop: boolean };
+		const w = window as unknown as { __zero: number; __frames: number; __stop: boolean };
 		w.__stop = true;
-		return { bare: w.__bare, frames: w.__frames };
+		return { zero: w.__zero, frames: w.__frames };
 	});
-	expect(r.frames).toBeGreaterThan(10);
-	expect(r.bare, 'frames with terrain bared past the fog').toBe(0);
-	// Once the repaint lands, the canvas covers the view and the skirt hides.
-	await expect(page.locator('.fs-fog-skirt')).toBeHidden();
+	expect(r.zero, 'frames with no loaded terrain tile on screen').toBe(0);
 });
 
-test('fix · fog and terrain stay at the same zoom in every frame of a fast wheel zoom', async ({ page }) => {
-	await unlock(page);
-	await expect(page.locator('canvas.fs-fog')).toHaveCount(1);
-	await page.waitForTimeout(1000);
-	// Each frame: the fog's effective zoom (the zoom it was drawn at plus its
-	// CSS scale) against the topmost tile level with a loaded tile (its zoom
-	// plus the tile's rendered scale). They differ when the fog lags the
-	// terrain — e.g. new-level tiles shown at the target zoom while the fog
-	// is still on its way there.
+test('fix · an unchanged card poll keeps the same tile layer (final review I1)', async ({ page }) => {
+	// AtlasMap's tile effect used to read card.id/card.tiles.key straight
+	// off the card prop, which is a new object every 15 s poll, so the
+	// effect (and so the whole tile layer) rebuilt on every poll even when
+	// neither the server nor the tile key actually changed.
+	const tileUrls: string[] = [];
+	page.on('request', (r) => {
+		if (r.url().includes('/tiles/')) tileUrls.push(r.url());
+	});
+	await unlock(page, 'demo');
+	await tilesLoaded(page);
+
+	// Tag every current tile <img>, so "the same tile layer" can be checked
+	// as "the same DOM nodes", not just "the same count".
 	await page.evaluate(() => {
-		const w = window as unknown as { __off: number[]; __frames: number; __stop: boolean };
-		w.__off = [];
-		w.__frames = 0;
-		w.__stop = false;
-		const tick = () => {
-			const fog = document.querySelector<HTMLCanvasElement>('canvas.fs-fog');
-			let best: { z: number; img: HTMLImageElement } | null = null;
-			let bestZ = -Infinity;
-			for (const c of document.querySelectorAll<HTMLElement>('.leaflet-tile-container')) {
-				const img = [...c.querySelectorAll<HTMLImageElement>('img.leaflet-tile-loaded')].find((i) => i.complete && i.naturalWidth > 0);
-				const m = img?.src.match(/\/(\d+)\/-?\d+\/-?\d+\.png/);
-				const zi = Number(c.style.zIndex || 0);
-				if (img && m && zi > bestZ) {
-					bestZ = zi;
-					best = { z: Number(m[1]), img };
-				}
-			}
-			if (fog?.dataset.zoom && best) {
-				const fogEff = Number(fog.dataset.zoom) + Math.log2(fog.getBoundingClientRect().width / parseFloat(fog.style.width));
-				const tileEff = best.z + Math.log2(best.img.getBoundingClientRect().width / 256);
-				w.__off.push(Math.abs(fogEff - tileEff));
-				w.__frames++;
-			}
-			if (!w.__stop) requestAnimationFrame(tick);
-		};
-		requestAnimationFrame(tick);
+		document.querySelectorAll('img.leaflet-tile').forEach((img, i) => img.setAttribute('data-fs-test-tag', String(i)));
 	});
-	const box = (await page.locator('.leaflet-container').first().boundingBox())!;
-	await page.mouse.move(box.x + box.width * 0.6, box.y + box.height / 2);
-	for (let i = 0; i < 6; i++) {
-		await page.mouse.wheel(0, -200);
-		await page.waitForTimeout(50);
-	}
-	await page.waitForTimeout(2000);
-	for (let i = 0; i < 6; i++) {
-		await page.mouse.wheel(0, 200);
-		await page.waitForTimeout(50);
-	}
-	await page.waitForTimeout(2000);
-	const r = await page.evaluate(() => {
-		const w = window as unknown as { __off: number[]; __frames: number; __stop: boolean };
-		w.__stop = true;
-		return { frames: w.__frames, worst: Math.max(0, ...w.__off), off: w.__off.filter((d) => d > 0.05).length };
-	});
-	expect(r.frames).toBeGreaterThan(10);
-	expect(r.off, `frames with fog and terrain at different zooms (worst ${r.worst.toFixed(2)} levels)`).toBe(0);
+	const before = await page
+		.locator('img.leaflet-tile')
+		.evaluateAll((imgs) => imgs.map((i) => i.getAttribute('data-fs-test-tag')));
+	expect(before.length).toBeGreaterThan(0);
+
+	tileUrls.length = 0; // only requests made after this point count
+	const card = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/servers/demo');
+	await refreshNow(page); // one card poll, same key and fog key
+	await card;
+	// No network round trip to wait on for a negative assertion: give a
+	// generous moment for an (incorrect) rebuild to happen.
+	await page.waitForTimeout(500);
+
+	const after = await page
+		.locator('img.leaflet-tile')
+		.evaluateAll((imgs) => imgs.map((i) => i.getAttribute('data-fs-test-tag')));
+	expect(after, 'the same tile <img> elements, not a rebuilt layer').toEqual(before);
+	expect(tileUrls, 're-requests of the same tile URLs').toEqual([]);
 });
 
 test('4 · online tab: players, recently online and activity', async ({ page }) => {
@@ -248,7 +316,10 @@ test('7 · layers: beds on adds beds, portals off removes portal pins and lines'
 	const lines = page.locator('.leaflet-portalLines-pane path');
 	// Anything on the map (a pin or a cluster's tooltip) that mentions a kind.
 	const mentions = (kind: string) => page.locator(`.leaflet-marker-icon[title*="${kind}"]`);
-	await expect(lines).toHaveCount(2);
+	// Only one line: portal-3's partner (portal-4, the "mountain" tag) is
+	// unexplored and filtered out (fix round 1, item 6), so only the "home"
+	// pair (portal-1/portal-2) still draws one.
+	await expect(lines).toHaveCount(1);
 	await expect(mentions('Bed')).toHaveCount(0);
 
 	await page.getByRole('button', { name: /^Layers ·/ }).click();
@@ -327,14 +398,35 @@ test('10 · theme toggle flips data-theme and persists across a reload', async (
 	await expect(html).toHaveAttribute('data-theme', 'dark');
 });
 
-test('11 · the crypt outside the explored zones never appears', async ({ page }) => {
+test('11 · the crypt outside the explored cells never appears', async ({ page }) => {
 	const snapshot = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/servers/demo/snapshot');
 	await unlock(page);
-	// The server filters locations by explored zone: only the inside crypt ships.
+	// The server filters markers, locations and bases by the 12 m explored
+	// mask: only the inside crypt ships, and both markers deliberately
+	// placed outside every explored cell (fix round 1, item 6) are gone too.
 	const body = await (await snapshot).json();
+	expect(body.explored).toMatchObject({ source: 'zones', cell: 12, size: 2048 });
 	const crypts = (body.locations as { id: string; type: string }[]).filter((l) => l.type === 'SunkenCrypt4');
 	expect(crypts.map((l) => l.id)).toEqual(['loc-140']);
+	expect((body.locations as { id: string }[]).map((l) => l.id)).not.toContain('loc-311');
+	const markerIds = (body.markers as { id: string }[]).map((m) => m.id);
+	expect(markerIds).not.toContain('portal-4');
+	expect(markerIds).not.toContain('tame-4');
+	expect(body.markers).toHaveLength(12);
+	expect(body.bases).toHaveLength(2);
 	await markersReady(page);
+
+	// portal-3's partner (portal-4, "mountain") was filtered out: it shows
+	// as unpaired, with an honest note that neither claims no partner
+	// exists nor tells the player to build or retag one (fix round 1,
+	// item 4).
+	await search(page).fill('mountain');
+	const mountainOptions = page.getByRole('listbox', { name: 'Search results' }).getByRole('option');
+	await expect(mountainOptions).toHaveCount(1);
+	await mountainOptions.first().click();
+	await expect(markerCard(page).locator('.badge')).toHaveText(['Unpaired']);
+	await expect(markerCard(page)).toContainText('No explored portal carries the tag “mountain”, so it leads nowhere yet.');
+
 	// Dungeons aren't searchable (plan ruling "Search": portal, base, tame,
 	// sign, altar, trader), so neither crypt comes up.
 	await search(page).fill('Sunken');

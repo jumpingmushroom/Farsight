@@ -2,6 +2,8 @@
 // a seeded farsight on a free port and exports it as process.env.BASE_URL
 // (workers inherit the runner's environment).
 import { test as base, expect, type BrowserContext, type Page } from '@playwright/test';
+import { gzipSync } from 'node:zlib';
+
 import type { Card } from '../../src/lib/types';
 
 /**
@@ -67,7 +69,14 @@ export const test = base.extend<{ guard: void }>({
 });
 export { expect };
 
-export const PASS: Record<string, string> = { demo: 'demo-pass', quiet: 'quiet-pass' };
+export const PASS: Record<string, string> = { demo: 'demo-pass', quiet: 'quiet-pass', swap: 'swap-pass' };
+
+/**
+ * Agent tokens for the servers global-setup.ts seeds directly (not through
+ * the shared `FARSIGHT_SEED_TOKEN`/demo keep-alive): `postSnapshot`'s
+ * default.
+ */
+export const SEED_TOKENS: Record<string, string> = { demo: 'demo-token', swap: 'swap-token' };
 
 /**
  * Opens a share link for `server` and waits until the app has consumed it:
@@ -106,4 +115,70 @@ export async function overrideCard(page: Page, edit: (c: Card) => Card): Promise
 /** An RFC 3339 time `sec` seconds ago. */
 export function ago(sec: number): string {
 	return new Date(Date.now() - sec * 1000).toISOString();
+}
+
+/**
+ * Posts a snapshot to a seeded server, gzip + bearer, as a real agent would
+ * (global-setup.ts's own `postHeartbeat` does the same for events). Uses
+ * the base URL global-setup.ts exports on `process.env`, which worker
+ * processes inherit; `token` defaults to `SEED_TOKENS[server]`.
+ */
+export async function postSnapshot(server: string, snapshot: unknown, token = SEED_TOKENS[server]): Promise<void> {
+	const body = gzipSync(JSON.stringify(snapshot));
+	const res = await fetch(`${process.env.BASE_URL}/ingest/${server}/snapshot`, {
+		method: 'POST',
+		headers: {
+			Authorization: `Bearer ${token}`,
+			'Content-Type': 'application/json',
+			'Content-Encoding': 'gzip'
+		},
+		body
+	});
+	if (!res.ok) throw new Error(`postSnapshot: ${res.status} ${await res.text()}`);
+}
+
+/**
+ * Makes the page's `state.svelte.ts` refresh immediately instead of waiting
+ * out its 15 s poll: it refetches on `visibilitychange` while the page is
+ * visible (state.svelte.ts's `onVisible` handler), so this forces
+ * `document.visibilityState` to `'visible'` (it's a read-only getter) before
+ * dispatching the event, in case the page isn't the OS-focused tab.
+ */
+export async function refreshNow(page: Page): Promise<void> {
+	await page.evaluate(() => {
+		if (document.visibilityState !== 'visible') {
+			Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+		}
+		document.dispatchEvent(new Event('visibilitychange'));
+	});
+}
+
+/** The RGB of the page's pixel at (x, y), read from a screenshot. */
+export async function screenPixel(page: Page, x: number, y: number): Promise<[number, number, number]> {
+	const png = await page.screenshot({ clip: { x: Math.round(x), y: Math.round(y), width: 1, height: 1 } });
+	return page.evaluate(async (bytes) => {
+		const bmp = await createImageBitmap(new Blob([new Uint8Array(bytes)], { type: 'image/png' }));
+		const ctx = new OffscreenCanvas(1, 1).getContext('2d')!;
+		ctx.drawImage(bmp, 0, 0);
+		const d = ctx.getImageData(0, 0, 1, 1).data;
+		return [d[0], d[1], d[2]] as [number, number, number];
+	}, Array.from(png as unknown as Uint8Array));
+}
+
+/** Screen position of world point (x, z), from the world disc's on-screen box (radius 10 500 m). */
+export async function worldToScreen(page: Page, x: number, z: number): Promise<{ x: number; y: number }> {
+	const box = (await page.locator('path.world-disc').boundingBox())!;
+	const r = box.width / 2;
+	return { x: box.x + r + (x / 10500) * r, y: box.y + box.height / 2 - (z / 10500) * r };
+}
+
+/** Waits until every tile image on the map has loaded. */
+export async function tilesLoaded(page: Page): Promise<void> {
+	await expect
+		.poll(() =>
+			page
+				.locator('img.leaflet-tile')
+				.evaluateAll((imgs) => imgs.length > 0 && imgs.every((i) => (i as HTMLImageElement).complete && (i as HTMLImageElement).naturalWidth === 256))
+		)
+		.toBe(true);
 }

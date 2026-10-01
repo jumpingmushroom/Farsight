@@ -73,6 +73,50 @@ func TestGoldenLegacy(t *testing.T) {
 	}
 }
 
+// TestGoldenMapTables checks the cartography-table facts the explored mask
+// rests on: MuleVikings has one table recording 63 338 cells, Mulennials
+// five whose union is 353 206 cells.
+func TestGoldenMapTables(t *testing.T) {
+	for _, c := range []struct {
+		sub, world    string
+		tables, union int
+	}{{"chunked", "MuleVikings", 1, 63338}, {"legacy", "Mulennials", 5, 353206}} {
+		dir := golden(t, c.sub)
+		union := make([]bool, MapCells)
+		tables := 0
+		keep := ReadOptions{KeepBytes: func(p int32) bool { return p == MapTablePrefab }}
+		_, err := ReadWith(dir, c.world, keep, func(z *ZDO) {
+			b, ok := z.ByteArrays[MapDataKey]
+			if z.Prefab != MapTablePrefab || !ok {
+				return
+			}
+			flags, err := DecodeMapData(b)
+			if err != nil {
+				t.Errorf("%s: table at %v: %v", c.world, z.Pos, err)
+				return
+			}
+			tables++
+			for i, f := range flags {
+				if f != 0 {
+					union[i] = true
+				}
+			}
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := 0
+		for _, u := range union {
+			if u {
+				n++
+			}
+		}
+		if tables != c.tables || n != c.union {
+			t.Errorf("%s: %d tables, %d cells; want %d, %d", c.world, tables, n, c.tables, c.union)
+		}
+	}
+}
+
 func TestReadPrefersChunkedAndLatestSave(t *testing.T) {
 	dir := t.TempDir()
 	if _, _, err := LatestSave(dir, "W"); err != ErrNoSave {

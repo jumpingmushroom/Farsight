@@ -1,8 +1,8 @@
 // A hand-written snapshot with one of each marker kind (invented names), for
-// markers/search tests. Every marker's zone is explored except the
+// markers/search tests. Every marker's 12 m cell is explored except the
 // tombstone's and Haldor's, so fog filtering can be tested.
 
-import { zoneOf } from '../geo';
+import { cellOf, emptyMask, setCell } from '../explored';
 import type { Marker, SnapshotView, WorldCard } from '../types';
 
 export const MARKERS: Marker[] = [
@@ -31,13 +31,26 @@ export const LOCATIONS: Marker[] = [
 
 const FOGGED = new Set(['tombstone-1', 'loc-3']);
 
+/**
+ * The fixture's explored mask: the cell under every marker and location
+ * except the fogged ones and those in `hide`, plus the cell at (0, 0)
+ * (base-1).
+ */
+export function fixtureMask(hide: string[] = []): Uint8Array {
+	const m = emptyMask();
+	for (const p of [...MARKERS, ...LOCATIONS]) {
+		if (!FOGGED.has(p.id) && !hide.includes(p.id)) setCell(m, ...cellOf(p.x, p.z));
+	}
+	setCell(m, ...cellOf(0, 0));
+	return m;
+}
+
 export function fixtureSnapshot(): SnapshotView {
-	const all = [...MARKERS, ...LOCATIONS];
-	const zones = all.filter((m) => !FOGGED.has(m.id)).map((m) => zoneOf(m.x, m.z));
-	zones.push(zoneOf(0, 0));
 	return {
 		savedAt: '2026-09-30T10:00:00Z',
-		exploredZones: zones,
+		fogKey: '0123456789abcdef',
+		explored: { source: 'tables', cell: 12, size: 2048, bits: '' },
+		mask: fixtureMask(),
 		markers: MARKERS.map((m) => ({ ...m })),
 		locations: LOCATIONS.map((m) => ({ ...m })),
 		bases: [

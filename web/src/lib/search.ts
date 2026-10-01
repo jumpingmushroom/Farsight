@@ -4,7 +4,7 @@
 // altar, trader), then marker order. Beds, tombstones and dungeons are never
 // returned; fogged-out markers are skipped while fog is on.
 
-import { isExplored } from './fog';
+import { isExplored } from './explored';
 import type { IconName, MapMarker, Pin, PinType } from './markers';
 
 export interface SearchResult {

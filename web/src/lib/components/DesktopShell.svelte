@@ -17,7 +17,6 @@
 <script lang="ts">
 	import type L from 'leaflet';
 	import { onDestroy, untrack } from 'svelte';
-	import { maskForZones } from '$lib/fog';
 	import { toLatLng } from '$lib/geo';
 	import { mapView } from '$lib/derive';
 	import {
@@ -78,7 +77,7 @@
 	let frame = 0;
 
 	const card = $derived(app.card?.id === app.currentId ? app.card : undefined);
-	const mask = $derived(app.snapshot ? maskForZones(app.snapshot.exploredZones) : undefined);
+	const mask = $derived(app.snapshot?.mask);
 	const padLeft = $derived(panelOpen ? PANEL_W : 0);
 
 	// The state treatment (§3.22): overlay, tile filter and pin opacity.
@@ -212,6 +211,28 @@
 		schedulePopover();
 	});
 
+	// Fix round 1, item 3: with zoom animation on, Leaflet fires 'move'/'zoom'
+	// (which reposition the popover above) only once, at the END of the
+	// ~250 ms transition, so the popover would otherwise sit still while its
+	// pin animates away underneath it, then snap. Of the review's two
+	// options — reproject it every animation frame via Leaflet's internal
+	// zoom-anim machinery, or hide it for the animation's duration — this
+	// takes the simpler, still-correct one: hide at zoomstart, let the
+	// existing move/zoom listener recompute and show it at zoomend.
+	$effect(() => {
+		const m = map;
+		if (!m) return;
+		const hide = () => {
+			if (popover) popover = undefined;
+		};
+		m.on('zoomstart', hide);
+		m.on('zoomend', schedulePopover);
+		return () => {
+			m.off('zoomstart', hide);
+			m.off('zoomend', schedulePopover);
+		};
+	});
+
 	onDestroy(() => {
 		if (frame) cancelAnimationFrame(frame);
 	});
@@ -268,7 +289,6 @@
 		{padLeft}
 		dim={1}
 		filter={view?.filter ?? ''}
-		fog={fog && view?.overlay.kind !== 'charting'}
 		onready={(m) => (map = m)}
 		onclick={() => {
 			closeMenus();

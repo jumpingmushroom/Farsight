@@ -99,7 +99,7 @@ func TestReadChunkedSynthetic(t *testing.T) {
 		t.Fatalf("latest = %d %v %v", n, ok, err)
 	}
 	var got []ZDO
-	w, err := readChunked(filepath.Join(dir, "Test"), func(z *ZDO) { got = append(got, *z) })
+	w, err := readChunked(filepath.Join(dir, "Test"), ReadOptions{}, func(z *ZDO) { got = append(got, *z) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestReadChunkedMissingChunkIsSaveChanged(t *testing.T) {
 	for _, m := range matches {
 		os.Remove(m)
 	}
-	if _, err := readChunked(filepath.Join(dir, "Test"), func(*ZDO) {}); err != ErrSaveChanged {
+	if _, err := readChunked(filepath.Join(dir, "Test"), ReadOptions{}, func(*ZDO) {}); err != ErrSaveChanged {
 		t.Fatalf("err = %v, want ErrSaveChanged", err)
 	}
 }
@@ -202,7 +202,7 @@ func TestReadChunkedSavedAtIsOkFileMTime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w, err := readChunked(filepath.Join(dir, "Test"), func(*ZDO) {})
+	w, err := readChunked(filepath.Join(dir, "Test"), ReadOptions{}, func(*ZDO) {})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func TestReadChunkedRejectsUnsupportedVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = readChunked(filepath.Join(dir, "Test"), func(*ZDO) {})
+	_, err = readChunked(filepath.Join(dir, "Test"), ReadOptions{}, func(*ZDO) {})
 	if !errors.Is(err, ErrUnsupportedVersion) {
 		t.Fatalf("err = %v, want ErrUnsupportedVersion via errors.Is", err)
 	}

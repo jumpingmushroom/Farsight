@@ -1,17 +1,25 @@
 import './testing/leaflet-node';
 import { describe, expect, test } from 'vitest';
-import { maskForZones } from './fog';
 import { buildMarkers } from './markers';
 import { hints, search } from './search';
-import { fixtureSnapshot, fixtureWorld } from './testing/markers-fixture';
+import { fixtureMask, fixtureSnapshot, fixtureWorld } from './testing/markers-fixture';
 import type { SnapshotView } from './types';
 
 const snap = fixtureSnapshot();
 const all = buildMarkers(snap, fixtureWorld());
-const mask = maskForZones(snap.exploredZones);
+const mask = fixtureMask();
 
 function mini(markers: SnapshotView['markers'], extra: Partial<SnapshotView> = {}): SnapshotView {
-	return { savedAt: '', exploredZones: [], markers, locations: [], bases: [], players: [], ...extra };
+	return {
+		savedAt: '',
+		fogKey: '0123456789abcdef',
+		explored: { source: 'tables', cell: 12, size: 2048, bits: '' },
+		markers,
+		locations: [],
+		bases: [],
+		players: [],
+		...extra
+	};
 }
 
 describe('search', () => {

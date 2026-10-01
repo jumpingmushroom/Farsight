@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jumpingmushroom/farsight/internal/explored"
 	"github.com/jumpingmushroom/farsight/internal/save"
 )
 
@@ -15,7 +16,7 @@ func TestGoldenMuleVikings(t *testing.T) {
 		t.Skip("golden data missing; run hack/pull-golden.sh")
 	}
 	e := New()
-	w, err := save.Read(dir, "MuleVikings", e.Add)
+	w, err := save.ReadWith(dir, "MuleVikings", save.ReadOptions{KeepBytes: KeepBytes}, e.Add)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,5 +47,42 @@ func TestGoldenMuleVikings(t *testing.T) {
 	}
 	if altars < 8 || s.World.Modifiers["portals"] != "casual" {
 		t.Fatalf("altars=%d modifiers=%v", altars, s.World.Modifiers)
+	}
+}
+
+// TestGoldenExplored checks the real saves' masks: built from the tables,
+// at least the tables' own cells, and every bed and portal on an explored
+// cell (the 100 m reveal covers the ones built after the last "Record").
+func TestGoldenExplored(t *testing.T) {
+	for _, c := range []struct {
+		sub, world string
+		tableCells int
+	}{{"chunked", "MuleVikings", 63338}, {"legacy", "Mulennials", 353206}} {
+		dir := filepath.Join("..", "..", "testdata-golden", c.sub)
+		if _, err := os.Stat(dir); err != nil {
+			t.Skip("golden data missing; run hack/pull-golden.sh")
+		}
+		e := New()
+		w, err := save.ReadWith(dir, c.world, save.ReadOptions{KeepBytes: KeepBytes}, e.Add)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := e.Finish(w, "x", time.Now().UTC())
+		if s.Explored == nil || s.Explored.Source != explored.SourceTables {
+			t.Fatalf("%s: explored = %+v, want tables", c.world, s.Explored)
+		}
+		m, err := explored.Decode(*s.Explored)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m.Count() < c.tableCells {
+			t.Errorf("%s: %d cells, want >= %d", c.world, m.Count(), c.tableCells)
+		}
+		for _, mk := range s.Markers {
+			if (mk.Kind == "bed" || mk.Kind == "portal") && !m.At(float64(mk.X), float64(mk.Z)) {
+				t.Errorf("%s: %s at (%.0f, %.0f) is not explored", c.world, mk.ID, mk.X, mk.Z)
+			}
+		}
+		t.Logf("%s: %d cells explored (%.1f%% of the world)", c.world, m.Count(), m.Percent())
 	}
 }

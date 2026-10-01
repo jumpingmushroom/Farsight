@@ -26,7 +26,7 @@ func FuzzReadChunkFile(f *testing.F) {
 	f.Add([]byte{})
 	f.Add([]byte{0x29, 0x00, 0xff, 0xff, 0xff, 0x7f})
 	f.Fuzz(func(t *testing.T, data []byte) {
-		_, _ = readChunkFile(data, func(*ZDO) {})
+		_, _ = readChunkFile(data, ReadOptions{}, func(*ZDO) {})
 	})
 }
 

@@ -193,6 +193,27 @@ func TestLatestSnapshotNotFound(t *testing.T) {
 	}
 }
 
+func TestLatestSnapshotIDMatchesLatestSnapshot(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	if _, ok, err := s.LatestSnapshotID(ctx, "srv"); err != nil || ok {
+		t.Fatalf("empty: ok=%v err=%v", ok, err)
+	}
+	for _, p := range []struct{ id, at string }{
+		{"a", "2026-01-01T00:00:00Z"}, {"c", "2026-01-03T00:00:00Z"}, {"b", "2026-01-02T00:00:00Z"},
+		{"d", "2026-01-03T00:00:00Z"}, // ties "c" on saved_at: save_id breaks the tie
+	} {
+		if _, err := s.PutSnapshot(ctx, "srv", p.id, ms(p.at), ms(p.at), []byte(p.id)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	id, ok, err := s.LatestSnapshotID(ctx, "srv")
+	blob, _, _, _ := s.LatestSnapshot(ctx, "srv")
+	if err != nil || !ok || id != "d" || string(blob) != "d" {
+		t.Fatalf("id=%q blob=%q ok=%v err=%v, want d and d", id, blob, ok, err)
+	}
+}
+
 func TestPruneSnapshotsKeepsLatest(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

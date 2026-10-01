@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jumpingmushroom/farsight/internal/explored"
 	"github.com/jumpingmushroom/farsight/internal/extract"
 	"github.com/jumpingmushroom/farsight/internal/save"
 	"github.com/jumpingmushroom/farsight/internal/save/savetest"
@@ -346,6 +347,27 @@ func TestPendingRetrySurfacesLatestSaveError(t *testing.T) {
 	}
 	if logged := strings.Count(buf.String(), "boom: worlds dir unreadable"); logged != 2 {
 		t.Fatalf("error logged %d times across two pending episodes, want 2: log=%s", logged, buf.String())
+	}
+}
+
+func TestSnapshotCarriesTheTablesExploredMask(t *testing.T) {
+	s := &sink{}
+	srv := httptest.NewServer(s.handler(t))
+	defer srv.Close()
+	dir := t.TempDir()
+	px, py := explored.CellOf(600, -600)
+	table := savetest.ZDO{Prefab: "piece_cartographytable", Pos: [3]float32{0, 30, 0},
+		ByteArrays: map[string][]byte{"data": savetest.MapData(3, py*explored.Size+px)}}
+	savetest.WriteChunkedWorld(t, dir, "W", 1, "seed", append([]savetest.ZDO{table}, zdos...), nil, nil, nil)
+	if err := newAgent(t, dir, srv.URL).Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if s.count() != 1 || s.posts[0].Explored == nil || s.posts[0].Explored.Source != explored.SourceTables {
+		t.Fatalf("posts = %+v", s.posts)
+	}
+	m, err := explored.Decode(*s.posts[0].Explored)
+	if err != nil || !m.At(600, -600) || m.Count() != 1 {
+		t.Fatalf("mask: err=%v at=%v count=%d", err, m != nil && m.At(600, -600), m.Count())
 	}
 }
 

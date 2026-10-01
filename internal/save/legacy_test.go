@@ -23,7 +23,7 @@ func TestReadLegacySynthetic(t *testing.T) {
 
 	db := filepath.Join(dir, "Mulennials.db")
 	var got []ZDO
-	w, err := readLegacy(db, filepath.Join(dir, "Mulennials.fwl"), func(z *ZDO) { got = append(got, *z) })
+	w, err := readLegacy(db, filepath.Join(dir, "Mulennials.fwl"), ReadOptions{}, func(z *ZDO) { got = append(got, *z) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestLegacyRejectsOldVersion(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "Old.db"), []byte{30, 0, 0, 0}, 0o644)
 	savetest.WriteLegacyWorld(t, dir, "Tmp", "x", nil, nil, nil, nil) // just for a valid .fwl
-	_, err := readLegacy(filepath.Join(dir, "Old.db"), filepath.Join(dir, "Tmp.fwl"), func(*ZDO) {})
+	_, err := readLegacy(filepath.Join(dir, "Old.db"), filepath.Join(dir, "Tmp.fwl"), ReadOptions{}, func(*ZDO) {})
 	if err == nil || !strings.Contains(err.Error(), ErrUnsupportedVersion.Error()) {
 		t.Fatalf("err = %v, want unsupported version", err)
 	}
@@ -73,7 +73,7 @@ func TestReadLegacySavedAtIsDBFileMTime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w, err := readLegacy(dbPath, filepath.Join(dir, "W.fwl"), func(*ZDO) {})
+	w, err := readLegacy(dbPath, filepath.Join(dir, "W.fwl"), ReadOptions{}, func(*ZDO) {})
 	if err != nil {
 		t.Fatal(err)
 	}

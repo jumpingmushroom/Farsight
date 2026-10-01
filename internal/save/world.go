@@ -89,15 +89,28 @@ func LatestSave(worldsDir, worldName string) (string, Format, error) {
 	return id, FormatLegacy, nil
 }
 
+// ReadOptions tunes how Read decodes ZDOs.
+type ReadOptions struct {
+	// KeepBytes, if non-nil, picks the prefabs whose byte arrays are kept
+	// in ZDO.ByteArrays. Every other ZDO's byte arrays are skipped, so
+	// memory doesn't grow with the world.
+	KeepBytes func(prefab int32) bool
+}
+
 // Read streams every ZDO of the newest save to fn and returns the world
-// metadata. fn's argument is reused between calls.
+// metadata. fn's argument is reused between calls. Byte arrays are skipped.
 func Read(worldsDir, worldName string, fn func(*ZDO)) (*World, error) {
+	return ReadWith(worldsDir, worldName, ReadOptions{}, fn)
+}
+
+// ReadWith is Read with options.
+func ReadWith(worldsDir, worldName string, opt ReadOptions, fn func(*ZDO)) (*World, error) {
 	_, f, err := LatestSave(worldsDir, worldName)
 	if err != nil {
 		return nil, err
 	}
 	if f == FormatChunked {
-		return readChunked(filepath.Join(worldsDir, worldName), fn)
+		return readChunked(filepath.Join(worldsDir, worldName), opt, fn)
 	}
-	return readLegacy(filepath.Join(worldsDir, worldName+".db"), filepath.Join(worldsDir, worldName+".fwl"), fn)
+	return readLegacy(filepath.Join(worldsDir, worldName+".db"), filepath.Join(worldsDir, worldName+".fwl"), opt, fn)
 }
