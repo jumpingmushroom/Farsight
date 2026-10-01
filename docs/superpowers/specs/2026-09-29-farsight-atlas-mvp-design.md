@@ -371,10 +371,11 @@ MVP.
 - `logwatch`: tests against `hack/fixtures/valheim-crossplay.log` from the
   cloudcluster repo plus a Steam fixture.
 - `api`: httptest for auth (unlock, cookie, rate limit), ingest token checks,
-  explored-zone filtering.
+  filtering to the explored mask, fog tiles (classes, stale-key redirect,
+  cache).
 - Web: Vitest unit tests for the logic outside components (API client, app
   state, formatters, derived state, markers, clustering, search, geometry,
-  fog masks, share links, clipboard), and Playwright e2e in
+  the 12 m explored mask, tile swaps, share links, clipboard), and Playwright e2e in
   a `desktop` (1440×900) and a `mobile` (390×844, touch) project against a
   real `farsight serve` seeded by `cmd/farsight-seed` (fixture snapshot and
   events with invented names, times shifted to now, a fake complete tile set

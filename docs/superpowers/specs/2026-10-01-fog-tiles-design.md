@@ -228,5 +228,5 @@ Decisions the plan made where this spec left room:
   tile set, losing a snapshot) clears the old layer immediately, so stale
   terrain never lingers on screen.
 - **Performance:** an edge tile measured 13.9 ms/op (decode, blend, encode
-  at BestSpeed) on the dev box's Intel Xeon E5-2660 v2 @ 2.20GHz. The field
+  at BestSpeed) on a 2013-era Xeon dev box. The field
   and the tile classes take about 0.6 s once per fog key.
