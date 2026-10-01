@@ -80,7 +80,7 @@ func (s *server) fogTile(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, p)
 		return
 	}
-	b, err := s.fogTiles.get(tileCacheKey{server: id, tiles: key, fog: ws.fogKey, z: z, x: x, y: y},
+	b, err := s.fogTiles.get(fogCacheKey(id, key, ws.fogKey, class, z, x, y),
 		func() ([]byte, error) { return composeTile(dir, field, class, z, x, y) })
 	if errors.Is(err, fs.ErrNotExist) {
 		notFound(w)
@@ -93,6 +93,19 @@ func (s *server) fogTile(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	w.Write(b)
+}
+
+// fogCacheKey is the LRU key for tile (z, x, y) of class c. FogTile's
+// output depends only on (z, x, y) (internal/fog/compose.go reads
+// TexturePixel alone: no mask, server or tile set), so a Fog-class tile
+// shares one key across every server and fog key and composes once.
+// Clear and Edge tiles depend on the terrain set, and Edge on the fog
+// field too, so they keep the full key.
+func fogCacheKey(server, tiles, fogKey string, c fog.Class, z, x, y int) tileCacheKey {
+	if c == fog.Fog {
+		return tileCacheKey{fog: "fog", z: z, x: x, y: y}
+	}
+	return tileCacheKey{server: server, tiles: tiles, fog: fogKey, z: z, x: x, y: y}
 }
 
 // composeTile draws tile (z, x, y) of class c from the tile set in dir:
@@ -117,7 +130,15 @@ func composeTile(dir string, f *fog.Field, c fog.Class, z, x, y int) ([]byte, er
 	if err := pngEncoder.Encode(&buf, img); err != nil {
 		return nil, err
 	}
-	return buf.Bytes(), nil
+	// A tight copy: buf.Bytes() keeps the whole (over-grown) backing array
+	// bytes.Buffer allocated while writing, and even bytes.Clone's
+	// append-based copy reports a larger cap (the runtime rounds an
+	// append's capacity up for future growth). make at the exact size
+	// reports cap == len, so a cached entry never over-retains (fix
+	// round 1, item 1).
+	out := make([]byte, buf.Len())
+	copy(out, buf.Bytes())
+	return out, nil
 }
 
 // pngEncoder reuses its compressor state across tiles.

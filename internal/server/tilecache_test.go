@@ -66,9 +66,23 @@ func TestTileCacheCoalescesConcurrentComposes(t *testing.T) {
 	}
 }
 
+// TestTileCacheBoundsConcurrentComposes checks both directions of the
+// GOMAXPROCS bound: peak never exceeds it, and it is actually reached (so
+// the test would catch a bound that is too strict, not just one that is
+// too loose). A barrier proves two composes are concurrently in flight
+// before either is allowed to finish, rather than inferring it from
+// timing; a self-closing timeout, not a bare channel receive, keeps the
+// test from hanging forever if the bound were wrong and two composes
+// never actually overlapped.
 func TestTileCacheBoundsConcurrentComposes(t *testing.T) {
 	c := newTileCache(1<<20, 2)
 	var running, peak atomic.Int32
+	reached := make(chan struct{}) // closed once two composes are confirmed running together
+	var once sync.Once
+	timeout := make(chan struct{})
+	timer := time.AfterFunc(2*time.Second, func() { close(timeout) })
+	defer timer.Stop()
+
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
 		wg.Add(1)
@@ -82,15 +96,24 @@ func TestTileCacheBoundsConcurrentComposes(t *testing.T) {
 						break
 					}
 				}
-				time.Sleep(5 * time.Millisecond)
+				if n == 2 {
+					// Both composes that reached n==2 are still inside
+					// this function, holding a semaphore slot each: two
+					// are provably concurrent right now.
+					once.Do(func() { close(reached) })
+				}
+				select {
+				case <-reached:
+				case <-timeout:
+				}
 				running.Add(-1)
 				return []byte("t"), nil
 			})
 		}()
 	}
 	wg.Wait()
-	if peak.Load() > 2 {
-		t.Fatalf("%d composes at once, want at most 2", peak.Load())
+	if peak.Load() != 2 {
+		t.Fatalf("peak concurrent composes = %d, want exactly 2 (the GOMAXPROCS bound)", peak.Load())
 	}
 }
 

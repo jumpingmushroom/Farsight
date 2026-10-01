@@ -872,6 +872,43 @@ func decodeTile(t *testing.T, b []byte) *image.NRGBA {
 	return out
 }
 
+// Fix round 1, item 4: a z6 tile classed Clear must serve the upscaled
+// terrain (composed, not ServeFile: only z0-z5 Clear tiles reach that
+// path), not 404 and not the fog texture.
+func TestFogTilesZ6Clear(t *testing.T) {
+	e := newEnv(t)
+	cookie := e.mustUnlock("alpha")
+	key := e.tiles.Key(testSeed, testGen)
+	if err := e.post("alpha", "alpha-token", "snapshot", testSnapshot("s1", at(-time.Minute))); err != nil {
+		t.Fatal(err)
+	}
+	fk := e.snapshotView(cookie).FogKey
+	e.waitTiles()
+
+	// z6 34,28: a child quadrant of z5 17,14, which TestFogTiles already
+	// establishes is Clear (656...1312 m: deep inside the explored
+	// block). EdgeWidth only shrinks from z5 to z6, and a child tile's
+	// cells are a subset of its parent's, so a Clear z5 parent's children
+	// stay Clear at z6.
+	url := fmt.Sprintf("/tiles/alpha/%s/%s/6/34/28.png", key, fk)
+	r := e.get(url, cookie)
+	if r.code != 200 {
+		t.Fatalf("z6 clear tile: %d %s", r.code, r.body)
+	}
+	if cc := r.header.Get("Cache-Control"); cc != "public, max-age=31536000, immutable" {
+		t.Errorf("cache-control = %q", cc)
+	}
+	if ct := r.header.Get("Content-Type"); ct != "image/png" {
+		t.Errorf("content-type = %q", ct)
+	}
+	img := decodeTile(t, r.body)
+	for _, p := range [][2]int{{0, 0}, {255, 0}, {0, 255}, {255, 255}} {
+		if c := img.NRGBAAt(p[0], p[1]); c != testTerrain {
+			t.Errorf("z6 clear tile pixel %v = %v, want upscaled terrain %v", p, c, testTerrain)
+		}
+	}
+}
+
 // Case 10: healthz, plus UI fallback and unknown routes.
 func TestHealthzAndRouting(t *testing.T) {
 	e := newEnv(t)
