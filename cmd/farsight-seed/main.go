@@ -8,7 +8,7 @@
 //
 //	farsight-seed -fake-tiles DATA -snapshot web/tests/fixtures/snapshot.json
 //	farsight serve -config ...
-//	FARSIGHT_SEED_TOKEN=... farsight-seed -server demo -shift \
+//	FARSIGHT_SEED_TOKEN=... farsight-seed -server demo -shift -explored \
 //	    -snapshot web/tests/fixtures/snapshot.json -events web/tests/fixtures/events.json
 //
 // The agent token is only ever read from the environment (-token-env names
@@ -34,6 +34,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jumpingmushroom/farsight/internal/explored"
 	"github.com/jumpingmushroom/farsight/internal/extract"
 	"github.com/jumpingmushroom/farsight/internal/ingest"
 	"github.com/jumpingmushroom/farsight/internal/logwatch"
@@ -49,6 +50,7 @@ type config struct {
 	Snapshot  string
 	Events    string
 	Shift     bool
+	Explored  bool
 	FakeTiles string
 	RealTiles string
 }
@@ -88,6 +90,7 @@ func parseFlags(args []string, stderr io.Writer) (config, error) {
 	fs.StringVar(&c.Snapshot, "snapshot", "", "snapshot JSON file (an extract.Snapshot); also gives the world seed for -fake-tiles/-real-tiles")
 	fs.StringVar(&c.Events, "events", "", `events JSON file ({"events": [...]}, the ingest body)`)
 	fs.BoolVar(&c.Shift, "shift", false, "shift event and snapshot times so the newest event is now - 1 min")
+	fs.BoolVar(&c.Explored, "explored", false, "give a snapshot without an explored mask one rasterised from its exploredZones, as a current agent sends")
 	fs.StringVar(&c.FakeTiles, "fake-tiles", "", "DATADIR: write a complete flat-colour tile set for the snapshot's world under DATADIR/tiles")
 	fs.StringVar(&c.RealTiles, "real-tiles", "", "DATADIR: render the real tile set for the snapshot's world under DATADIR/tiles")
 	if err := fs.Parse(args); err != nil {
@@ -159,6 +162,10 @@ func run(ctx context.Context, c config, getenv func(string) string, now time.Tim
 	if c.Shift {
 		d := shiftTimes(evs, snap, now)
 		fmt.Fprintf(out, "shifted times by %s\n", d.Round(time.Second))
+	}
+	if c.Explored && snap != nil && snap.Explored == nil {
+		enc := explored.Encode(explored.FromZones(snap.ExploredZones), explored.SourceZones)
+		snap.Explored = &enc
 	}
 	cl := ingest.New(c.URL, c.Server, token)
 	if snap != nil {

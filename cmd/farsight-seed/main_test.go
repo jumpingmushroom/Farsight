@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jumpingmushroom/farsight/internal/explored"
 	"github.com/jumpingmushroom/farsight/internal/extract"
 	"github.com/jumpingmushroom/farsight/internal/logwatch"
 	"github.com/jumpingmushroom/farsight/internal/tiles"
@@ -200,6 +201,48 @@ func TestRunPostsSnapshotAndEvents(t *testing.T) {
 	}
 	if !newest.Equal(now.Add(-time.Minute)) {
 		t.Fatalf("newest event at %v, want now-1m", newest)
+	}
+}
+
+func TestRunExploredRasterisesTheFixtureZones(t *testing.T) {
+	rec := &received{}
+	srv := ingestStub(t, rec)
+	defer srv.Close()
+	cfg := config{URL: srv.URL, Server: "demo", TokenEnv: "T", Snapshot: fixtureSnapshot, Explored: true}
+	getenv := func(string) string { return "demo-token" }
+	if err := run(context.Background(), cfg, getenv, time.Now(), io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if rec.snap.Explored == nil || rec.snap.Explored.Source != explored.SourceZones {
+		t.Fatalf("explored = %+v, want a zones mask", rec.snap.Explored)
+	}
+	m, err := explored.Decode(*rec.snap.Explored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Every fixture marker is explored and the one outside crypt is not
+	// (TestFixtures checks the same on zones).
+	for _, mk := range rec.snap.Markers {
+		if !m.At(float64(mk.X), float64(mk.Z)) {
+			t.Errorf("marker %s not explored", mk.ID)
+		}
+	}
+	for _, l := range rec.snap.Locations {
+		if got, want := m.At(float64(l.X), float64(l.Z)), l.ID != "loc-311"; got != want {
+			t.Errorf("location %s explored = %v, want %v", l.ID, got, want)
+		}
+	}
+
+	// Without -explored the snapshot goes as written: no mask.
+	rec2 := &received{}
+	srv2 := ingestStub(t, rec2)
+	defer srv2.Close()
+	cfg.URL, cfg.Explored = srv2.URL, false
+	if err := run(context.Background(), cfg, getenv, time.Now(), io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if rec2.snap.Explored != nil {
+		t.Fatal("explored sent without -explored")
 	}
 }
 
