@@ -3,7 +3,7 @@
 // "carried" ones are the regressions carried over from reviews.
 import { test as pwTest } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { checkGuard, expect, pinsOfKind, test, unlock, watchGuard } from './helpers';
+import { checkGuard, expect, pinsOfKind, screenPixel, test, tilesLoaded, unlock, watchGuard, worldToScreen } from './helpers';
 
 const search = (page: Page) => page.getByRole('combobox', { name: 'Search the map' });
 const serverCard = (page: Page) => page.getByRole('region', { name: 'Server' });
@@ -72,125 +72,43 @@ test('fix · switching server clears the typed search query and closes the resul
 	await expect(page.getByRole('listbox', { name: 'Search results' })).toHaveCount(0);
 });
 
-test('3 · tiles load from the seeded tile set', async ({ page }) => {
+test('3 · fog tiles load with the snapshot’s fog key; no fog canvas; zoom animation on', async ({ page }) => {
 	const tileUrls: string[] = [];
 	page.on('request', (r) => {
 		if (r.url().includes('/tiles/')) tileUrls.push(new URL(r.url()).pathname);
 	});
+	const snapshot = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/servers/demo/snapshot');
 	await unlock(page);
-	await expect
-		.poll(() =>
-			page.locator('img.leaflet-tile').evaluateAll((imgs) => imgs.filter((i) => (i as HTMLImageElement).naturalWidth === 256).length)
-		)
-		.toBeGreaterThan(0);
+	const { fogKey } = (await (await snapshot).json()) as { fogKey: string };
+	expect(fogKey).toMatch(/^[0-9a-f]{16}$/);
+	await tilesLoaded(page);
 	expect(tileUrls.length).toBeGreaterThan(0);
-	for (const u of tileUrls) expect(u).toMatch(/^\/tiles\/demo\/12345-2-r\d+\/\d+\/\d+\/\d+\.png$/);
+	for (const u of tileUrls) expect(u).toMatch(new RegExp(`^/tiles/demo/12345-2-r\\d+/${fogKey}/\\d+/\\d+/\\d+\\.png$`));
+	await expect(page.locator('canvas.fs-fog')).toHaveCount(0);
+	await expect(page.locator('.fs-fog-skirt')).toHaveCount(0);
+	// Leaflet adds its zoom-animation proxy only when zoomAnimation is on;
+	// a zoom then animates the map pane.
+	await expect(page.locator('.leaflet-proxy')).toHaveCount(1);
+	const animating = page.waitForSelector('.leaflet-map-pane.leaflet-zoom-anim', { state: 'attached' });
+	await page.getByRole('button', { name: 'Zoom in' }).click();
+	await animating;
 });
 
-test('fix · a fast wheel zoom-out never bares terrain past the shrinking fog canvas', async ({ page }) => {
+test('fog · terrain deep in unexplored land is fog-coloured on screen, explored land is not', async ({ page }) => {
 	await unlock(page);
-	await expect(page.locator('canvas.fs-fog')).toHaveCount(1);
-	const box = (await page.locator('.leaflet-container').first().boundingBox())!;
-	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-	for (let i = 0; i < 6; i++) {
-		await page.mouse.wheel(0, -300);
-		await page.waitForTimeout(400);
-	}
-	await page.waitForTimeout(1000);
-	// Every frame: wherever the (transformed) fog canvas leaves the map
-	// bare, the fog skirt must be showing.
-	await page.evaluate(() => {
-		const w = window as unknown as { __bare: number; __frames: number; __stop: boolean };
-		w.__bare = 0;
-		w.__frames = 0;
-		w.__stop = false;
-		const map = document.querySelector('.leaflet-container')!;
-		const tick = () => {
-			const fog = document.querySelector('canvas.fs-fog');
-			const skirt = document.querySelector<HTMLElement>('.fs-fog-skirt');
-			if (fog) {
-				const a = fog.getBoundingClientRect();
-				const b = map.getBoundingClientRect();
-				const bare = a.left > b.left + 1 || a.top > b.top + 1 || a.right < b.right - 1 || a.bottom < b.bottom - 1;
-				if (bare && (!skirt || skirt.hidden)) w.__bare++;
-				w.__frames++;
-			}
-			if (!w.__stop) requestAnimationFrame(tick);
-		};
-		requestAnimationFrame(tick);
-	});
-	for (let i = 0; i < 4; i++) {
-		await page.mouse.wheel(0, 400);
-		await page.waitForTimeout(60);
-	}
-	await page.waitForTimeout(1500);
-	const r = await page.evaluate(() => {
-		const w = window as unknown as { __bare: number; __frames: number; __stop: boolean };
-		w.__stop = true;
-		return { bare: w.__bare, frames: w.__frames };
-	});
-	expect(r.frames).toBeGreaterThan(10);
-	expect(r.bare, 'frames with terrain bared past the fog').toBe(0);
-	// Once the repaint lands, the canvas covers the view and the skirt hides.
-	await expect(page.locator('.fs-fog-skirt')).toBeHidden();
-});
-
-test('fix · fog and terrain stay at the same zoom in every frame of a fast wheel zoom', async ({ page }) => {
-	await unlock(page);
-	await expect(page.locator('canvas.fs-fog')).toHaveCount(1);
-	await page.waitForTimeout(1000);
-	// Each frame: the fog's effective zoom (the zoom it was drawn at plus its
-	// CSS scale) against the topmost tile level with a loaded tile (its zoom
-	// plus the tile's rendered scale). They differ when the fog lags the
-	// terrain — e.g. new-level tiles shown at the target zoom while the fog
-	// is still on its way there.
-	await page.evaluate(() => {
-		const w = window as unknown as { __off: number[]; __frames: number; __stop: boolean };
-		w.__off = [];
-		w.__frames = 0;
-		w.__stop = false;
-		const tick = () => {
-			const fog = document.querySelector<HTMLCanvasElement>('canvas.fs-fog');
-			let best: { z: number; img: HTMLImageElement } | null = null;
-			let bestZ = -Infinity;
-			for (const c of document.querySelectorAll<HTMLElement>('.leaflet-tile-container')) {
-				const img = [...c.querySelectorAll<HTMLImageElement>('img.leaflet-tile-loaded')].find((i) => i.complete && i.naturalWidth > 0);
-				const m = img?.src.match(/\/(\d+)\/-?\d+\/-?\d+\.png/);
-				const zi = Number(c.style.zIndex || 0);
-				if (img && m && zi > bestZ) {
-					bestZ = zi;
-					best = { z: Number(m[1]), img };
-				}
-			}
-			if (fog?.dataset.zoom && best) {
-				const fogEff = Number(fog.dataset.zoom) + Math.log2(fog.getBoundingClientRect().width / parseFloat(fog.style.width));
-				const tileEff = best.z + Math.log2(best.img.getBoundingClientRect().width / 256);
-				w.__off.push(Math.abs(fogEff - tileEff));
-				w.__frames++;
-			}
-			if (!w.__stop) requestAnimationFrame(tick);
-		};
-		requestAnimationFrame(tick);
-	});
-	const box = (await page.locator('.leaflet-container').first().boundingBox())!;
-	await page.mouse.move(box.x + box.width * 0.6, box.y + box.height / 2);
-	for (let i = 0; i < 6; i++) {
-		await page.mouse.wheel(0, -200);
-		await page.waitForTimeout(50);
-	}
-	await page.waitForTimeout(2000);
-	for (let i = 0; i < 6; i++) {
-		await page.mouse.wheel(0, 200);
-		await page.waitForTimeout(50);
-	}
-	await page.waitForTimeout(2000);
-	const r = await page.evaluate(() => {
-		const w = window as unknown as { __off: number[]; __frames: number; __stop: boolean };
-		w.__stop = true;
-		return { frames: w.__frames, worst: Math.max(0, ...w.__off), off: w.__off.filter((d) => d > 0.05).length };
-	});
-	expect(r.frames).toBeGreaterThan(10);
-	expect(r.off, `frames with fog and terrain at different zooms (worst ${r.worst.toFixed(2)} levels)`).toBe(0);
+	await tilesLoaded(page);
+	// x = −8 000 m is 6 km west of every explored zone (they span −1 920…4 600 m).
+	const fogged = await worldToScreen(page, -8000, 0);
+	const [r, g, b] = await screenPixel(page, fogged.x, fogged.y);
+	// #cfbe9c ± the grain (±9) and hatching; the fake terrain there is meadow or forest green.
+	expect(Math.abs(r - 0xcf), `r ${r}`).toBeLessThanOrEqual(20);
+	expect(Math.abs(g - 0xbe), `g ${g}`).toBeLessThanOrEqual(20);
+	expect(Math.abs(b - 0x9c), `b ${b}`).toBeLessThanOrEqual(20);
+	// (−500, 300) is three zones inside the explored area, away from pins:
+	// the flat fake terrain shows there (meadow green, 163,178,92).
+	const clear = await worldToScreen(page, -500, 300);
+	const [cr, cg, cb] = await screenPixel(page, clear.x, clear.y);
+	expect(Math.abs(cr - 0xcf) + Math.abs(cg - 0xbe) + Math.abs(cb - 0x9c), `rgb ${cr},${cg},${cb}`).toBeGreaterThan(60);
 });
 
 test('4 · online tab: players, recently online and activity', async ({ page }) => {
@@ -327,13 +245,18 @@ test('10 · theme toggle flips data-theme and persists across a reload', async (
 	await expect(html).toHaveAttribute('data-theme', 'dark');
 });
 
-test('11 · the crypt outside the explored zones never appears', async ({ page }) => {
+test('11 · the crypt outside the explored cells never appears', async ({ page }) => {
 	const snapshot = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/servers/demo/snapshot');
 	await unlock(page);
-	// The server filters locations by explored zone: only the inside crypt ships.
+	// The server filters markers, locations and bases by the 12 m explored
+	// mask: only the inside crypt ships, every marker and base is inside.
 	const body = await (await snapshot).json();
+	expect(body.explored).toMatchObject({ source: 'zones', cell: 12, size: 2048 });
 	const crypts = (body.locations as { id: string; type: string }[]).filter((l) => l.type === 'SunkenCrypt4');
 	expect(crypts.map((l) => l.id)).toEqual(['loc-140']);
+	expect((body.locations as { id: string }[]).map((l) => l.id)).not.toContain('loc-311');
+	expect(body.markers).toHaveLength(13);
+	expect(body.bases).toHaveLength(2);
 	await markersReady(page);
 	// Dungeons aren't searchable (plan ruling "Search": portal, base, tame,
 	// sign, altar, trader), so neither crypt comes up.

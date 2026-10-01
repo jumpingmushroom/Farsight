@@ -13,7 +13,8 @@
  *  3. `farsight-seed -fake-tiles` writes a complete tile set before serve
  *     starts, so the snapshot post finds the map ready; serve starts, /healthz
  *     is awaited, then demo's snapshot and events are posted with -shift (the
- *     newest event lands at now − 1 min).
+ *     newest event lands at now − 1 min) and -explored (the snapshot carries
+ *     a 12 m explored mask rasterised from its zones, as a current agent's).
  *  4. Keep-alive: heartbeats go stale 3 min after the last one, and a re-seed
  *     can't refresh them (events dedupe by id). A timer in this (runner)
  *     process posts one fresh heartbeat for demo at once and then every 30 s,
@@ -187,7 +188,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 		await waitHealthy(base, proc, log);
 
 		process.env.FARSIGHT_SEED_TOKEN = 'demo-token';
-		run(seed, ['-url', base, '-server', 'demo', '-shift', '-snapshot', snapshot, '-events', events]);
+		run(seed, ['-url', base, '-server', 'demo', '-shift', '-explored', '-snapshot', snapshot, '-events', events]);
 
 		// 4. Keep-alive.
 		let n = 0;

@@ -2,6 +2,7 @@
 // section). Every request is same-origin only; GETs are never cached so the
 // UI always sees the latest state.
 
+import { decodeExplored } from './explored';
 import type { Card, ServerSummary, SnapshotView } from './types';
 
 export class ApiError extends Error {
@@ -73,7 +74,9 @@ export async function getSnapshot(
 		const res = await f(`/api/servers/${encodeURIComponent(id)}/snapshot`, jsonInit(signal));
 		if (res.status === 404) return null;
 		if (!res.ok) throw new ApiError(res.status, await res.text());
-		return (await res.json()) as SnapshotView;
+		const snap = (await res.json()) as SnapshotView;
+		const mask = await decodeExplored(snap.explored);
+		return mask ? { ...snap, mask } : snap;
 	});
 }
 
@@ -101,6 +104,7 @@ export async function unlock(
 	});
 }
 
-export function tileUrl(id: string, key: string): string {
-	return `/tiles/${encodeURIComponent(id)}/${encodeURIComponent(key)}/{z}/{x}/{y}.png`;
+/** The fog tiles of tile set `key` under fog key `fog` (spec 2026-10-01 §2). */
+export function tileUrl(id: string, key: string, fog: string): string {
+	return `/tiles/${encodeURIComponent(id)}/${encodeURIComponent(key)}/${encodeURIComponent(fog)}/{z}/{x}/{y}.png`;
 }

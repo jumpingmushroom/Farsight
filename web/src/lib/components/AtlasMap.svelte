@@ -1,17 +1,18 @@
 <!--
-  The world map (DESIGN-NOTES §1.1 item 1, §5.5–§5.8, §7.3): Leaflet with the
-  world CRS, the server's tile pyramid over a styled world disc, and the fog
-  of war in its own pane. The map is created once; the tile layer is replaced
-  when the server or tile key changes, and the fog is redrawn per snapshot.
+  The world map (DESIGN-NOTES §1.1 item 1, §5.5–§5.8, §7.3; fog per spec
+  2026-10-01): Leaflet with the world CRS and the server's fog tiles (terrain
+  with the fog of war drawn in) over a parchment-filled world disc, so a tile
+  still loading looks fogged, never bare. The map is created once; the tile
+  layer is replaced when the server, tile key or fog key changes. Leaflet's
+  own zoom animation is on: the fog is in the tiles, so it can't lag them.
 
-  Panes: disc 150 (below tiles 200), fog 350, portalLines 380, markers use
-  Leaflet's markerPane (600). The popover is DOM, not a pane.
+  Panes: disc 150 (below tiles 200), portalLines 380, markers use Leaflet's
+  markerPane (600). The popover is DOM, not a pane.
 -->
 <script lang="ts">
 	import L from 'leaflet';
 	import { onMount, untrack } from 'svelte';
 	import { tileUrl } from '$lib/api';
-	import { createFogLayer, maskForZones, type FogLayer } from '$lib/fog';
 	import { CRS, MAX_BOUNDS, WORLD_BOUNDS, WORLD_RADIUS, toLatLng } from '$lib/geo';
 	import type { Card, SnapshotView } from '$lib/types';
 
@@ -22,21 +23,19 @@
 		defaultZoom = 1.75,
 		dim = 1,
 		filter = '',
-		fog = true,
 		onready,
 		onclick,
 		onmove
 	}: {
 		/** Undefined while a server switch loads: the map stays mounted, without tiles. */
 		card: Card | undefined;
-		/** Tiles are drawn only while this is a loaded snapshot (the fog needs it). */
+		/** Tiles are drawn only while this is a loaded snapshot (it names the fog tiles). */
 		snapshot: SnapshotView | null | undefined;
 		padLeft: number;
 		/** The default view's zoom (§7.3 ruling: 1.75 desktop, 1.5 mobile). */
 		defaultZoom?: number;
 		dim: number;
 		filter: string;
-		fog: boolean;
 		onready?: (map: L.Map) => void;
 		onclick?: () => void;
 		onmove?: () => void;
@@ -45,17 +44,14 @@
 	let el: HTMLDivElement;
 	let map = $state.raw<L.Map | undefined>(undefined);
 
-	// Terrain is never shown without fog: no tiles until a snapshot (the fog
-	// mask) is loaded — not while it loads (undefined), not before the first
-	// save (null), and not when its fetch fails. The world disc stays.
+	// The tile URL carries the snapshot's fog key: no tiles until a snapshot
+	// is loaded — not while it loads (undefined), not before the first save
+	// (null), and not when its fetch fails. The world disc stays.
 	const tileSrc = $derived(
-		snapshot && card && card.tiles.state === 'complete' && card.tiles.key
-			? tileUrl(card.id, card.tiles.key)
+		snapshot?.fogKey && card && card.tiles.state === 'complete' && card.tiles.key
+			? tileUrl(card.id, card.tiles.key, snapshot.fogKey)
 			: undefined
 	);
-	const zones = $derived(snapshot?.exploredZones);
-	const mask = $derived(zones ? maskForZones(zones) : undefined);
-	const showFog = $derived(fog && !!snapshot);
 
 	/** Container point at the centre of the map area right of the panel. */
 	function visibleCentre(m: L.Map): L.Point {
@@ -137,19 +133,10 @@
 			maxBounds: MAX_BOUNDS,
 			maxBoundsViscosity: 0.8,
 			attributionControl: false,
-			zoomControl: false,
-			// No zoom animation: mid-animation Leaflet shows new-level tiles
-			// at the target zoom while the fog canvas is still CSS-scaling
-			// toward it (and a stalled compositor can hold that transition at
-			// its start), so the fog would trail the terrain and bare it.
-			// Without it, tiles and fog change zoom in the same frame.
-			zoomAnimation: false
+			zoomControl: false
 		});
 		padBoundsLimit(m);
 		m.createPane('disc').style.zIndex = '150';
-		const fogPane = m.createPane('fog');
-		fogPane.style.zIndex = '350';
-		fogPane.style.pointerEvents = 'none';
 		m.createPane('portalLines').style.zIndex = '380';
 
 		L.circle([0, 0], {
@@ -174,7 +161,8 @@
 		};
 	});
 
-	// Tile layer: replaced when the server or tile key changes.
+	// Tile layer: replaced when the server, tile key or fog key changes.
+	// Fog tiles exist natively up to zoom 6.
 	$effect(() => {
 		const m = map;
 		const src = tileSrc;
@@ -182,7 +170,7 @@
 		const layer = L.tileLayer(src, {
 			tileSize: 256,
 			minZoom: 0,
-			maxNativeZoom: 5,
+			maxNativeZoom: 6,
 			maxZoom: 6,
 			noWrap: true,
 			bounds: WORLD_BOUNDS,
@@ -191,24 +179,6 @@
 		return () => {
 			layer.remove();
 		};
-	});
-
-	// Fog: present while there's a snapshot and the fog is on; redrawn
-	// whenever the mask changes (a new snapshot).
-	let fogLayer: FogLayer | undefined;
-	$effect(() => {
-		const m = map;
-		if (!m || !showFog) return;
-		const layer = createFogLayer(() => mask).addTo(m);
-		fogLayer = layer;
-		return () => {
-			fogLayer = undefined;
-			layer.remove();
-		};
-	});
-	$effect(() => {
-		void mask;
-		untrack(() => fogLayer?.redraw());
 	});
 
 	// Tile-pane filter (layers off, offline, stale; §3.22).
@@ -237,8 +207,10 @@
 	.atlas-map :global(.leaflet-tile-pane) {
 		transition: filter 0.4s;
 	}
+	/* Parchment (#cfbe9c, the fog colour): tiles that are still loading look
+	   fogged rather than empty. */
 	.atlas-map :global(.world-disc) {
-		fill: color-mix(in srgb, var(--color-text) 6%, transparent);
+		fill: #cfbe9c;
 		fill-opacity: 1;
 		stroke: color-mix(in srgb, var(--color-text) 12%, transparent);
 		stroke-opacity: 1;

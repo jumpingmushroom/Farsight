@@ -107,3 +107,33 @@ export async function overrideCard(page: Page, edit: (c: Card) => Card): Promise
 export function ago(sec: number): string {
 	return new Date(Date.now() - sec * 1000).toISOString();
 }
+
+/** The RGB of the page's pixel at (x, y), read from a screenshot. */
+export async function screenPixel(page: Page, x: number, y: number): Promise<[number, number, number]> {
+	const png = await page.screenshot({ clip: { x: Math.round(x), y: Math.round(y), width: 1, height: 1 } });
+	return page.evaluate(async (bytes) => {
+		const bmp = await createImageBitmap(new Blob([new Uint8Array(bytes)], { type: 'image/png' }));
+		const ctx = new OffscreenCanvas(1, 1).getContext('2d')!;
+		ctx.drawImage(bmp, 0, 0);
+		const d = ctx.getImageData(0, 0, 1, 1).data;
+		return [d[0], d[1], d[2]] as [number, number, number];
+	}, Array.from(png as unknown as Uint8Array));
+}
+
+/** Screen position of world point (x, z), from the world disc's on-screen box (radius 10 500 m). */
+export async function worldToScreen(page: Page, x: number, z: number): Promise<{ x: number; y: number }> {
+	const box = (await page.locator('path.world-disc').boundingBox())!;
+	const r = box.width / 2;
+	return { x: box.x + r + (x / 10500) * r, y: box.y + box.height / 2 - (z / 10500) * r };
+}
+
+/** Waits until every tile image on the map has loaded. */
+export async function tilesLoaded(page: Page): Promise<void> {
+	await expect
+		.poll(() =>
+			page
+				.locator('img.leaflet-tile')
+				.evaluateAll((imgs) => imgs.length > 0 && imgs.every((i) => (i as HTMLImageElement).complete && (i as HTMLImageElement).naturalWidth === 256))
+		)
+		.toBe(true);
+}

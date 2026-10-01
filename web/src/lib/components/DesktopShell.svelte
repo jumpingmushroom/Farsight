@@ -17,7 +17,6 @@
 <script lang="ts">
 	import type L from 'leaflet';
 	import { onDestroy, untrack } from 'svelte';
-	import { maskForZones } from '$lib/fog';
 	import { toLatLng } from '$lib/geo';
 	import { mapView } from '$lib/derive';
 	import {
@@ -78,7 +77,7 @@
 	let frame = 0;
 
 	const card = $derived(app.card?.id === app.currentId ? app.card : undefined);
-	const mask = $derived(app.snapshot ? maskForZones(app.snapshot.exploredZones) : undefined);
+	const mask = $derived(app.snapshot?.mask);
 	const padLeft = $derived(panelOpen ? PANEL_W : 0);
 
 	// The state treatment (§3.22): overlay, tile filter and pin opacity.
@@ -268,7 +267,6 @@
 		{padLeft}
 		dim={1}
 		filter={view?.filter ?? ''}
-		fog={fog && view?.overlay.kind !== 'charting'}
 		onready={(m) => (map = m)}
 		onclick={() => {
 			closeMenus();

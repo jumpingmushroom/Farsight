@@ -42,7 +42,8 @@ function makeCard(id: string, overrides: Partial<Card> = {}): Card {
 
 const SNAPSHOT: SnapshotView = {
 	savedAt: '2026-09-30T10:00:00Z',
-	exploredZones: [],
+	fogKey: '0123456789abcdef',
+	explored: { source: 'tables', cell: 12, size: 2048, bits: '' },
 	markers: [],
 	locations: [],
 	bases: [],

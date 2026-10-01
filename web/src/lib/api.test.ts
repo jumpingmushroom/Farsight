@@ -35,10 +35,40 @@ describe('getSnapshot', () => {
 		expect(result).toBeNull();
 	});
 	test('200 -> the snapshot', async () => {
-		const snap = { savedAt: '2026-09-30T00:00:00Z', exploredZones: [], markers: [], locations: [], bases: [], players: [] };
+		const snap = {
+			savedAt: '2026-09-30T00:00:00Z',
+			fogKey: '0123456789abcdef',
+			explored: { source: 'zones', cell: 12, size: 2048, bits: '' },
+			markers: [],
+			locations: [],
+			bases: [],
+			players: []
+		};
 		const fake = vi.fn().mockResolvedValue(jsonResponse(snap));
 		const result = await getSnapshot('a', fake as unknown as typeof fetch);
 		expect(result).toEqual(snap);
+	});
+
+	test('200 -> the explored mask decoded onto the snapshot', async () => {
+		const bits = new Uint8Array(512 * 1024);
+		bits[1] = 4;
+		const gz = new Uint8Array(await new Response(new Blob([bits]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+		let b64 = '';
+		for (const b of gz) b64 += String.fromCharCode(b);
+		const snap = {
+			savedAt: '2026-09-30T00:00:00Z',
+			fogKey: '0123456789abcdef',
+			explored: { source: 'tables', cell: 12, size: 2048, bits: btoa(b64) },
+			markers: [],
+			locations: [],
+			bases: [],
+			players: []
+		};
+		const fake = vi.fn().mockResolvedValue(jsonResponse(snap));
+		const result = await getSnapshot('a', fake as unknown as typeof fetch);
+		expect(result?.fogKey).toBe('0123456789abcdef');
+		expect(result?.mask?.length).toBe(512 * 1024);
+		expect(result?.mask?.[1]).toBe(4);
 	});
 });
 
@@ -92,8 +122,8 @@ describe('unlock', () => {
 });
 
 describe('tileUrl', () => {
-	test('escapes id and key', () => {
-		expect(tileUrl('a b', 'k')).toBe('/tiles/a%20b/k/{z}/{x}/{y}.png');
+	test('escapes id, key and fog key', () => {
+		expect(tileUrl('a b', 'k', 'f/0')).toBe('/tiles/a%20b/k/f%2F0/{z}/{x}/{y}.png');
 	});
 });
 

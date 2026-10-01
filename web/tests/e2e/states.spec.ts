@@ -57,8 +57,9 @@ test('tiles refused: "Can’t draw this world’s map yet"', async ({ page }) =>
 	await expect(page.getByRole('list', { name: 'Online now' }).getByRole('listitem')).toHaveCount(3);
 });
 
-// Fog is the core promise: terrain tiles are never on screen without it.
-test('fog guard: no terrain tiles while the snapshot is loading, then tiles under fog', async ({ page }) => {
+// Fog is the core promise: the tiles carry it, and no tile is requested
+// before the snapshot names its fog key.
+test('fog guard: no tiles while the snapshot is loading, then fog tiles', async ({ page }) => {
 	const tileRequests: string[] = [];
 	page.on('request', (r) => {
 		if (r.url().includes('/tiles/')) tileRequests.push(r.url());
@@ -80,13 +81,12 @@ test('fog guard: no terrain tiles while the snapshot is loading, then tiles unde
 		await page.waitForTimeout(500);
 	}
 	expect(tileRequests).toEqual([]);
-	await expect(page.locator('canvas.fs-fog')).toHaveCount(0);
 	release();
-	await expect(page.locator('canvas.fs-fog')).toHaveCount(1);
 	await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+	for (const u of tileRequests) expect(new URL(u).pathname).toMatch(/^\/tiles\/demo\/[^/]+\/[0-9a-f]{16}\//);
 });
 
-test('fog guard: a failing snapshot fetch never shows terrain tiles', async ({ page }) => {
+test('fog guard: a failing snapshot fetch never requests tiles', async ({ page }) => {
 	let failures = 0;
 	await page.route('**/api/servers/demo/snapshot', async (route) => {
 		failures++;
@@ -97,5 +97,4 @@ test('fog guard: a failing snapshot fetch never shows terrain tiles', async ({ p
 	await expect.poll(() => failures).toBeGreaterThan(0);
 	await page.waitForTimeout(1500);
 	await expect(page.locator('img.leaflet-tile')).toHaveCount(0);
-	await expect(page.locator('canvas.fs-fog')).toHaveCount(0);
 });
