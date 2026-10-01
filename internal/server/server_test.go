@@ -814,16 +814,15 @@ func TestFogTiles(t *testing.T) {
 	}
 
 	for _, p := range []string{
-		url("0123456789abcdef", 5, 17, 14),               // stale fog key
-		"/tiles/alpha/1-0-r1/" + fk + "/0/0/0.png",       // wrong tiles key
-		url(fk, 7, 0, 0),                                 // z out of range
-		url(fk, 0, 1, 0),                                 // x out of range for z
+		"/tiles/alpha/1-0-r1/" + fk + "/0/0/0.png", // wrong tiles key
+		url(fk, 7, 0, 0), // z out of range
+		url(fk, 0, 1, 0), // x out of range for z
 		"/tiles/alpha/" + key + "/" + fk + "/0/0/-1.png", // negative
 		"/tiles/alpha/" + key + "/" + fk + "/0/0/0",      // no .png
 		"/tiles/alpha/" + key + "/" + fk + "/0/0/0.jpg",  // not .png
 		"/tiles/alpha/" + key + "/" + fk + "/a/0/0.png",  // not a number
-		url(fk, 5, 15, 15),                               // edge tile, terrain missing on disk
-		"/tiles/alpha/" + key + "/0/0/0.png",             // the removed raw route
+		url(fk, 5, 15, 15),                   // edge tile, terrain missing on disk
+		"/tiles/alpha/" + key + "/0/0/0.png", // the removed raw route
 	} {
 		if r := e.get(p, cookie); r.code != 404 {
 			t.Errorf("%s: %d, want 404", p, r.code)
@@ -847,8 +846,11 @@ func TestFogTiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	fk2 := e.snapshotView(cookie).FogKey
-	if fk2 == fk || e.get(url(fk, 0, 0, 0), cookie).code != 404 || e.get(url(fk2, 0, 0, 0), cookie).code != 200 {
-		t.Errorf("after new exploration: key %q -> %q", fk, fk2)
+	// The old key still looks like a fog key, so it now redirects to the
+	// live one (fix round 1, item 2) rather than 404ing.
+	stale := e.getNoRedirect(url(fk, 0, 0, 0), cookie)
+	if fk2 == fk || stale.code != 302 || stale.header.Get("Location") != url(fk2, 0, 0, 0) || e.get(url(fk2, 0, 0, 0), cookie).code != 200 {
+		t.Errorf("after new exploration: key %q -> %q (stale redirect %d %q)", fk, fk2, stale.code, stale.header.Get("Location"))
 	}
 
 	var c cardJSON

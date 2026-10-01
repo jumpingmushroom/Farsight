@@ -9,6 +9,7 @@ import (
 	"image/png"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -21,11 +22,12 @@ import (
 )
 
 // fogTile serves GET /tiles/{id}/{key}/{fog}/{z}/{x}/{y}.png (z0–z6): the
-// server's terrain with its fog of war drawn in. Every failure is the same
-// 404 as a locked server, including a key that isn't the current complete
-// tile set and a fog key that isn't the current one. A Clear tile at z0–z5
-// is the terrain file itself; every other tile is composed, PNG-encoded
-// and kept in the tile cache.
+// server's terrain with its fog of war drawn in. A locked server, an
+// unknown or incomplete tile-set key, a malformed fog key, or out-of-range
+// coordinates are all the same 404 (fix round 1, item 2: a well-formed but
+// stale fog key is a 302 to the live one instead — see below). A Clear tile
+// at z0–z5 is the terrain file itself; every other tile is composed,
+// PNG-encoded and kept in the tile cache.
 func (s *server) fogTile(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if _, ok := s.unlocked(r, id); !ok {
@@ -60,9 +62,24 @@ func (s *server) fogTile(w http.ResponseWriter, r *http.Request) {
 	}
 	seed, gen := ws.snap.World.Seed, ws.snap.World.GenVersion
 	key := r.PathValue("key")
-	if key != s.Tiles.Key(seed, gen) || s.Tiles.Status(seed, gen).State != tileset.StateComplete ||
-		r.PathValue("fog") != ws.fogKey {
+	if key != s.Tiles.Key(seed, gen) || s.Tiles.Status(seed, gen).State != tileset.StateComplete {
 		notFound(w)
+		return
+	}
+	// A stale but well-formed fog key (an old tab, or a browser mid-poll
+	// after a new save) redirects to the live one: the id and key have
+	// already passed the same unlocked and tile-set checks every other
+	// request needs, so the Location never names anything the requester
+	// couldn't already have asked for directly. Anything that doesn't even
+	// look like a fog key is as unrecognised as a locked server.
+	if fogPath := r.PathValue("fog"); fogPath != ws.fogKey {
+		if !validFogKey(fogPath) {
+			notFound(w)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		http.Redirect(w, r, fmt.Sprintf("/tiles/%s/%s/%s/%d/%d/%d.png",
+			url.PathEscape(id), url.PathEscape(key), ws.fogKey, z, x, y), http.StatusFound)
 		return
 	}
 	field, classes := ws.fogData()
@@ -199,6 +216,21 @@ func toNRGBA(src image.Image) (*image.NRGBA, error) {
 
 func terrainPath(dir string, z, x, y int) string {
 	return filepath.Join(dir, strconv.Itoa(z), strconv.Itoa(x), strconv.Itoa(y)+".png")
+}
+
+// validFogKey reports whether s has fog.Key's exact shape: 16 lowercase hex
+// digits. It says nothing about whether s is any server's *current* key.
+func validFogKey(s string) bool {
+	if len(s) != 16 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // parseCoord parses a plain non-negative decimal integer below limit.

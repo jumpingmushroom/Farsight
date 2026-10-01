@@ -265,6 +265,28 @@ func (e *env) do(method, path string, body []byte, hdr map[string]string, cookie
 
 func (e *env) get(path, cookie string) resp { return e.do("GET", path, nil, nil, cookie) }
 
+// getNoRedirect is get but reports a 3xx response itself instead of
+// following it, so a test can see the redirect's status, Location and
+// Cache-Control (fix round 1, item 2: the fog-tile stale-key redirect).
+func (e *env) getNoRedirect(path, cookie string) resp {
+	e.t.Helper()
+	req, err := http.NewRequest("GET", e.srv.URL+path, nil)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	if cookie != "" {
+		req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: cookie})
+	}
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	res, err := client.Do(req)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer res.Body.Close()
+	b, _ := io.ReadAll(res.Body)
+	return resp{code: res.StatusCode, header: res.Header, body: b}
+}
+
 // unlock POSTs /api/unlock and returns the response plus the new cookie
 // value (empty if none was set).
 func (e *env) unlock(server, pass, cookie string) (resp, *http.Cookie) {
