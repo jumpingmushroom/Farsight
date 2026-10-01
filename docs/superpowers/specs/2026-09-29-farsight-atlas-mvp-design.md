@@ -392,6 +392,11 @@ MVP.
    Pushing to cloudcluster `main` deploys and restarts the game servers, so
    step 7 needs an explicit go-ahead at that time.
 
+Delivered 2026-10-01: images `a7b3875` pinned by digest; the app deployed
+first on its own (no game-server restart), then the sidecar on all three
+Valheim servers. All three agents posted a snapshot and live events, the
+three tilesets rendered, and `/ingest/` returns 404 on the public host.
+
 ## Risks
 
 - **River/lake port** is the least verified part. Fallback: ship with biomes
