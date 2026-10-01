@@ -406,12 +406,14 @@ func (s *server) snapshot(w http.ResponseWriter, r *http.Request) {
 	snap := ws.snap
 	in := func(x, z float32) bool { return ws.mask.At(float64(x), float64(z)) }
 	inMarker := func(m extract.Marker) bool { return in(m.X, m.Z) }
+	markers := keep(snap.Markers, inMarker)
+	unpair(markers)
 	writeJSON(w, http.StatusOK, snapshotJSON{
 		SavedAt:       rfc3339(snap.SavedAt),
 		FogKey:        ws.fogKey,
 		Explored:      ws.enc,
 		ExploredZones: orEmpty(snap.ExploredZones),
-		Markers:       keep(snap.Markers, inMarker),
+		Markers:       markers,
 		Locations:     keep(snap.Locations, inMarker),
 		Bases:         keep(snap.Bases, func(b extract.Base) bool { return in(b.X, b.Z) }),
 		Players:       orEmpty(snap.Players),
@@ -427,6 +429,21 @@ func keep[T any](s []T, pass func(T) bool) []T {
 		}
 	}
 	return out
+}
+
+// unpair blanks Pair, in place, on any marker whose named partner isn't
+// also in markers: a kept portal whose partner was filtered out as
+// unexplored must not reveal that the partner exists.
+func unpair(markers []extract.Marker) {
+	kept := make(map[string]bool, len(markers))
+	for _, m := range markers {
+		kept[m.ID] = true
+	}
+	for i := range markers {
+		if markers[i].Pair != "" && !kept[markers[i].Pair] {
+			markers[i].Pair = ""
+		}
+	}
 }
 
 // orEmpty turns a nil slice into an empty one so it encodes as [].

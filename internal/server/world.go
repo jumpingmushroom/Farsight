@@ -23,9 +23,30 @@ type worldState struct {
 	fogKey string
 	pct    float64
 
-	fogOnce sync.Once
+	fog *fogLazy // shared with the previous state when fogKey is unchanged
+}
+
+// fogLazy builds a mask's distance field and tile classes once, on first
+// use. The field and class map depend only on the mask, so worldCache.get
+// points a new worldState's fog at the previous state's fogLazy whenever
+// the fog key is unchanged, instead of rebuilding (about half a second,
+// 4 MB) on every new save.
+type fogLazy struct {
+	mask *explored.Mask
+
+	once    sync.Once
 	field   *fog.Field
 	classes *fog.ClassMap
+}
+
+func newFogLazy(mask *explored.Mask) *fogLazy { return &fogLazy{mask: mask} }
+
+func (f *fogLazy) get() (*fog.Field, *fog.ClassMap) {
+	f.once.Do(func() {
+		f.field = fog.NewField(f.mask)
+		f.classes = fog.NewClassMap(f.field)
+	})
+	return f.field, f.classes
 }
 
 // newWorldState derives the state for snap. A snapshot from an agent that
@@ -36,7 +57,12 @@ func newWorldState(snap *extract.Snapshot, log *slog.Logger) *worldState {
 	if snap.Explored != nil {
 		m, err := explored.Decode(*snap.Explored)
 		if err == nil {
-			w.mask, w.enc = m, *snap.Explored
+			// Re-encode rather than passing the agent's bits through: Decode
+			// only checks the first maskBytes+1 decompressed bytes, so a
+			// broken or hostile agent could pad bits (an extra gzip member,
+			// a header comment) and still pass validation. Every snapshot
+			// GET would then carry that padding to browsers.
+			w.mask, w.enc = m, explored.Encode(m, snap.Explored.Source)
 		} else {
 			// Ingest validates the mask, so this is a damaged row.
 			log.Warn("server: stored explored mask unreadable; using zones", "server", snap.ServerID, "saveId", snap.SaveID, "err", err)
@@ -48,18 +74,13 @@ func newWorldState(snap *extract.Snapshot, log *slog.Logger) *worldState {
 	}
 	w.fogKey = fog.Key(w.enc.Source, w.mask)
 	w.pct = w.mask.Percent()
+	w.fog = newFogLazy(w.mask)
 	return w
 }
 
 // fogData returns the distance field and tile classes, building them on
 // first use (about half a second, once per fog key).
-func (w *worldState) fogData() (*fog.Field, *fog.ClassMap) {
-	w.fogOnce.Do(func() {
-		w.field = fog.NewField(w.mask)
-		w.classes = fog.NewClassMap(w.field)
-	})
-	return w.field, w.classes
-}
+func (w *worldState) fogData() (*fog.Field, *fog.ClassMap) { return w.fog.get() }
 
 // worldCache holds each server's current worldState.
 type worldCache struct {
@@ -107,6 +128,12 @@ func (c *worldCache) get(ctx context.Context, id string) (*worldState, bool, err
 	if err := json.Unmarshal(blob, &snap); err != nil {
 		return nil, false, err
 	}
-	e.st = newWorldState(&snap, c.log)
+	st := newWorldState(&snap, c.log)
+	if e.st != nil && e.st.fogKey == st.fogKey {
+		// Exploration (and so the field and class map) is unchanged since
+		// the last snapshot: share it instead of rebuilding.
+		st.fog = e.st.fog
+	}
+	e.st = st
 	return e.st, true, nil
 }

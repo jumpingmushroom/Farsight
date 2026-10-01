@@ -23,6 +23,7 @@ import (
 	"github.com/jumpingmushroom/farsight/internal/auth"
 	"github.com/jumpingmushroom/farsight/internal/config"
 	"github.com/jumpingmushroom/farsight/internal/explored"
+	"github.com/jumpingmushroom/farsight/internal/extract"
 	"github.com/jumpingmushroom/farsight/internal/ingest"
 	"github.com/jumpingmushroom/farsight/internal/logwatch"
 	"github.com/jumpingmushroom/farsight/internal/tileset"
@@ -602,6 +603,45 @@ func TestSnapshotAPIFiltersToTheExploredMask(t *testing.T) {
 	}
 	if r.header.Get("Cache-Control") != "no-store" {
 		t.Errorf("cache-control = %q", r.header.Get("Cache-Control"))
+	}
+}
+
+// Fix 4: a kept portal whose pair names a partner that was filtered out
+// as unexplored must have its own pair blanked, so the response reveals
+// only that the kept portal exists, not that an unexplored partner does.
+// A pair kept on both ends is left alone.
+func TestSnapshotBlanksAPairToAFilteredPartner(t *testing.T) {
+	e := newEnv(t)
+	snap := testSnapshot("s1", at(-time.Minute))
+	snap.Markers = append(snap.Markers,
+		extract.Marker{ID: "p-kept", Kind: "portal", X: 1, Z: 2, Label: "home", Pair: "p-dropped"},
+		extract.Marker{ID: "p-dropped", Kind: "portal", X: -5000, Z: -5000, Label: "home", Pair: "p-kept"},
+		extract.Marker{ID: "p-kept-2", Kind: "portal", X: 3, Z: 4, Label: "away", Pair: "p-kept-3"},
+		extract.Marker{ID: "p-kept-3", Kind: "portal", X: 5, Z: 6, Label: "away", Pair: "p-kept-2"},
+	)
+	if err := e.post("alpha", "alpha-token", "snapshot", snap); err != nil {
+		t.Fatal(err)
+	}
+	cookie := e.mustUnlock("alpha")
+	var s struct {
+		Markers []extract.Marker `json:"markers"`
+	}
+	e.get("/api/servers/alpha/snapshot", cookie).json(t, &s)
+	byID := make(map[string]extract.Marker, len(s.Markers))
+	for _, m := range s.Markers {
+		byID[m.ID] = m
+	}
+	if _, ok := byID["p-dropped"]; ok {
+		t.Fatalf("unexplored portal was not filtered: %+v", byID)
+	}
+	if got := byID["p-kept"].Pair; got != "" {
+		t.Errorf("p-kept.pair = %q, want blank (partner was filtered out)", got)
+	}
+	if got := byID["p-kept-2"].Pair; got != "p-kept-3" {
+		t.Errorf("p-kept-2.pair = %q, want p-kept-3 (both kept)", got)
+	}
+	if got := byID["p-kept-3"].Pair; got != "p-kept-2" {
+		t.Errorf("p-kept-3.pair = %q, want p-kept-2 (both kept)", got)
 	}
 }
 
