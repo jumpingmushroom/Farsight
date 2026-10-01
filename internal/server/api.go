@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
-	"math"
 	"net/http"
 	"slices"
 	"sync"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/jumpingmushroom/farsight/internal/auth"
 	"github.com/jumpingmushroom/farsight/internal/config"
+	"github.com/jumpingmushroom/farsight/internal/explored"
 	"github.com/jumpingmushroom/farsight/internal/extract"
 	"github.com/jumpingmushroom/farsight/internal/live"
 	"github.com/jumpingmushroom/farsight/internal/store"
@@ -26,52 +26,7 @@ const (
 	recentLimit   = 50
 	activityLimit = 50
 	saveTimesN    = 10
-
-	zoneSize    = 64
-	worldRadius = 10500
 )
-
-// totalZones is the number of 64 m zones whose centre lies within the
-// world radius: the denominator of exploredPct.
-var totalZones = countZonesWithin(worldRadius)
-
-func countZonesWithin(radius float64) int {
-	r := int(radius/zoneSize) + 1
-	n := 0
-	for x := -r; x <= r; x++ {
-		for z := -r; z <= r; z++ {
-			if zoneInWorld(x, z) {
-				n++
-			}
-		}
-	}
-	return n
-}
-
-// zoneInWorld reports whether zone (zx, zz)'s centre lies within the
-// world radius.
-func zoneInWorld(zx, zz int) bool {
-	x, z := float64(zx*zoneSize), float64(zz*zoneSize)
-	return x*x+z*z <= worldRadius*worldRadius
-}
-
-// locationZone is the 64 m zone containing world position (x, z).
-func locationZone(x, z float32) (int, int) {
-	return int(math.Floor((float64(x) + zoneSize/2) / zoneSize)),
-		int(math.Floor((float64(z) + zoneSize/2) / zoneSize))
-}
-
-// exploredPct is the share of in-world zones that are explored, as a
-// percentage rounded to one decimal place.
-func exploredPct(zones [][2]int16) float64 {
-	seen := make(map[[2]int16]struct{}, len(zones))
-	for _, zn := range zones {
-		if zoneInWorld(int(zn[0]), int(zn[1])) {
-			seen[zn] = struct{}{}
-		}
-	}
-	return math.Round(float64(len(seen))/float64(totalZones)*1000) / 10
-}
 
 // saveInterval is the median gap, in whole seconds, between consecutive
 // save times (the mean of the two middle gaps, rounded down, for an even
@@ -318,20 +273,6 @@ func (s *server) internalError(w http.ResponseWriter, what, id string, err error
 	writeError(w, http.StatusInternalServerError, "internal error")
 }
 
-// latestSnapshot decodes the server's newest snapshot; ok is false if it
-// has none.
-func (s *server) latestSnapshot(r *http.Request, id string) (*extract.Snapshot, bool, error) {
-	blob, _, ok, err := s.Store.LatestSnapshot(r.Context(), id)
-	if err != nil || !ok {
-		return nil, false, err
-	}
-	var snap extract.Snapshot
-	if err := json.Unmarshal(blob, &snap); err != nil {
-		return nil, false, err
-	}
-	return &snap, true, nil
-}
-
 func (s *server) card(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	srv, ok := s.unlocked(r, id)
@@ -394,17 +335,18 @@ func (s *server) buildCard(r *http.Request, srv *config.Server) (*cardJSONOut, e
 		})
 	}
 
-	snap, ok, err := s.latestSnapshot(r, srv.ID)
+	ws, ok, err := s.worlds.get(ctx, srv.ID)
 	if err != nil {
 		return nil, err
 	}
 	if !ok {
 		return c, nil
 	}
+	snap := ws.snap
 	wj := &worldJSON{
 		Name: snap.World.Name, SeedName: snap.World.SeedName, Day: snap.World.Day,
 		Bosses: snap.Bosses, Modifiers: snap.World.Modifiers, Flags: snap.World.Flags,
-		ExploredPct: exploredPct(snap.ExploredZones),
+		ExploredPct: ws.pct,
 		SavedAt:     rfc3339(snap.SavedAt), ReadAt: rfc3339(snap.ReadAt),
 	}
 	if wj.Bosses == nil {
@@ -430,13 +372,29 @@ func (s *server) buildCard(r *http.Request, srv *config.Server) (*cardJSONOut, e
 	return c, nil
 }
 
+// snapshotJSON is GET /api/servers/{id}/snapshot. Markers, locations and
+// bases are filtered to the explored mask (the cell under each point);
+// players carry no positions. explored is the mask itself, for the
+// browser's search and cursor readout, and fogKey names its fog tiles.
+// exploredZones stays until every client has moved to explored.
+type snapshotJSON struct {
+	SavedAt       string           `json:"savedAt"`
+	FogKey        string           `json:"fogKey"`
+	Explored      explored.Encoded `json:"explored"`
+	ExploredZones [][2]int16       `json:"exploredZones"`
+	Markers       []extract.Marker `json:"markers"`
+	Locations     []extract.Marker `json:"locations"`
+	Bases         []extract.Base   `json:"bases"`
+	Players       []extract.Player `json:"players"`
+}
+
 func (s *server) snapshot(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if _, ok := s.unlocked(r, id); !ok {
 		notFound(w)
 		return
 	}
-	snap, ok, err := s.latestSnapshot(r, id)
+	ws, ok, err := s.worlds.get(r.Context(), id)
 	if err != nil {
 		s.internalError(w, "snapshot", id, err)
 		return
@@ -445,34 +403,30 @@ func (s *server) snapshot(w http.ResponseWriter, r *http.Request) {
 		notFound(w)
 		return
 	}
-
-	explored := make(map[[2]int]struct{}, len(snap.ExploredZones))
-	for _, z := range snap.ExploredZones {
-		explored[[2]int{int(z[0]), int(z[1])}] = struct{}{}
-	}
-	locations := []extract.Marker{}
-	for _, m := range snap.Locations {
-		zx, zz := locationZone(m.X, m.Z)
-		if _, ok := explored[[2]int{zx, zz}]; ok {
-			locations = append(locations, m)
-		}
-	}
-
-	writeJSON(w, http.StatusOK, struct {
-		SavedAt       string           `json:"savedAt"`
-		ExploredZones [][2]int16       `json:"exploredZones"`
-		Markers       []extract.Marker `json:"markers"`
-		Locations     []extract.Marker `json:"locations"`
-		Bases         []extract.Base   `json:"bases"`
-		Players       []extract.Player `json:"players"`
-	}{
+	snap := ws.snap
+	in := func(x, z float32) bool { return ws.mask.At(float64(x), float64(z)) }
+	inMarker := func(m extract.Marker) bool { return in(m.X, m.Z) }
+	writeJSON(w, http.StatusOK, snapshotJSON{
 		SavedAt:       rfc3339(snap.SavedAt),
+		FogKey:        ws.fogKey,
+		Explored:      ws.enc,
 		ExploredZones: orEmpty(snap.ExploredZones),
-		Markers:       orEmpty(snap.Markers),
-		Locations:     locations,
-		Bases:         orEmpty(snap.Bases),
+		Markers:       keep(snap.Markers, inMarker),
+		Locations:     keep(snap.Locations, inMarker),
+		Bases:         keep(snap.Bases, func(b extract.Base) bool { return in(b.X, b.Z) }),
 		Players:       orEmpty(snap.Players),
 	})
+}
+
+// keep returns the elements of s that pass, as a new, never-nil slice.
+func keep[T any](s []T, pass func(T) bool) []T {
+	out := []T{}
+	for _, v := range s {
+		if pass(v) {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // orEmpty turns a nil slice into an empty one so it encodes as [].

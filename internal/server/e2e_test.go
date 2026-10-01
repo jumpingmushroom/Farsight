@@ -120,11 +120,14 @@ func TestEndToEnd(t *testing.T) {
 	client := ingest.New(srv.URL, "alpha", "alpha-token")
 
 	// --- Snapshot: the Plan 1 save agent against a synthetic chunked world.
+	// No cartography table, so the mask is the zone fallback (two zones
+	// shrink to nothing) plus 100 m around the built bed and portals, which
+	// keeps all four markers explored.
 	worlds := t.TempDir()
 	zdos := []savetest.ZDO{
-		{Pos: [3]float32{10, 30, 20}, Prefab: "bed", Strings: map[string]string{"ownerName": "Astrid"}, Longs: map[string]int64{"owner": 42}},
-		{Pos: [3]float32{100, 30, 200}, Prefab: "portal_wood", Strings: map[string]string{"tag": "home"}},
-		{Pos: [3]float32{-300, 30, 400}, Prefab: "portal_wood", Strings: map[string]string{"tag": "home"}},
+		{Pos: [3]float32{10, 30, 20}, Prefab: "bed", Strings: map[string]string{"ownerName": "Astrid"}, Longs: map[string]int64{"owner": 42, "creator": 42}},
+		{Pos: [3]float32{100, 30, 200}, Prefab: "portal_wood", Strings: map[string]string{"tag": "home"}, Longs: map[string]int64{"creator": 42}},
+		{Pos: [3]float32{-300, 30, 400}, Prefab: "portal_wood", Strings: map[string]string{"tag": "home"}, Longs: map[string]int64{"creator": 42}},
 		{Pos: [3]float32{15, 30, 25}, Prefab: "Wolf", Ints: map[string]int32{"tamed": 1}, Strings: map[string]string{"TamedName": "Fang"}},
 	}
 	savetest.WriteChunkedWorld(t, worlds, "W", 3, "e2eseed", zdos,
@@ -231,8 +234,15 @@ func TestEndToEnd(t *testing.T) {
 			ID, Kind, Label, Owner, Species, Pair string
 		} `json:"markers"`
 		ExploredZones [][2]int16 `json:"exploredZones"`
+		FogKey        string     `json:"fogKey"`
+		Explored      struct {
+			Source string `json:"source"`
+		} `json:"explored"`
 	}
 	r.json(t, &snap)
+	if snap.Explored.Source != "zones" || len(snap.FogKey) != 16 {
+		t.Errorf("explored source = %q, fogKey = %q", snap.Explored.Source, snap.FogKey)
+	}
 	kinds := map[string]int{}
 	for _, m := range snap.Markers {
 		kinds[m.Kind]++

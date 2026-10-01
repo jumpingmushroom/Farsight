@@ -11,6 +11,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/jumpingmushroom/farsight/internal/auth"
 	"github.com/jumpingmushroom/farsight/internal/config"
+	"github.com/jumpingmushroom/farsight/internal/explored"
 	"github.com/jumpingmushroom/farsight/internal/ingest"
 	"github.com/jumpingmushroom/farsight/internal/logwatch"
 	"github.com/jumpingmushroom/farsight/internal/tileset"
@@ -490,7 +492,8 @@ func TestCard(t *testing.T) {
 	if len(w.Bosses) != 2 || w.Bosses[0]["key"] != "defeated_eikthyr" || w.Bosses[0]["defeated"] != true || w.Bosses[1]["defeated"] != false {
 		t.Errorf("bosses: %v", w.Bosses)
 	}
-	wantPct := math.Round(900/float64(referenceZoneCount())*100*10) / 10
+	// The 30x30 zones cover cells −2…157 on each axis (centres −24…1884 m).
+	wantPct := math.Round(160*160/float64(referenceCellCount())*1000) / 10
 	if w.ExploredPct != wantPct || wantPct == 0 {
 		t.Errorf("exploredPct = %v, want %v", w.ExploredPct, wantPct)
 	}
@@ -510,13 +513,14 @@ func TestCard(t *testing.T) {
 	}
 }
 
-// referenceZoneCount counts 64 m zones whose centre lies within 10 500 m,
+// referenceCellCount counts 12 m cells whose centre lies within 10 500 m,
 // independently of the implementation.
-func referenceZoneCount() int {
+func referenceCellCount() int {
 	n := 0
-	for x := -200; x <= 200; x++ {
-		for z := -200; z <= 200; z++ {
-			if math.Hypot(float64(x*64), float64(z*64)) <= 10500 {
+	for px := 0; px < 2048; px++ {
+		for py := 0; py < 2048; py++ {
+			x, z := float64((px-1024)*12), float64((py-1024)*12)
+			if x*x+z*z <= 10500*10500 {
 				n++
 			}
 		}
@@ -524,26 +528,7 @@ func referenceZoneCount() int {
 	return n
 }
 
-func TestExploredPct(t *testing.T) {
-	var all [][2]int16
-	for x := -170; x <= 170; x++ {
-		for z := -170; z <= 170; z++ {
-			all = append(all, [2]int16{int16(x), int16(z)}) // includes out-of-world zones
-		}
-	}
-	all = append(all, [2]int16{0, 0}, [2]int16{1, 1}) // duplicates
-	if got := exploredPct(all); got != 100 {
-		t.Errorf("all zones = %v, want 100", got)
-	}
-	if got := exploredPct(nil); got != 0 {
-		t.Errorf("none = %v, want 0", got)
-	}
-}
-
-func TestTotalZonesAndSaveInterval(t *testing.T) {
-	if totalZones != referenceZoneCount() || totalZones < 84000 || totalZones > 85200 {
-		t.Errorf("totalZones = %d, reference %d", totalZones, referenceZoneCount())
-	}
+func TestSaveInterval(t *testing.T) {
 	ts := func(secs ...int) []time.Time {
 		var out []time.Time
 		for _, s := range secs {
@@ -572,8 +557,9 @@ func TestTotalZonesAndSaveInterval(t *testing.T) {
 	}
 }
 
-// Case 8: the snapshot API filters locations to explored zones.
-func TestSnapshotAPIFiltersLocations(t *testing.T) {
+// Case 8: the snapshot API filters markers, locations and bases to the
+// explored mask, and carries the mask and its fog key.
+func TestSnapshotAPIFiltersToTheExploredMask(t *testing.T) {
 	e := newEnv(t)
 	if err := e.post("alpha", "alpha-token", "snapshot", testSnapshot("s1", at(-3*time.Minute))); err != nil {
 		t.Fatal(err)
@@ -585,6 +571,8 @@ func TestSnapshotAPIFiltersLocations(t *testing.T) {
 	}
 	var s struct {
 		SavedAt       string           `json:"savedAt"`
+		FogKey        string           `json:"fogKey"`
+		Explored      explored.Encoded `json:"explored"`
 		ExploredZones [][2]int         `json:"exploredZones"`
 		Markers       []map[string]any `json:"markers"`
 		Locations     []map[string]any `json:"locations"`
@@ -592,29 +580,106 @@ func TestSnapshotAPIFiltersLocations(t *testing.T) {
 		Players       []map[string]any `json:"players"`
 	}
 	r.json(t, &s)
-	if len(s.Locations) != 1 || s.Locations[0]["id"] != "loc-kept" {
-		t.Errorf("locations = %v", s.Locations)
+	ids := func(items []map[string]any) string {
+		var out []string
+		for _, it := range items {
+			out = append(out, it["id"].(string))
+		}
+		return strings.Join(out, ",")
 	}
-	if s.SavedAt != rfc(at(-3*time.Minute)) || len(s.ExploredZones) != 901 || len(s.Markers) != 1 ||
-		len(s.Bases) != 1 || len(s.Players) != 1 {
-		t.Errorf("snapshot body: savedAt=%s zones=%d markers=%d bases=%d players=%d",
-			s.SavedAt, len(s.ExploredZones), len(s.Markers), len(s.Bases), len(s.Players))
+	if ids(s.Locations) != "loc-kept" || ids(s.Markers) != "m1" || ids(s.Bases) != "b1" {
+		t.Errorf("kept locations=%s markers=%s bases=%s", ids(s.Locations), ids(s.Markers), ids(s.Bases))
+	}
+	if s.SavedAt != rfc(at(-3*time.Minute)) || len(s.ExploredZones) != 901 || len(s.Players) != 1 {
+		t.Errorf("snapshot body: savedAt=%s zones=%d players=%d", s.SavedAt, len(s.ExploredZones), len(s.Players))
+	}
+	if !regexp.MustCompile(`^[0-9a-f]{16}$`).MatchString(s.FogKey) || s.Explored.Source != explored.SourceZones {
+		t.Errorf("fogKey=%q explored.source=%q", s.FogKey, s.Explored.Source)
+	}
+	m, err := explored.Decode(s.Explored)
+	if err != nil || !m.At(70, 20) || m.At(-5000, -5000) {
+		t.Errorf("explored mask: err=%v", err)
 	}
 	if r.header.Get("Cache-Control") != "no-store" {
 		t.Errorf("cache-control = %q", r.header.Get("Cache-Control"))
 	}
 }
 
-func TestLocationZone(t *testing.T) {
-	cases := []struct {
-		x, z   float32
-		zx, zz int
-	}{
-		{0, 0, 0, 0}, {31.9, -32, 0, 0}, {32, -32.1, 1, -1}, {70, 20, 1, 0}, {-96.5, 95, -2, 1},
+// snapshotView is the part of the snapshot API the fog tests read.
+type snapshotView struct {
+	FogKey   string           `json:"fogKey"`
+	Explored explored.Encoded `json:"explored"`
+}
+
+func (e *env) snapshotView(cookie string) snapshotView {
+	e.t.Helper()
+	r := e.get("/api/servers/alpha/snapshot", cookie)
+	if r.code != 200 {
+		e.t.Fatalf("snapshot: %d %s", r.code, r.body)
 	}
-	for _, c := range cases {
-		if zx, zz := locationZone(c.x, c.z); zx != c.zx || zz != c.zz {
-			t.Errorf("zone(%v,%v) = %d,%d want %d,%d", c.x, c.z, zx, zz, c.zx, c.zz)
+	var v snapshotView
+	r.json(e.t, &v)
+	return v
+}
+
+// An old-format snapshot (exploredZones only) and a new one (explored)
+// both yield a fog key; the key follows exploration, not saves.
+func TestOldAndNewSnapshotFormatsBothYieldAFogKey(t *testing.T) {
+	e := newEnv(t)
+	cookie := e.mustUnlock("alpha")
+	if err := e.post("alpha", "alpha-token", "snapshot", testSnapshot("old", at(-3*time.Minute))); err != nil {
+		t.Fatal(err)
+	}
+	old := e.snapshotView(cookie)
+	if old.FogKey == "" || old.Explored.Source != explored.SourceZones {
+		t.Fatalf("old format: %+v", old)
+	}
+
+	m := explored.New()
+	for py := 1000; py < 1100; py++ {
+		for px := 1000; px < 1100; px++ {
+			m.Set(px, py)
+		}
+	}
+	enc := explored.Encode(m, explored.SourceTables)
+	s1 := testSnapshot("new-1", at(-2*time.Minute))
+	s1.Explored = &enc
+	if err := e.post("alpha", "alpha-token", "snapshot", s1); err != nil {
+		t.Fatal(err)
+	}
+	v1 := e.snapshotView(cookie)
+	if v1.Explored.Source != explored.SourceTables || v1.FogKey == old.FogKey || v1.Explored.Bits != enc.Bits {
+		t.Fatalf("new format: source=%q key=%q (old %q)", v1.Explored.Source, v1.FogKey, old.FogKey)
+	}
+	var c cardJSON
+	e.get("/api/servers/alpha", cookie).json(t, &c)
+	if c.World == nil || c.World.ExploredPct != m.Percent() {
+		t.Fatalf("card exploredPct = %+v, want %v", c.World, m.Percent())
+	}
+
+	s2 := testSnapshot("new-2", at(-time.Minute)) // a later save, same exploration
+	s2.Explored = &enc
+	if err := e.post("alpha", "alpha-token", "snapshot", s2); err != nil {
+		t.Fatal(err)
+	}
+	if v2 := e.snapshotView(cookie); v2.FogKey != v1.FogKey {
+		t.Fatalf("fog key changed without new exploration: %q -> %q", v1.FogKey, v2.FogKey)
+	}
+}
+
+func TestIngestRejectsABadExploredMask(t *testing.T) {
+	e := newEnv(t)
+	good := explored.Encode(explored.New(), explored.SourceTables)
+	for name, bad := range map[string]explored.Encoded{
+		"cell": {Source: good.Source, Cell: 64, Size: good.Size, Bits: good.Bits},
+		"bits": {Source: good.Source, Cell: good.Cell, Size: good.Size, Bits: "AAAA"},
+	} {
+		snap := testSnapshot("bad-"+name, at(-time.Minute))
+		snap.Explored = &bad
+		err := e.post("alpha", "alpha-token", "snapshot", snap)
+		var se *ingest.StatusError
+		if !errors.As(err, &se) || se.Code != 400 {
+			t.Errorf("%s: err = %v, want 400", name, err)
 		}
 	}
 }

@@ -47,6 +47,7 @@ const maxCookieLen = 4096
 type server struct {
 	Deps
 	tokens *tokenCache
+	worlds *worldCache
 	// dummyHash is compared against for unlock attempts on an unknown
 	// server, so the response time doesn't reveal which ids exist. It is
 	// generated once, on first use, at the configured hashes' cost.
@@ -70,6 +71,7 @@ func newServer(d Deps) *server {
 	return &server{
 		Deps:           d,
 		tokens:         newTokenCache(),
+		worlds:         newWorldCache(d.Store, d.Log),
 		dummyHash:      newDummyHash(dummyCost(d.Config)),
 		dummyTokenHash: newDummyHash(dummyTokenCost(d.Config)),
 	}

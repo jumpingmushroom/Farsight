@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jumpingmushroom/farsight/internal/explored"
 	"github.com/jumpingmushroom/farsight/internal/extract"
 	"github.com/jumpingmushroom/farsight/internal/logwatch"
 )
@@ -198,6 +199,12 @@ func (s *server) ingestSnapshot(w http.ResponseWriter, r *http.Request) {
 	if snap.ServerID != id || snap.SaveID == "" || snap.SavedAt.IsZero() {
 		writeError(w, http.StatusBadRequest, "invalid snapshot")
 		return
+	}
+	if snap.Explored != nil {
+		if _, err := explored.Decode(*snap.Explored); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid snapshot")
+			return
+		}
 	}
 	blob, err := json.Marshal(snap)
 	if err != nil {

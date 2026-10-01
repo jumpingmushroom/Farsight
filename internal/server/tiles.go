@@ -36,7 +36,7 @@ func (s *server) tile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	snap, ok, err := s.latestSnapshot(r, id)
+	ws, ok, err := s.worlds.get(r.Context(), id)
 	if err != nil {
 		s.internalError(w, "tile", id, err)
 		return
@@ -45,7 +45,7 @@ func (s *server) tile(w http.ResponseWriter, r *http.Request) {
 		notFound(w)
 		return
 	}
-	seed, gen := snap.World.Seed, snap.World.GenVersion
+	seed, gen := ws.snap.World.Seed, ws.snap.World.GenVersion
 	if r.PathValue("key") != s.Tiles.Key(seed, gen) || s.Tiles.Status(seed, gen).State != tileset.StateComplete {
 		notFound(w)
 		return

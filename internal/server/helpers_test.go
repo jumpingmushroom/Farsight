@@ -277,9 +277,10 @@ func (e *env) rawIngest(server, kind, token string, body []byte, gz bool) resp {
 	return e.do("POST", "/ingest/"+server+"/"+kind, body, hdr, "")
 }
 
-// testSnapshot builds an alpha snapshot: a 30x30 block of explored zones
-// at the origin plus one explored zone far outside the world radius, one
-// location in an explored zone and one in an unexplored zone.
+// testSnapshot builds an alpha snapshot in the pre-mask format (only
+// exploredZones): a 30x30 block of explored zones at the origin plus one
+// zone far outside the world radius, and one location, marker and base in
+// explored cells and one of each far outside them.
 func testSnapshot(saveID string, savedAt time.Time) extract.Snapshot {
 	var zones [][2]int16
 	for x := int16(0); x < 30; x++ {
@@ -306,8 +307,14 @@ func testSnapshot(saveID string, savedAt time.Time) extract.Snapshot {
 			{ID: "loc-kept", Kind: "location", Type: "Eikthyrnir", X: 70, Z: 20},      // zone (1,0): explored
 			{ID: "loc-dropped", Kind: "location", Type: "GDKing", X: -5000, Z: -5000}, // zone (-78,-78): not
 		},
-		Markers: []extract.Marker{{ID: "m1", Kind: "pin", X: 1, Z: 2, Label: "home"}},
-		Bases:   []extract.Base{{ID: "b1", Name: "Home", X: 3, Z: 4, Radius: 20, Pieces: 100, Builders: []extract.Builder{}}},
+		Markers: []extract.Marker{
+			{ID: "m1", Kind: "pin", X: 1, Z: 2, Label: "home"},
+			{ID: "m-far", Kind: "pin", X: -5000, Z: -5000, Label: "far"},
+		},
+		Bases: []extract.Base{
+			{ID: "b1", Name: "Home", X: 3, Z: 4, Radius: 20, Pieces: 100, Builders: []extract.Builder{}},
+			{ID: "b-far", Name: "Far", X: -5000, Z: 5000, Radius: 20, Pieces: 50, Builders: []extract.Builder{}},
+		},
 		Players: []extract.Player{{ID: 1, Name: "Alice"}},
 	}
 }
