@@ -1,6 +1,10 @@
 package save
 
-import "github.com/jumpingmushroom/farsight/internal/zpkg"
+import (
+	"bytes"
+
+	"github.com/jumpingmushroom/farsight/internal/zpkg"
+)
 
 type ZDO struct {
 	Pos     [3]float32
@@ -10,6 +14,9 @@ type ZDO struct {
 	Ints    map[int32]int32
 	Longs   map[int32]int64
 	Strings map[int32]string
+	// ByteArrays holds the ZDO's byte arrays, but only for the prefabs a
+	// reader's ReadOptions.KeepBytes selects; it is nil for every other ZDO.
+	ByteArrays map[int32][]byte
 }
 
 const (
@@ -26,8 +33,15 @@ const (
 	flagSmallPos    = 0x2000
 )
 
-// DecodeZDO reads one ZDO record written by the given world version.
+// DecodeZDO reads one ZDO record written by the given world version. Its
+// byte arrays are skipped.
 func DecodeZDO(r *zpkg.Reader, version int32, z *ZDO) error {
+	return decodeZDO(r, version, z, nil)
+}
+
+// decodeZDO is DecodeZDO, keeping the byte arrays when keep (if non-nil)
+// selects the ZDO's prefab. They are copied: r's buffer is the whole file.
+func decodeZDO(r *zpkg.Reader, version int32, z *ZDO, keep func(prefab int32) bool) error {
 	*z = ZDO{}
 	chunked := version >= VersionChunkedSave
 	flags := r.U16()
@@ -114,9 +128,16 @@ func DecodeZDO(r *zpkg.Reader, version int32, z *ZDO) error {
 	}
 	if flags&flagByteArrays != 0 {
 		n := count()
+		want := keep != nil && keep(z.Prefab)
+		if want {
+			z.ByteArrays = make(map[int32][]byte)
+		}
 		for i := 0; i < n; i++ {
-			r.I32()
-			r.ByteArray()
+			k := r.I32()
+			b := r.ByteArray()
+			if want && r.Err() == nil {
+				z.ByteArrays[k] = bytes.Clone(b)
+			}
 		}
 	}
 	return r.Err()

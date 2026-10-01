@@ -74,7 +74,7 @@ func readChunkIndex(b []byte) (int32, []chunkRef, error) {
 	return total, refs, r.Err()
 }
 
-func readChunkFile(b []byte, fn func(*ZDO)) (int, error) {
+func readChunkFile(b []byte, opt ReadOptions, fn func(*ZDO)) (int, error) {
 	r := zpkg.NewReader(b)
 	ver := int32(r.I16())
 	if ver < VersionChunkedSave || ver > VersionDeepNorth {
@@ -83,7 +83,7 @@ func readChunkFile(b []byte, fn func(*ZDO)) (int, error) {
 	n := int(r.I32())
 	var z ZDO
 	for i := 0; i < n; i++ {
-		if err := DecodeZDO(r, ver, &z); err != nil {
+		if err := decodeZDO(r, ver, &z, opt.KeepBytes); err != nil {
 			return i, fmt.Errorf("zdo %d: %w", i, err)
 		}
 		fn(&z)
@@ -216,7 +216,7 @@ func readFile(path string) ([]byte, error) {
 	return b, err
 }
 
-func readChunked(dir string, fn func(*ZDO)) (*World, error) {
+func readChunked(dir string, opt ReadOptions, fn func(*ZDO)) (*World, error) {
 	n, ok, err := latestChunkedSave(dir)
 	if err != nil {
 		return nil, err
@@ -250,7 +250,7 @@ func readChunked(dir string, fn func(*ZDO)) (*World, error) {
 		if err != nil {
 			return nil, err
 		}
-		got, err := readChunkFile(b, fn)
+		got, err := readChunkFile(b, opt, fn)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", ref.fileName(), err)
 		}

@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"compress/gzip"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/jumpingmushroom/farsight/internal/names"
@@ -21,6 +23,8 @@ type ZDO struct {
 	Ints    map[string]int32
 	Longs   map[string]int64
 	Strings map[string]string
+	// ByteArrays are written in key order.
+	ByteArrays map[string][]byte
 }
 
 // EncodeZDO writes z in the record layout of the given world version
@@ -39,6 +43,9 @@ func EncodeZDO(w *zpkg.Writer, version int32, z ZDO) {
 	}
 	if len(z.Strings) > 0 {
 		flags |= 0x40
+	}
+	if len(z.ByteArrays) > 0 {
+		flags |= 0x80
 	}
 	w.U16(flags)
 	if version < 40 {
@@ -81,6 +88,34 @@ func EncodeZDO(w *zpkg.Writer, version int32, z ZDO) {
 			w.Str(v)
 		}
 	}
+	if len(z.ByteArrays) > 0 {
+		count(len(z.ByteArrays))
+		for _, k := range slices.Sorted(maps.Keys(z.ByteArrays)) {
+			w.I32(names.StableHash(k))
+			w.ByteArray(z.ByteArrays[k])
+		}
+	}
+}
+
+// MapData builds a cartography table's "data" byte array: gzip of a
+// ZPackage with the given version, the 2048² cell count, one bool per cell
+// (true at each index in explored) and an empty pin list.
+func MapData(version int32, explored ...int) []byte {
+	const cells = 2048 * 2048
+	flags := make([]byte, cells)
+	for _, i := range explored {
+		flags[i] = 1
+	}
+	var p zpkg.Writer
+	p.I32(version)
+	p.I32(cells)
+	p.Raw(flags)
+	p.I32(0) // pins
+	var gz bytes.Buffer
+	gw := gzip.NewWriter(&gz)
+	gw.Write(p.Bytes())
+	gw.Close()
+	return gz.Bytes()
 }
 
 type Location struct {
