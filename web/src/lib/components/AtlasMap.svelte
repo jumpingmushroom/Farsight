@@ -25,7 +25,7 @@
 	import { onMount, untrack } from 'svelte';
 	import { tileUrl } from '$lib/api';
 	import { CRS, MAX_BOUNDS, WORLD_BOUNDS, WORLD_RADIUS, toLatLng } from '$lib/geo';
-	import { applyTileLayer, clearAllLayers, type SwappableLayer } from '$lib/tile-swap';
+	import { applyTileLayer, clearAllLayers, tileLayerIdentity, type SwappableLayer } from '$lib/tile-swap';
 	import type { Card, SnapshotView } from '$lib/types';
 
 	let {
@@ -64,6 +64,16 @@
 			? tileUrl(card.id, card.tiles.key, snapshot.fogKey)
 			: undefined
 	);
+
+	// The server id and tile-set key alone, as a primitive string (final
+	// review I1/N1): `card` is a new object every 15 s card poll, so an
+	// effect that reads `card.id`/`card.tiles.key` directly re-runs on every
+	// poll even when neither actually changed — rebuilding the tile layer,
+	// re-requesting every tile and churning a layer swap on phones, possibly
+	// mid-pinch or mid-zoom. A `$derived` is cached by value: an effect that
+	// reads only this (and `tileSrc`, itself a derived) re-runs only when
+	// the string itself changes, not on every poll.
+	const tileIdentity = $derived(tileLayerIdentity(card?.id, card?.tiles.key));
 
 	/** Container point at the centre of the map area right of the panel. */
 	function visibleCentre(m: L.Map): L.Point {
@@ -181,21 +191,23 @@
 	// Fog tiles exist natively up to zoom 6.
 	//
 	// applyTileLayer defers removing the old layer only for a fog-key-only
-	// change (the identity string below is unchanged): the new layer is
-	// added over the old one, removed once the new layer's tiles are in (or
-	// after a timeout). Any other change — no `src`, or the server id or
-	// tile key differs from what's live — clears every live layer
-	// immediately first (including one a still-pending swap hasn't retired
-	// yet), then adds the new one undeferred, so a server switch or a lost
-	// snapshot never leaves the previous server's terrain on screen (fix
-	// round 2, item 1).
+	// change (tileIdentity unchanged): the new layer is added over the old
+	// one, removed once the new layer's tiles are in (or after a timeout).
+	// Any other change — no `src`, or the server id or tile key differs from
+	// what's live — clears every live layer immediately first (including
+	// one a still-pending swap hasn't retired yet), then adds the new one
+	// undeferred, so a server switch or a lost snapshot never leaves the
+	// previous server's terrain on screen (fix round 2, item 1). Only
+	// `tileSrc` and `tileIdentity` (both $derived primitives) are read here
+	// — never `card` directly — so an unchanged card poll doesn't re-run
+	// this at all (final review I1/N1).
 	let liveTileLayers: SwappableLayer[] = [];
 	let liveTileIdentity: string | undefined;
 	$effect(() => {
 		const m = map;
 		if (!m) return;
 		const src = tileSrc;
-		const identity = card && card.tiles.key ? `${card.id}|${card.tiles.key}` : undefined;
+		const identity = tileIdentity;
 		const sameIdentity = !!src && identity === liveTileIdentity;
 		liveTileIdentity = identity;
 

@@ -163,7 +163,7 @@ test('fog · terrain deep in unexplored land is fog-coloured on screen, explored
 	expect(Math.abs(cr - 0xcf) + Math.abs(cg - 0xbe) + Math.abs(cb - 0x9c), `rgb ${cr},${cg},${cb}`).toBeGreaterThan(60);
 });
 
-test('fix · a fog-key change never bares the map (the old tiles stay until the new ones are in)', async ({ page }) => {
+test('fix · a fog-key change never bares the map (the old tiles stay until the new ones are in)', async ({ page }, testInfo) => {
 	// `swap` is a dedicated server (global-setup.ts), seeded once and never
 	// touched by anything else, so reposting to it below can't race a
 	// parallel test's view of demo's state (fix round 2, item 2).
@@ -190,13 +190,18 @@ test('fix · a fog-key change never bares the map (the old tiles stay until the 
 
 	// Re-post swap's seeded snapshot with one more explored zone (a new fog
 	// key, same server id and tile key) and a newer savedAt, as a real save
-	// would.
+	// would. A fixed saveId would hang a CI retry: on retry 1 `swap`
+	// already holds it (INSERT OR IGNORE drops the repost), so savedAt
+	// never changes and nextSnapshot below waits forever. The zone must
+	// differ per attempt too — otherwise a retry re-adds a zone the mask
+	// already has, the fog key doesn't actually change, and the swap this
+	// test is about never happens (final review M4).
 	const snapshot = JSON.parse(readFileSync(FIXTURE_SNAPSHOT, 'utf8'));
 	snapshot.serverId = 'swap';
-	snapshot.saveId = 'fix-round-1-fog-swap';
+	snapshot.saveId = `fog-swap-${Date.now()}`;
 	snapshot.savedAt = new Date().toISOString();
 	snapshot.readAt = snapshot.savedAt;
-	snapshot.exploredZones.push([100, 100]);
+	snapshot.exploredZones.push([100 + testInfo.retry, 100]);
 	const nextSnapshot = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/servers/swap/snapshot');
 	await postSnapshot('swap', snapshot);
 	// Forces state.svelte.ts's immediate refresh-on-visible (around lines
@@ -204,14 +209,56 @@ test('fix · a fog-key change never bares the map (the old tiles stay until the 
 	await refreshNow(page);
 	await nextSnapshot;
 	await tilesLoaded(page);
+	// The whole round trip is fast now (the visibilitychange fix above),
+	// so wait for a few more rAF ticks to accumulate rather than asserting
+	// on a frame count sampled at one arbitrary instant.
+	await expect
+		.poll(() => page.evaluate(() => (window as unknown as { __frames: number }).__frames))
+		.toBeGreaterThan(5);
 
 	const r = await page.evaluate(() => {
 		const w = window as unknown as { __zero: number; __frames: number; __stop: boolean };
 		w.__stop = true;
 		return { zero: w.__zero, frames: w.__frames };
 	});
-	expect(r.frames).toBeGreaterThan(5);
 	expect(r.zero, 'frames with no loaded terrain tile on screen').toBe(0);
+});
+
+test('fix · an unchanged card poll keeps the same tile layer (final review I1)', async ({ page }) => {
+	// AtlasMap's tile effect used to read card.id/card.tiles.key straight
+	// off the card prop, which is a new object every 15 s poll, so the
+	// effect (and so the whole tile layer) rebuilt on every poll even when
+	// neither the server nor the tile key actually changed.
+	const tileUrls: string[] = [];
+	page.on('request', (r) => {
+		if (r.url().includes('/tiles/')) tileUrls.push(r.url());
+	});
+	await unlock(page, 'demo');
+	await tilesLoaded(page);
+
+	// Tag every current tile <img>, so "the same tile layer" can be checked
+	// as "the same DOM nodes", not just "the same count".
+	await page.evaluate(() => {
+		document.querySelectorAll('img.leaflet-tile').forEach((img, i) => img.setAttribute('data-fs-test-tag', String(i)));
+	});
+	const before = await page
+		.locator('img.leaflet-tile')
+		.evaluateAll((imgs) => imgs.map((i) => i.getAttribute('data-fs-test-tag')));
+	expect(before.length).toBeGreaterThan(0);
+
+	tileUrls.length = 0; // only requests made after this point count
+	const card = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/servers/demo');
+	await refreshNow(page); // one card poll, same key and fog key
+	await card;
+	// No network round trip to wait on for a negative assertion: give a
+	// generous moment for an (incorrect) rebuild to happen.
+	await page.waitForTimeout(500);
+
+	const after = await page
+		.locator('img.leaflet-tile')
+		.evaluateAll((imgs) => imgs.map((i) => i.getAttribute('data-fs-test-tag')));
+	expect(after, 'the same tile <img> elements, not a rebuilt layer').toEqual(before);
+	expect(tileUrls, 're-requests of the same tile URLs').toEqual([]);
 });
 
 test('4 · online tab: players, recently online and activity', async ({ page }) => {

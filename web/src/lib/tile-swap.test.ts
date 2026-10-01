@@ -1,5 +1,36 @@
 import { describe, expect, test, vi } from 'vitest';
-import { TILE_SWAP_TIMEOUT_MS, applyTileLayer, clearAllLayers, scheduleTileSwap, type SwappableLayer } from './tile-swap';
+import {
+	TILE_SWAP_TIMEOUT_MS,
+	applyTileLayer,
+	clearAllLayers,
+	scheduleTileSwap,
+	tileLayerIdentity,
+	type SwappableLayer
+} from './tile-swap';
+
+// Final review I1/N1: AtlasMap must derive this with $derived (cached by
+// value), not read card.id/card.tiles.key straight from the effect, or the
+// tile layer rebuilds on every 15 s card poll even when nothing changed.
+// This covers the pure value semantics the memoization relies on: equal
+// inputs must produce the exact same (===) string, and a missing id or key
+// must produce undefined, never a string like "undefined|k1".
+describe('tileLayerIdentity', () => {
+	test('combines id and tile key', () => {
+		expect(tileLayerIdentity('demo', 'k1')).toBe('demo|k1');
+	});
+
+	test('undefined when the id or the tile key is missing', () => {
+		expect(tileLayerIdentity(undefined, 'k1')).toBeUndefined();
+		expect(tileLayerIdentity('demo', undefined)).toBeUndefined();
+		expect(tileLayerIdentity(undefined, undefined)).toBeUndefined();
+	});
+
+	test('identical inputs produce the identical (===) string, as a fresh card object every poll would not', () => {
+		const a = tileLayerIdentity('demo', 'k1');
+		const b = tileLayerIdentity('demo', 'k1');
+		expect(a).toBe(b);
+	});
+});
 
 class FakeLayer implements SwappableLayer {
 	removed = false;

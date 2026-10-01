@@ -24,6 +24,21 @@ export interface SwappableLayer {
 	remove(): unknown;
 }
 
+/**
+ * AtlasMap's tile identity (final review I1/N1): the server id and
+ * tile-set key, as one string, or undefined when there's no tile key yet.
+ * A fog-key-only change — virtually every save while players explore —
+ * keeps this unchanged. Pulled out as a pure function so AtlasMap.svelte
+ * can wrap it in a `$derived`: Svelte deriveds are cached by value, so an
+ * effect that reads only this (and `tileSrc`, itself a derived) re-runs
+ * only when the identity string actually changes — not on every 15 s card
+ * poll, which hands the component a brand new `card` object whether or not
+ * its id or tile key changed.
+ */
+export function tileLayerIdentity(id: string | undefined, tilesKey: string | undefined): string | undefined {
+	return id && tilesKey ? `${id}|${tilesKey}` : undefined;
+}
+
 /** Falls back to removing the old layer(s) even if `load` never fires. */
 export const TILE_SWAP_TIMEOUT_MS = 3000;
 
