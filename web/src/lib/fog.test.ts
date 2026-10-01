@@ -7,6 +7,7 @@ import {
 	ZN,
 	ZOFF,
 	createFogLayer,
+	fogSkirt,
 	fogBlur,
 	isExplored,
 	maskCells,
@@ -259,6 +260,27 @@ describe('blurScale', () => {
 	});
 });
 
+describe('fogSkirt', () => {
+	const view = { x: -10, y: -20, w: 400, h: 200 };
+	const disc = { x: 190, y: 80, r: 1000 };
+	test('nothing to cover while the canvas covers the view', () => {
+		expect(fogSkirt(view, { x: -110, y: -70, w: 600, h: 300 }, disc)).toBeNull();
+		expect(fogSkirt(view, { x: -10, y: -20, w: 400, h: 200 }, disc)).toBeNull();
+	});
+	test('a shrunken canvas leaves a frame to cover: hole and disc relative to the view', () => {
+		// Zoomed out two levels around the centre: the 600×300 canvas at ¼.
+		const g = fogSkirt(view, { x: 115, y: 42.5, w: 150, h: 75 }, disc);
+		expect(g).toEqual({ hole: { x: 125, y: 62.5, w: 150, h: 75 }, disc: { x: 200, y: 100, r: 1000 } });
+	});
+	test('one uncovered edge is enough', () => {
+		expect(fogSkirt(view, { x: -9, y: -70, w: 600, h: 300 }, disc)).not.toBeNull();
+	});
+	test('nothing to cover when the bare part lies wholly outside the world disc', () => {
+		// The disc sits inside the shrunken canvas: the frame is all off-world.
+		expect(fogSkirt(view, { x: 115, y: 42.5, w: 150, h: 75 }, { x: 190, y: 80, r: 30 })).toBeNull();
+	});
+});
+
 describe('worldDisc and fogBlur', () => {
 	test('the world disc (radius 10 500 m) at a zoom, relative to an origin', () => {
 		expect(worldDisc({ x: 0, y: 0 }, 0)).toEqual({ x: 128, y: 128, r: 128 });
@@ -407,7 +429,12 @@ describe('createFogLayer', () => {
 			containerPointToLayerPoint: (p: L.Point) => p.add([10, 20]),
 			getPixelOrigin: () => L.point(1000, 2000),
 			getCenter: () => L.latLng(0, 0),
-			getZoom: () => 3
+			getZoom: () => 3,
+			// Enough of L.Map for L.Renderer's zoom transform (map pane at −10, −20).
+			project: (ll: L.LatLng, z: number) => CRS.latLngToPoint(ll, z),
+			getZoomScale: (to: number, from: number) => CRS.scale(to) / CRS.scale(from),
+			_getMapPanePos: () => L.point(-10, -20),
+			_getNewPixelOrigin: (c: L.LatLng, z: number) => CRS.latLngToPoint(c, z).subtract(L.point(200, 100)).add(L.point(-10, -20)).round()
 		};
 		return map;
 	}
@@ -431,8 +458,11 @@ describe('createFogLayer', () => {
 		};
 		layer._map = map;
 		layer.onAdd(map);
-		expect(map.pane.children.length).toBe(1);
-		const c = map.pane.children[0];
+		// The canvas, plus the (hidden) skirt that covers zoom-outs.
+		const isCanvas = (x: FakeEl) => /(^| )fs-fog( |$)/.test(x.className ?? '');
+		expect(map.pane.children.filter(isCanvas).length).toBe(1);
+		expect(map.pane.children.length).toBe(2);
+		const c = map.pane.children.find(isCanvas)!;
 		expect(c.className).toContain('fs-fog');
 		// 400×200 view, padding 0.25 → 600×300 CSS px at DPR 1.
 		expect(c.style.width).toBe('600px');
@@ -440,7 +470,7 @@ describe('createFogLayer', () => {
 		expect(c.width).toBe(600);
 		expect(c.height).toBe(300);
 		layer.redraw();
-		expect(map.pane.children.length).toBe(1);
+		expect(map.pane.children.length).toBe(2);
 		// A view reset repositions on whole pixels and does not re-apply
 		// L.Renderer's sub-pixel _updateTransform.
 		const r = layer as unknown as { _reset(): void; _updateTransform(): void };
@@ -451,9 +481,9 @@ describe('createFogLayer', () => {
 		expect((c as unknown as { _leaflet_pos: L.Point })._leaflet_pos).toEqual(L.point(-90, -30));
 		layer.onRemove(map);
 		expect(map.pane.children.length).toBe(0);
-		// Re-adding builds a fresh canvas.
+		// Re-adding builds a fresh canvas (and skirt).
 		layer.onAdd(map);
-		expect(map.pane.children.length).toBe(1);
+		expect(map.pane.children.length).toBe(2);
 		layer.onRemove(map);
 	});
 
@@ -569,6 +599,40 @@ describe('createFogLayer', () => {
 		expect(mqls[1].listeners).toHaveLength(0);
 	});
 
+	test('a zoom-out transform that bares the view shows the fog skirt until the repaint', () => {
+		const map = fakeMap();
+		const layer = createFogLayer(() => undefined) as unknown as Internals & {
+			_updateTransform(c: L.LatLng, z: number): void;
+			_update(): void;
+		};
+		layer._map = map;
+		layer.onAdd(map);
+		const skirt = map.pane.children.find((c) => c.className?.includes('fs-fog-skirt'));
+		expect(skirt, 'skirt element in the fog pane').toBeDefined();
+		expect((skirt as unknown as { hidden: boolean }).hidden).toBe(true);
+		// Zooming out two levels about the centre: the canvas shrinks to ¼.
+		layer._updateTransform(L.latLng(0, 0), 1);
+		expect((skirt as unknown as { hidden: boolean }).hidden).toBe(false);
+		// Placed over the view (the map pane is at −10, −20) …
+		expect(skirt!.style.left).toBe('10px');
+		expect(skirt!.style.top).toBe('20px');
+		expect(skirt!.style.width).toBe('400px');
+		expect(skirt!.style.height).toBe('200px');
+		// … clipped to the world disc, with the shrunken canvas cut out.
+		expect(skirt!.style.clipPath).toMatch(/^circle\(/);
+		const inner = (skirt as unknown as { children: FakeEl[] }).children[0];
+		expect(inner.style.clipPath).toMatch(/^polygon\(evenodd,/);
+		// Zooming in (the canvas grows) needs no skirt.
+		layer._updateTransform(L.latLng(0, 0), 4);
+		expect((skirt as unknown as { hidden: boolean }).hidden).toBe(true);
+		layer._updateTransform(L.latLng(0, 0), 1);
+		// The repaint at the new view covers it again.
+		layer._update();
+		expect((skirt as unknown as { hidden: boolean }).hidden).toBe(true);
+		layer.onRemove(map);
+		expect(map.pane.children.length).toBe(0);
+	});
+
 	test('listens to the view events it redraws on', () => {
 		const layer = createFogLayer(() => undefined) as unknown as { getEvents(): Record<string, unknown>; _zoomAnimated: boolean };
 		layer._zoomAnimated = true;
@@ -583,11 +647,18 @@ describe('createFogLayer', () => {
 	// scratchCanvas is exercised directly and releaseScratch is exercised both
 	// directly and through the real _destroyContainer wiring.
 	describe('the blur scratch canvas', () => {
-		function fakeCanvasEl(): { width: number; height: number; getContext(): null; style: Record<string, string> } {
+		function fakeCanvasEl(): {
+			width: number;
+			height: number;
+			getContext(): null;
+			style: Record<string, string>;
+			appendChild(c: unknown): unknown;
+		} {
 			// Real HTMLCanvasElements default to 300×150; the Node test stub
 			// (testing/leaflet-node.ts) returns a bare object with neither, so
 			// scratchCanvas's `scratch.width < w` growth check would never fire.
-			return { width: 300, height: 150, getContext: () => null, style: {} };
+			// (The fog layer's skirt divs come from the same mock: appendChild.)
+			return { width: 300, height: 150, getContext: () => null, style: {}, appendChild: (c) => c };
 		}
 
 		afterEach(() => {

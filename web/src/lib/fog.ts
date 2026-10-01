@@ -127,6 +127,26 @@ export function worldDisc(origin: Pt, zoom: number): { x: number; y: number; r: 
 	return { x: c.x - origin.x, y: c.y - origin.y, r: WORLD_RADIUS / metresPerPixel(zoom) };
 }
 
+export type Box = { x: number; y: number; w: number; h: number };
+
+/**
+ * The fog skirt for a zoom transform (all in one pixel space): what of the
+ * `view` the transformed `canvas` no longer covers, as the canvas's `hole`
+ * and the world `disc` relative to the view's top-left. Null when the canvas
+ * still covers the view, or when the bare part is all off-world (the disc
+ * lies inside the hole or misses the view).
+ */
+export function fogSkirt(view: Box, canvas: Box, disc: { x: number; y: number; r: number }): { hole: Box; disc: { x: number; y: number; r: number } } | null {
+	const covers =
+		canvas.x <= view.x && canvas.y <= view.y && canvas.x + canvas.w >= view.x + view.w && canvas.y + canvas.h >= view.y + view.h;
+	if (covers) return null;
+	const hole = { x: canvas.x - view.x, y: canvas.y - view.y, w: canvas.w, h: canvas.h };
+	const d = { x: disc.x - view.x, y: disc.y - view.y, r: disc.r };
+	const inHole = d.x - d.r >= hole.x && d.y - d.r >= hole.y && d.x + d.r <= hole.x + hole.w && d.y + d.r <= hole.y + hole.h;
+	const missesView = d.x + d.r <= 0 || d.y + d.r <= 0 || d.x - d.r >= view.w || d.y - d.r >= view.h;
+	return inHole || missesView ? null : { hole, disc: d };
+}
+
 /** Explored-cell counts over any cell range of a mask (a summed-area table). */
 export type MaskSums = { count(c0: number, r0: number, c1: number, r1: number): number };
 const sumsCache = new WeakMap<Uint8Array, MaskSums>();
@@ -378,6 +398,20 @@ function texture(side: number): HTMLCanvasElement | undefined {
 	return c;
 }
 
+let textureUrl: string | undefined;
+
+/** The texture tile at 1× as a data URL, for the skirt's CSS background (undefined without canvas). */
+function textureDataUrl(): string | undefined {
+	if (textureUrl === undefined) {
+		try {
+			textureUrl = texture(PATTERN_SIZE)?.toDataURL() ?? '';
+		} catch {
+			textureUrl = '';
+		}
+	}
+	return textureUrl || undefined;
+}
+
 let scratch: HTMLCanvasElement | undefined;
 
 /**
@@ -412,6 +446,10 @@ type RendererThis = L.Layer & {
 	_schedule(): void;
 	_watchDpr(): void;
 	_container?: HTMLCanvasElement;
+	_skirt?: HTMLDivElement;
+	_center: L.LatLng;
+	getPane(): HTMLElement | undefined;
+	_hideSkirt(): void;
 	_ctx?: CanvasRenderingContext2D | null;
 	_pattern?: CanvasPattern | null;
 	_patternSide?: number;
@@ -422,7 +460,17 @@ type RendererThis = L.Layer & {
 	options: L.LayerOptions & { padding: number };
 };
 
-type RendererProto = { _update(this: RendererThis): void; getEvents(this: RendererThis): L.LeafletEventHandlerFnMap };
+type RendererProto = {
+	_update(this: RendererThis): void;
+	getEvents(this: RendererThis): L.LeafletEventHandlerFnMap;
+	onAdd(this: RendererThis, map: L.Map): void;
+	_updateTransform(this: RendererThis, center: L.LatLng, zoom: number): void;
+};
+type MapInternals = L.Map & {
+	_animatingZoom?: boolean;
+	_getMapPanePos(): L.Point;
+	_getNewPixelOrigin(center: L.LatLng, zoom: number): L.Point;
+};
 const Renderer = L.Renderer as unknown as { prototype: RendererProto; extend(props: object): new (o?: object) => FogLayer };
 
 const raf = (cb: () => void): number =>
@@ -438,7 +486,10 @@ const caf = (id: number): void =>
  * fires resize many times, then moveend); the frame runs before the next
  * paint, so nothing stale is shown. During a zoom animation L.Renderer
  * scales the existing canvas (`_onAnimZoom`/`_updateTransform`); it is
- * repainted once the zoom ends. `getMask` returns the current explored-zone
+ * repainted once the zoom ends. A zoom-out shrinks that canvas below the
+ * view (a quick wheel zoom-out of 2.5 levels leaves it at 18%), so the
+ * `fs-fog-skirt` covers the bare part — the view minus the shrunken canvas,
+ * within the world disc at the target zoom — until that repaint. `getMask` returns the current explored-zone
  * mask (undefined draws nothing); call `redraw()` when it changes.
  */
 export function createFogLayer(getMask: () => Uint8Array | undefined): FogLayer {
@@ -494,7 +545,76 @@ export function createFogLayer(getMask: () => Uint8Array | undefined): FogLayer 
 			this._ctx = c.getContext('2d');
 			this._pattern = undefined;
 			this._patternSide = undefined;
+			// The skirt: an outer div clipped to the world disc, holding a
+			// fog-filled div with the shrunken canvas cut out (two nested
+			// clips, as one CSS clip can't intersect a circle and a frame).
+			const skirt = document.createElement('div');
+			skirt.className = 'fs-fog-skirt';
+			skirt.hidden = true;
+			skirt.style.position = 'absolute';
+			skirt.style.pointerEvents = 'none';
+			const fill = document.createElement('div');
+			fill.style.position = 'absolute';
+			fill.style.inset = '0';
+			fill.style.backgroundColor = FOG_COLOR;
+			const url = textureDataUrl();
+			if (url) {
+				fill.style.backgroundImage = `url(${url})`;
+				fill.style.backgroundSize = `${PATTERN_SIZE}px ${PATTERN_SIZE}px`;
+			}
+			skirt.appendChild(fill);
+			this._skirt = skirt;
 			this._watchDpr();
+		},
+
+		onAdd(this: RendererThis, map: L.Map) {
+			Renderer.prototype.onAdd.call(this, map);
+			if (this._skirt) this.getPane()?.appendChild(this._skirt);
+		},
+
+		_hideSkirt(this: RendererThis) {
+			if (this._skirt) this._skirt.hidden = true;
+		},
+
+		/**
+		 * L.Renderer's zoom transform (zoom animation, pinch), plus the
+		 * skirt over whatever the transformed canvas leaves bare. All in
+		 * map-pane px, which hold still during a zoom animation.
+		 */
+		_updateTransform(this: RendererThis, center: L.LatLng, zoom: number) {
+			Renderer.prototype._updateTransform.call(this, center, zoom);
+			const skirt = this._skirt;
+			if (!skirt || !this._bounds || this._center === undefined) return;
+			const map = this._map as MapInternals;
+			const scale = map.getZoomScale(zoom, this._zoom);
+			const size = map.getSize();
+			const origin = map._getNewPixelOrigin(center, zoom);
+			// As L.Renderer places the canvas (its size is the padded view).
+			const padded = size.multiplyBy(1 + 2 * this.options.padding).multiplyBy(scale);
+			const tl = map.project(this._center, zoom).subtract(padded.divideBy(2)).subtract(origin);
+			const pane = map._getMapPanePos();
+			const view = { x: -pane.x, y: -pane.y, w: size.x, h: size.y };
+			const c = map.project(toLatLng(0, 0), zoom).subtract(origin);
+			const g = fogSkirt(view, { x: tl.x, y: tl.y, w: padded.x, h: padded.y }, { x: c.x, y: c.y, r: WORLD_RADIUS / metresPerPixel(zoom) });
+			if (!g) {
+				skirt.hidden = true;
+				return;
+			}
+			const s = skirt.style;
+			s.left = view.x + 'px';
+			s.top = view.y + 'px';
+			s.width = view.w + 'px';
+			s.height = view.h + 'px';
+			s.clipPath = `circle(${g.disc.r}px at ${g.disc.x}px ${g.disc.y}px)`;
+			const { x, y, w, h } = g.hole;
+			const fill = (skirt as unknown as { children: ArrayLike<HTMLElement> }).children[0];
+			fill.style.clipPath =
+				`polygon(evenodd, 0 0, 100% 0, 100% 100%, 0 100%, 0 0, ` +
+				`${x}px ${y}px, ${x + w}px ${y}px, ${x + w}px ${y + h}px, ${x}px ${y + h}px, ${x}px ${y}px)`;
+			// The texture anchored to world pixels, as on the canvas.
+			const off = patternOffset({ x: view.x + origin.x, y: view.y + origin.y });
+			fill.style.backgroundPosition = `${off.x}px ${off.y}px`;
+			skirt.hidden = false;
 		},
 
 		_destroyContainer(this: RendererThis) {
@@ -503,6 +623,8 @@ export function createFogLayer(getMask: () => Uint8Array | undefined): FogLayer 
 			this._dprOff?.();
 			this._dprOff = undefined;
 			if (this._container) L.DomUtil.remove(this._container);
+			if (this._skirt) L.DomUtil.remove(this._skirt);
+			delete this._skirt;
 			delete this._ctx;
 			delete this._pattern;
 			delete this._patternSide;
@@ -537,6 +659,8 @@ export function createFogLayer(getMask: () => Uint8Array | undefined): FogLayer 
 			c.style.width = size.x + 'px';
 			c.style.height = size.y + 'px';
 			this._draw();
+			// The canvas now covers the padded view again.
+			this._hideSkirt();
 		},
 
 		_draw(this: RendererThis) {

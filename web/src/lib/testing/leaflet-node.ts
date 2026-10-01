@@ -9,7 +9,15 @@ if (typeof g.window === 'undefined') {
 	if (typeof g.navigator === 'undefined') g.navigator = { userAgent: 'node', platform: 'node' };
 	g.document = {
 		documentElement: { style: {} },
-		createElement: () => ({ getContext: () => null, style: {} })
+		createElement: () => ({
+			getContext: () => null,
+			style: {},
+			children: [] as unknown[],
+			appendChild(this: { children: unknown[] }, c: unknown) {
+				this.children.push(c);
+				return c;
+			}
+		})
 	};
 }
 export {};

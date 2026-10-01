@@ -87,6 +87,54 @@ test('3 · tiles load from the seeded tile set', async ({ page }) => {
 	for (const u of tileUrls) expect(u).toMatch(/^\/tiles\/demo\/12345-2-r\d+\/\d+\/\d+\/\d+\.png$/);
 });
 
+test('fix · a fast wheel zoom-out never bares terrain past the shrinking fog canvas', async ({ page }) => {
+	await unlock(page);
+	await expect(page.locator('canvas.fs-fog')).toHaveCount(1);
+	const box = (await page.locator('.leaflet-container').first().boundingBox())!;
+	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+	for (let i = 0; i < 6; i++) {
+		await page.mouse.wheel(0, -300);
+		await page.waitForTimeout(400);
+	}
+	await page.waitForTimeout(1000);
+	// Every frame: wherever the (transformed) fog canvas leaves the map
+	// bare, the fog skirt must be showing.
+	await page.evaluate(() => {
+		const w = window as unknown as { __bare: number; __frames: number; __stop: boolean };
+		w.__bare = 0;
+		w.__frames = 0;
+		w.__stop = false;
+		const map = document.querySelector('.leaflet-container')!;
+		const tick = () => {
+			const fog = document.querySelector('canvas.fs-fog');
+			const skirt = document.querySelector<HTMLElement>('.fs-fog-skirt');
+			if (fog) {
+				const a = fog.getBoundingClientRect();
+				const b = map.getBoundingClientRect();
+				const bare = a.left > b.left + 1 || a.top > b.top + 1 || a.right < b.right - 1 || a.bottom < b.bottom - 1;
+				if (bare && (!skirt || skirt.hidden)) w.__bare++;
+				w.__frames++;
+			}
+			if (!w.__stop) requestAnimationFrame(tick);
+		};
+		requestAnimationFrame(tick);
+	});
+	for (let i = 0; i < 4; i++) {
+		await page.mouse.wheel(0, 400);
+		await page.waitForTimeout(60);
+	}
+	await page.waitForTimeout(1500);
+	const r = await page.evaluate(() => {
+		const w = window as unknown as { __bare: number; __frames: number; __stop: boolean };
+		w.__stop = true;
+		return { bare: w.__bare, frames: w.__frames };
+	});
+	expect(r.frames).toBeGreaterThan(10);
+	expect(r.bare, 'frames with terrain bared past the fog').toBe(0);
+	// Once the repaint lands, the canvas covers the view and the skirt hides.
+	await expect(page.locator('.fs-fog-skirt')).toBeHidden();
+});
+
 test('4 · online tab: players, recently online and activity', async ({ page }) => {
 	await unlock(page);
 	const online = page.getByRole('list', { name: 'Online now' });
