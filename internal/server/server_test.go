@@ -7,10 +7,17 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"image"
+	"image/color"
+	"image/draw"
+	"image/png"
 	"io"
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -24,6 +31,7 @@ import (
 	"github.com/jumpingmushroom/farsight/internal/config"
 	"github.com/jumpingmushroom/farsight/internal/explored"
 	"github.com/jumpingmushroom/farsight/internal/extract"
+	"github.com/jumpingmushroom/farsight/internal/fog"
 	"github.com/jumpingmushroom/farsight/internal/ingest"
 	"github.com/jumpingmushroom/farsight/internal/logwatch"
 	"github.com/jumpingmushroom/farsight/internal/tileset"
@@ -169,7 +177,7 @@ func TestLockedRoutesAre404(t *testing.T) {
 	for _, p := range []string{
 		"/api/servers/alpha",
 		"/api/servers/alpha/snapshot",
-		"/tiles/alpha/" + key + "/0/0/0.png",
+		"/tiles/alpha/" + key + "/0123456789abcdef/0/0/0.png",
 	} {
 		for _, cookie := range []string{"", "garbage", strings.Repeat("x", 5000)} {
 			r := e.get(p, cookie)
@@ -724,68 +732,144 @@ func TestIngestRejectsABadExploredMask(t *testing.T) {
 	}
 }
 
-// Case 9: tiles.
-func TestTiles(t *testing.T) {
+// Case 9: fog tiles.
+func TestFogTiles(t *testing.T) {
 	e := newEnv(t)
 	cookie := e.mustUnlock("alpha")
 	key := e.tiles.Key(testSeed, testGen)
-	tile := "/tiles/alpha/" + key + "/0/0/0.png"
-
-	if r := e.get(tile, cookie); r.code != 404 {
+	url := func(fogKey string, z, x, y int) string {
+		return fmt.Sprintf("/tiles/alpha/%s/%s/%d/%d/%d.png", key, fogKey, z, x, y)
+	}
+	if r := e.get(url("0123456789abcdef", 0, 0, 0), cookie); r.code != 404 {
 		t.Fatalf("before snapshot: %d", r.code)
 	}
-	if err := e.post("alpha", "alpha-token", "snapshot", testSnapshot("s1", at(-time.Minute))); err != nil {
+	if err := e.post("alpha", "alpha-token", "snapshot", testSnapshot("s1", at(-2*time.Minute))); err != nil {
 		t.Fatal(err)
 	}
-	if r := e.get(tile, cookie); r.code != 404 {
-		t.Fatalf("queued: %d", r.code)
+	fk := e.snapshotView(cookie).FogKey
+	if r := e.get(url(fk, 0, 0, 0), cookie); r.code != 404 {
+		t.Fatalf("tiles still queued: %d", r.code)
 	}
+	e.waitTiles()
 
-	e.runTiles()
-	close(e.release)
-	deadline := time.Now().Add(5 * time.Second)
-	for e.tiles.Status(testSeed, testGen).State != tileset.StateComplete {
-		if time.Now().After(deadline) {
-			t.Fatal("render did not complete")
+	immutable := func(r resp) {
+		t.Helper()
+		if cc := r.header.Get("Cache-Control"); cc != "public, max-age=31536000, immutable" {
+			t.Errorf("cache-control = %q", cc)
 		}
-		time.Sleep(2 * time.Millisecond)
+		if ct := r.header.Get("Content-Type"); ct != "image/png" {
+			t.Errorf("content-type = %q", ct)
+		}
 	}
 
-	r := e.get(tile, cookie)
-	if r.code != 200 || string(r.body) != "\x89PNG fake" {
-		t.Fatalf("complete: %d %q", r.code, r.body)
+	// Clear (z5 17,14 lies deep inside the explored block): the terrain
+	// file, byte for byte.
+	r := e.get(url(fk, 5, 17, 14), cookie)
+	disk, err := os.ReadFile(filepath.Join(e.tiles.Dir(testSeed, testGen), "5", "17", "14.png"))
+	if err != nil || r.code != 200 || !bytes.Equal(r.body, disk) {
+		t.Fatalf("clear tile: %d, same as disk %v (%v)", r.code, bytes.Equal(r.body, disk), err)
 	}
-	if cc := r.header.Get("Cache-Control"); cc != "public, max-age=31536000, immutable" {
-		t.Errorf("cache-control = %q", cc)
+	immutable(r)
+
+	// Fog (z5 2,16, 8.5 km west of anything explored): the texture alone.
+	// Its terrain file was never written, so this path reads no terrain.
+	r = e.get(url(fk, 5, 2, 16), cookie)
+	if r.code != 200 {
+		t.Fatalf("fog tile: %d %s", r.code, r.body)
 	}
-	if ct := r.header.Get("Content-Type"); ct != "image/png" {
-		t.Errorf("content-type = %q", ct)
+	immutable(r)
+	img := decodeTile(t, r.body)
+	for _, p := range [][2]int{{0, 0}, {17, 200}, {255, 255}} {
+		cr, cg, cb := fog.TexturePixel(2*256+p[0], 16*256+p[1])
+		if c := img.NRGBAAt(p[0], p[1]); c != (color.NRGBA{cr, cg, cb, 255}) {
+			t.Errorf("fog tile pixel %v = %v, want the texture", p, c)
+		}
+	}
+
+	// Edge (z5 16,15: the block's west and south rims run through it):
+	// terrain in the middle, partly fogged at the rim.
+	r = e.get(url(fk, 5, 16, 15), cookie)
+	if r.code != 200 {
+		t.Fatalf("edge tile: %d %s", r.code, r.body)
+	}
+	immutable(r)
+	img = decodeTile(t, r.body)
+	if c := img.NRGBAAt(128, 128); c != testTerrain {
+		t.Errorf("edge tile centre = %v, want terrain %v", c, testTerrain)
+	}
+	if c := img.NRGBAAt(0, 128); c == testTerrain {
+		t.Errorf("edge tile west rim = %v, want fog blended in", c)
+	}
+	if again := e.get(url(fk, 5, 16, 15), cookie); !bytes.Equal(again.body, r.body) {
+		t.Error("a repeat request composed a different tile")
+	}
+
+	// z6 32,30: from its z5 parent 16,15, upscaled.
+	r = e.get(url(fk, 6, 32, 30), cookie)
+	if r.code != 200 {
+		t.Fatalf("z6 tile: %d %s", r.code, r.body)
+	}
+	if c := decodeTile(t, r.body).NRGBAAt(255, 0); c != testTerrain {
+		t.Errorf("z6 tile inside the block = %v, want terrain", c)
 	}
 
 	for _, p := range []string{
-		"/tiles/alpha/1-0-r1/0/0/0.png",      // wrong key
-		"/tiles/alpha/" + key + "/6/0/0.png", // z out of range
-		"/tiles/alpha/" + key + "/0/1/0.png", // x out of range for z
-		"/tiles/alpha/" + key + "/0/0/-1.png",
-		"/tiles/alpha/" + key + "/0/0/0",     // no .png
-		"/tiles/alpha/" + key + "/1/0/0.png", // in range but missing on disk
-		"/tiles/alpha/" + key + "/0/0/0.jpg",
-		"/tiles/alpha/" + key + "/a/0/0.png",
+		url("0123456789abcdef", 5, 17, 14),               // stale fog key
+		"/tiles/alpha/1-0-r1/" + fk + "/0/0/0.png",       // wrong tiles key
+		url(fk, 7, 0, 0),                                 // z out of range
+		url(fk, 0, 1, 0),                                 // x out of range for z
+		"/tiles/alpha/" + key + "/" + fk + "/0/0/-1.png", // negative
+		"/tiles/alpha/" + key + "/" + fk + "/0/0/0",      // no .png
+		"/tiles/alpha/" + key + "/" + fk + "/0/0/0.jpg",  // not .png
+		"/tiles/alpha/" + key + "/" + fk + "/a/0/0.png",  // not a number
+		url(fk, 5, 15, 15),                               // edge tile, terrain missing on disk
+		"/tiles/alpha/" + key + "/0/0/0.png",             // the removed raw route
 	} {
 		if r := e.get(p, cookie); r.code != 404 {
 			t.Errorf("%s: %d, want 404", p, r.code)
 		}
 	}
-	if r := e.get(tile, ""); r.code != 404 {
+	if r := e.get(url(fk, 5, 17, 14), ""); r.code != 404 {
 		t.Errorf("no cookie: %d", r.code)
 	}
 
-	// Card reports the complete set.
+	// New exploration: a new fog key; the old one is gone.
+	m := explored.New()
+	for py := 1000; py < 1100; py++ {
+		for px := 1000; px < 1100; px++ {
+			m.Set(px, py)
+		}
+	}
+	enc := explored.Encode(m, explored.SourceTables)
+	s2 := testSnapshot("s2", at(-time.Minute))
+	s2.Explored = &enc
+	if err := e.post("alpha", "alpha-token", "snapshot", s2); err != nil {
+		t.Fatal(err)
+	}
+	fk2 := e.snapshotView(cookie).FogKey
+	if fk2 == fk || e.get(url(fk, 0, 0, 0), cookie).code != 404 || e.get(url(fk2, 0, 0, 0), cookie).code != 200 {
+		t.Errorf("after new exploration: key %q -> %q", fk, fk2)
+	}
+
 	var c cardJSON
 	e.get("/api/servers/alpha", cookie).json(t, &c)
 	if c.Tiles.State != "complete" || c.Tiles.Key != key || c.Tiles.Done != 1 || c.Tiles.Total != 1 {
 		t.Errorf("card tiles = %+v", c.Tiles)
 	}
+}
+
+func decodeTile(t *testing.T, b []byte) *image.NRGBA {
+	t.Helper()
+	img, err := png.Decode(bytes.NewReader(b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := img.Bounds(); b.Dx() != 256 || b.Dy() != 256 {
+		t.Fatalf("tile is %v", b)
+	}
+	out := image.NewNRGBA(img.Bounds())
+	draw.Draw(out, out.Rect, img, image.Point{}, draw.Src)
+	return out
 }
 
 // Case 10: healthz, plus UI fallback and unknown routes.
@@ -1129,16 +1213,9 @@ func TestGzipJSONCompressesLargePayloadsOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	key := e.tiles.Key(testSeed, testGen)
-	e.runTiles()
-	close(e.release)
-	deadline := time.Now().Add(5 * time.Second)
-	for e.tiles.Status(testSeed, testGen).State != tileset.StateComplete {
-		if time.Now().After(deadline) {
-			t.Fatal("render did not complete")
-		}
-		time.Sleep(2 * time.Millisecond)
-	}
-	tile := e.do("GET", "/tiles/alpha/"+key+"/0/0/0.png", nil, map[string]string{"Accept-Encoding": "gzip"}, cookie)
+	e.waitTiles()
+	fk := e.snapshotView(cookie).FogKey
+	tile := e.do("GET", "/tiles/alpha/"+key+"/"+fk+"/0/0/0.png", nil, map[string]string{"Accept-Encoding": "gzip"}, cookie)
 	if tile.code != 200 {
 		t.Fatalf("tile: %d", tile.code)
 	}

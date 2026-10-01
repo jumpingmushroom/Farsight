@@ -5,6 +5,9 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -105,11 +108,7 @@ func newEnvBurst(t *testing.T, burst int) *env {
 		case <-ctx.Done():
 			return ctx.Err()
 		}
-		p := filepath.Join(dir, "0", "0", "0.png")
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			return err
-		}
-		if err := os.WriteFile(p, []byte("\x89PNG fake"), 0o644); err != nil {
+		if err := writeTestTiles(dir); err != nil {
 			return err
 		}
 		progress(1, 1)
@@ -129,6 +128,49 @@ func newEnvBurst(t *testing.T, burst int) *env {
 	e.srv = httptest.NewServer(h)
 	t.Cleanup(e.srv.Close)
 	return e
+}
+
+// testTerrain is the colour of every tile writeTestTiles writes.
+var testTerrain = color.NRGBA{R: 40, G: 120, B: 60, A: 255}
+
+// writeTestTiles writes the few terrain tiles the tests read, each a solid
+// testTerrain PNG: z0 (everything), z5 16,15 (x and z 0…656 m: the
+// explored block's south-west corner runs through it) and z5 17,14
+// (656…1312 m: deep inside the block).
+func writeTestTiles(dir string) error {
+	img := image.NewNRGBA(image.Rect(0, 0, 256, 256))
+	for i := 0; i < len(img.Pix); i += 4 {
+		img.Pix[i], img.Pix[i+1], img.Pix[i+2], img.Pix[i+3] = testTerrain.R, testTerrain.G, testTerrain.B, testTerrain.A
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return err
+	}
+	for _, t := range [][3]int{{0, 0, 0}, {5, 16, 15}, {5, 17, 14}} {
+		p := filepath.Join(dir, strconv.Itoa(t[0]), strconv.Itoa(t[1]), strconv.Itoa(t[2])+".png")
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(p, buf.Bytes(), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// waitTiles starts the tile worker, lets the fake render finish and waits
+// for the set to be complete.
+func (e *env) waitTiles() {
+	e.t.Helper()
+	e.runTiles()
+	close(e.release)
+	deadline := time.Now().Add(5 * time.Second)
+	for e.tiles.Status(testSeed, testGen).State != tileset.StateComplete {
+		if time.Now().After(deadline) {
+			e.t.Fatal("render did not complete")
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
 }
 
 // newEnvSplit is newEnv, but builds the public and ingest handlers
