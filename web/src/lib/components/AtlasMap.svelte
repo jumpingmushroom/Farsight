@@ -137,7 +137,13 @@
 			maxBounds: MAX_BOUNDS,
 			maxBoundsViscosity: 0.8,
 			attributionControl: false,
-			zoomControl: false
+			zoomControl: false,
+			// No zoom animation: mid-animation Leaflet shows new-level tiles
+			// at the target zoom while the fog canvas is still CSS-scaling
+			// toward it (and a stalled compositor can hold that transition at
+			// its start), so the fog would trail the terrain and bare it.
+			// Without it, tiles and fog change zoom in the same frame.
+			zoomAnimation: false
 		});
 		padBoundsLimit(m);
 		m.createPane('disc').style.zIndex = '150';

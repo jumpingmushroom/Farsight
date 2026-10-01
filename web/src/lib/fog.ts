@@ -658,6 +658,8 @@ export function createFogLayer(getMask: () => Uint8Array | undefined): FogLayer 
 			if (c.height !== h) c.height = h;
 			c.style.width = size.x + 'px';
 			c.style.height = size.y + 'px';
+			// The zoom this canvas was drawn at (for the e2e sync check).
+			if (c.dataset) c.dataset.zoom = String(this._zoom);
 			this._draw();
 			// The canvas now covers the padded view again.
 			this._hideSkirt();

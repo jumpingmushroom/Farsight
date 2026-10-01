@@ -135,6 +135,64 @@ test('fix · a fast wheel zoom-out never bares terrain past the shrinking fog ca
 	await expect(page.locator('.fs-fog-skirt')).toBeHidden();
 });
 
+test('fix · fog and terrain stay at the same zoom in every frame of a fast wheel zoom', async ({ page }) => {
+	await unlock(page);
+	await expect(page.locator('canvas.fs-fog')).toHaveCount(1);
+	await page.waitForTimeout(1000);
+	// Each frame: the fog's effective zoom (the zoom it was drawn at plus its
+	// CSS scale) against the topmost tile level with a loaded tile (its zoom
+	// plus the tile's rendered scale). They differ when the fog lags the
+	// terrain — e.g. new-level tiles shown at the target zoom while the fog
+	// is still on its way there.
+	await page.evaluate(() => {
+		const w = window as unknown as { __off: number[]; __frames: number; __stop: boolean };
+		w.__off = [];
+		w.__frames = 0;
+		w.__stop = false;
+		const tick = () => {
+			const fog = document.querySelector<HTMLCanvasElement>('canvas.fs-fog');
+			let best: { z: number; img: HTMLImageElement } | null = null;
+			let bestZ = -Infinity;
+			for (const c of document.querySelectorAll<HTMLElement>('.leaflet-tile-container')) {
+				const img = [...c.querySelectorAll<HTMLImageElement>('img.leaflet-tile-loaded')].find((i) => i.complete && i.naturalWidth > 0);
+				const m = img?.src.match(/\/(\d+)\/-?\d+\/-?\d+\.png/);
+				const zi = Number(c.style.zIndex || 0);
+				if (img && m && zi > bestZ) {
+					bestZ = zi;
+					best = { z: Number(m[1]), img };
+				}
+			}
+			if (fog?.dataset.zoom && best) {
+				const fogEff = Number(fog.dataset.zoom) + Math.log2(fog.getBoundingClientRect().width / parseFloat(fog.style.width));
+				const tileEff = best.z + Math.log2(best.img.getBoundingClientRect().width / 256);
+				w.__off.push(Math.abs(fogEff - tileEff));
+				w.__frames++;
+			}
+			if (!w.__stop) requestAnimationFrame(tick);
+		};
+		requestAnimationFrame(tick);
+	});
+	const box = (await page.locator('.leaflet-container').first().boundingBox())!;
+	await page.mouse.move(box.x + box.width * 0.6, box.y + box.height / 2);
+	for (let i = 0; i < 6; i++) {
+		await page.mouse.wheel(0, -200);
+		await page.waitForTimeout(50);
+	}
+	await page.waitForTimeout(2000);
+	for (let i = 0; i < 6; i++) {
+		await page.mouse.wheel(0, 200);
+		await page.waitForTimeout(50);
+	}
+	await page.waitForTimeout(2000);
+	const r = await page.evaluate(() => {
+		const w = window as unknown as { __off: number[]; __frames: number; __stop: boolean };
+		w.__stop = true;
+		return { frames: w.__frames, worst: Math.max(0, ...w.__off), off: w.__off.filter((d) => d > 0.05).length };
+	});
+	expect(r.frames).toBeGreaterThan(10);
+	expect(r.off, `frames with fog and terrain at different zooms (worst ${r.worst.toFixed(2)} levels)`).toBe(0);
+});
+
 test('4 · online tab: players, recently online and activity', async ({ page }) => {
 	await unlock(page);
 	const online = page.getByRole('list', { name: 'Online now' });
