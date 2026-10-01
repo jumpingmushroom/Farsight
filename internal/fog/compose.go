@@ -37,7 +37,7 @@ func Blend(img *image.NRGBA, f *Field, z, x, y int) {
 		_, v := pixelCell(z, 0, gy)
 		row := img.Pix[py*img.Stride:]
 		for px := 0; px < TileSize; px++ {
-			a := Alpha(f.Sample(us[px], v), w)
+			a := Alpha(f.fogDistance(us[px], v), w)
 			if a == 0 {
 				continue
 			}

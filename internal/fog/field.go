@@ -71,6 +71,27 @@ func (f *Field) Sample(u, v float64) float64 {
 	return (a*(1-tx)+b*tx)*(1-ty) + (c*(1-tx)+d*tx)*ty
 }
 
+// fogDistance is Sample, capped to ≤ 0 when (u, v)'s nearest cell is
+// unexplored. At a concave corner of the explored area, bilinearly
+// interpolating the straight-line cell-centre distances is not itself
+// bounded by the unexplored cells it crosses, so it can read positive
+// (explored) distance for a point that still lies inside an unexplored
+// cell. That would let Alpha fall under 1 and leak terrain through a pixel
+// that the game still shows as fog. The stored field already encodes
+// exploration in its sign (every explored cell is > 0, every unexplored
+// cell is <= 0: see NewField), so the nearest cell's own value is enough;
+// no separate mask lookup is needed. The cap uses the same banker's
+// rounding the grid's cell centres use (explored.CellOf) to pick the
+// nearest cell.
+func (f *Field) fogDistance(u, v float64) float64 {
+	d := f.Sample(u, v)
+	cu, cv := int(math.RoundToEven(u)), int(math.RoundToEven(v))
+	if f.at(cu, cv) <= 0 {
+		return min(d, 0)
+	}
+	return d
+}
+
 // sqEDT is the exact squared Euclidean distance transform of a w×h grid
 // (Felzenszwalb & Huttenlocher): for every cell, the squared distance in
 // cells to the nearest feature cell, 0 on features, and >= 1e19 when the

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"image"
 	"image/color"
+	"math"
 	"math/rand/v2"
 	"testing"
 
@@ -142,6 +143,95 @@ func TestClassMapOnTheWestHalf(t *testing.T) {
 	} {
 		if got := c.At(k.z, k.x, k.y); got != k.want {
 			t.Errorf("z%d %d,%d = %v, want %v", k.z, k.x, k.y, got, k.want)
+		}
+	}
+}
+
+// lCorner explores every cell except the quadrant where both px and py are
+// >= 1024, so the explored area is L-shaped with a concave corner at the
+// boundary of cells (1023,1023)/(1024,1024). Bilinear interpolation of a
+// signed field built from straight cell-centre distances is not clamped at
+// such a corner, so a naive Field.Sample can read positive (explored)
+// distance for points that fall inside the unexplored quadrant.
+func lCorner() *explored.Mask {
+	m := explored.New()
+	for py := 0; py < explored.Size; py++ {
+		for px := 0; px < explored.Size; px++ {
+			if px < 1024 || py < 1024 {
+				m.Set(px, py)
+			}
+		}
+	}
+	return m
+}
+
+// TestBlendIsOpaqueInsideAConcaveCorner checks every z6 pixel near the
+// lCorner concave corner whose centre lies in an unexplored cell: Blend
+// must draw the pure fog texture there (alpha exactly 1), never any
+// terrain, however close the pixel sits to the corner.
+func TestBlendIsOpaqueInsideAConcaveCorner(t *testing.T) {
+	m := lCorner()
+	f := NewField(m)
+	const z = 6
+	terrain := noiseTile(5)
+	checked := 0
+	for ty := 30; ty <= 33; ty++ {
+		for tx := 30; tx <= 33; tx++ {
+			got := clone(terrain)
+			Blend(got, f, z, tx, ty)
+			want := FogTile(z, tx, ty)
+			for py := 0; py < TileSize; py++ {
+				_, v := pixelCell(z, 0, ty*TileSize+py)
+				cv := int(math.RoundToEven(v))
+				for px := 0; px < TileSize; px++ {
+					u, _ := pixelCell(z, tx*TileSize+px, 0)
+					cu := int(math.RoundToEven(u))
+					if m.Get(cu, cv) {
+						continue // nearest cell explored: terrain may show
+					}
+					checked++
+					gp, wp := got.NRGBAAt(px, py), want.NRGBAAt(px, py)
+					if gp.R != wp.R || gp.G != wp.G || gp.B != wp.B {
+						t.Fatalf("z%d tile %d,%d px %d,%d: nearest cell (%d,%d) unexplored but pixel is %v, want pure fog %v", z, tx, ty, px, py, cu, cv, gp, wp)
+					}
+				}
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no pixels near the corner landed in an unexplored cell; test is vacuous")
+	}
+}
+
+// TestClassesAreSoundAtZ5AndZ6 extends TestClassesAreSound's Clear/Fog
+// check (Blend must agree exactly with the tile's class) to z5 and z6,
+// restricted to the tile columns straddling the westHalf edge so it stays
+// fast: those are the columns most likely to expose a bilinear overshoot.
+func TestClassesAreSoundAtZ5AndZ6(t *testing.T) {
+	f := NewField(westHalf())
+	terrain := noiseTile(4)
+	for _, c := range []struct{ z, lo, hi int }{{5, 14, 17}, {6, 30, 33}} {
+		n := 1 << c.z
+		for y := 0; y < n; y++ {
+			for x := c.lo; x <= c.hi; x++ {
+				cl := f.classify(c.z, x, y)
+				got := clone(terrain)
+				Blend(got, f, c.z, x, y)
+				switch cl {
+				case Clear:
+					for py := 0; py < TileSize; py++ {
+						for px := 0; px < TileSize; px++ {
+							if insideDisc(c.z, x*TileSize+px, y*TileSize+py) && got.NRGBAAt(px, py) != terrain.NRGBAAt(px, py) {
+								t.Fatalf("z%d %d,%d is Clear but Blend changes pixel %d,%d", c.z, x, y, px, py)
+							}
+						}
+					}
+				case Fog:
+					if !bytes.Equal(got.Pix, FogTile(c.z, x, y).Pix) {
+						t.Fatalf("z%d %d,%d is Fog but Blend shows terrain", c.z, x, y)
+					}
+				}
+			}
 		}
 	}
 }

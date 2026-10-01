@@ -2,13 +2,17 @@ package fog
 
 import "math"
 
-// The parchment texture, ported exactly from the browser's former fog
-// canvas (web/src/lib/fog.ts before Plan 6): #cfbe9c with ±9 grey noise
-// per pixel from mulberry32(0x5eedf06) over a 126 px pattern (row-major,
-// one draw per pixel, rounded half-to-even and clamped as a canvas
-// Uint8ClampedArray does), then 45° hatching rgba(120,98,66,.12) on the
-// pixels where x − y ≡ 0 (mod 9). 126 is a multiple of 9, so the pattern
-// repeats seamlessly; it is anchored to global pixels at each zoom.
+// The parchment texture, ported from the browser's former fog canvas
+// (web/src/lib/fog.ts before Plan 6): #cfbe9c with ±9 grey noise per pixel
+// from mulberry32(0x5eedf06) over a 126 px pattern (row-major, one draw
+// per pixel, rounded half-to-even and clamped as a canvas
+// Uint8ClampedArray does) — this part is bit-exact with the browser, as
+// TestNoiseMatchesTheBrowser checks against values computed from the
+// browser's own code. The 45° hatch then follows the spec's per-pixel rule
+// (rgba(120,98,66,.12) where x − y ≡ 0 mod 9) rather than the browser's
+// antialiased canvas stroke, which paints a similar but not bit-identical
+// band across three pixels. 126 is a multiple of 9, so the pattern repeats
+// seamlessly; it is anchored to global pixels at each zoom.
 const (
 	PatternSize = 126
 	hatchEvery  = 9
