@@ -1,7 +1,11 @@
 // Package extract turns a stream of save ZDOs into an atlas Snapshot.
 package extract
 
-import "time"
+import (
+	"time"
+
+	"github.com/jumpingmushroom/farsight/internal/explored"
+)
 
 type Snapshot struct {
 	ServerID string `json:"serverId"`
@@ -16,11 +20,15 @@ type Snapshot struct {
 	GlobalKeys    []string   `json:"globalKeys"`
 	Bosses        []Boss     `json:"bosses"`
 	ExploredZones [][2]int16 `json:"exploredZones"`
-	Locations     []Marker   `json:"locations"`
-	Markers       []Marker   `json:"markers"`
-	Bases         []Base     `json:"bases"`
-	Players       []Player   `json:"players"`
-	Stats         Stats      `json:"stats"`
+	// Explored is the 12 m explored mask (cartography tables, or shrunk
+	// zones, plus 100 m around built pieces). Nil in snapshots from agents
+	// that predate it; ExploredZones stays for central apps that predate it.
+	Explored  *explored.Encoded `json:"explored,omitempty"`
+	Locations []Marker          `json:"locations"`
+	Markers   []Marker          `json:"markers"`
+	Bases     []Base            `json:"bases"`
+	Players   []Player          `json:"players"`
+	Stats     Stats             `json:"stats"`
 }
 
 type WorldInfo struct {

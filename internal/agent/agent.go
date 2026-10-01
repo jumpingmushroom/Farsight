@@ -16,10 +16,13 @@ import (
 
 // saveLatest and saveRead are package-level seams over the save package so
 // tests can inject failures (including panics, to exercise Tick's
-// recover) without touching real save files.
+// recover) without touching real save files. saveRead keeps the byte
+// arrays the extractor needs (the cartography tables' maps).
 var (
 	saveLatest = save.LatestSave
-	saveRead   = save.Read
+	saveRead   = func(worldsDir, worldName string, fn func(*save.ZDO)) (*save.World, error) {
+		return save.ReadWith(worldsDir, worldName, save.ReadOptions{KeepBytes: extract.KeepBytes}, fn)
+	}
 )
 
 // maxBackoff caps the exponential backoff between POST retries.
@@ -172,6 +175,7 @@ func (a *Agent) sendPending(ctx context.Context) error {
 	a.lastSent = p.saveID
 	a.log.Info("snapshot sent", "save", p.saveID, "zdos", p.zdos,
 		"markers", len(p.snap.Markers), "unknownPrefabs", p.snap.Stats.UnknownPrefabs,
+		"explored", p.snap.Explored.Source,
 		"took", p.took.Round(time.Millisecond))
 	a.clearPending()
 	return nil

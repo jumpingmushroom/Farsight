@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jumpingmushroom/farsight/internal/explored"
 	"github.com/jumpingmushroom/farsight/internal/names"
 	"github.com/jumpingmushroom/farsight/internal/save"
 )
@@ -26,7 +27,12 @@ type Extractor struct {
 	pieces  []piece
 	players map[int64]string
 	unknown map[int32]bool
+	tables  *explored.Mask // union of the cartography tables' maps; nil until one decodes
 }
+
+// KeepBytes picks the prefabs whose byte arrays Add needs (pass it as
+// save.ReadOptions.KeepBytes): only cartography tables.
+func KeepBytes(prefab int32) bool { return prefab == save.MapTablePrefab }
 
 func New() *Extractor {
 	return &Extractor{counts: map[string]int{}, players: map[int64]string{}, unknown: map[int32]bool{}}
@@ -58,6 +64,9 @@ func (e *Extractor) Add(z *save.ZDO) {
 	if id := z.Longs[kCreator]; id != 0 {
 		e.pieces = append(e.pieces, piece{X: z.Pos[0], Z: z.Pos[2], Creator: id})
 	}
+	if z.Prefab == save.MapTablePrefab {
+		e.addTable(z)
+	}
 	switch {
 	case strings.HasPrefix(name, "portal"):
 		e.mark("portal", z).Label = z.Strings[kTag]
@@ -75,6 +84,44 @@ func (e *Extractor) Add(z *save.ZDO) {
 	}
 }
 
+// addTable adds a cartography table's recorded map to the union. A table
+// nobody has recorded at has no "data"; an undecodable one is skipped.
+func (e *Extractor) addTable(z *save.ZDO) {
+	b, ok := z.ByteArrays[save.MapDataKey]
+	if !ok {
+		return
+	}
+	flags, err := save.DecodeMapData(b)
+	if err != nil {
+		return
+	}
+	if e.tables == nil {
+		e.tables = explored.New()
+	}
+	e.tables.AddFlags(flags) // DecodeMapData returns exactly explored.Size² flags
+}
+
+// exploredMask is the snapshot's explored mask: the tables' union, or
+// without one the generated zones eroded by explored.ZoneShrinkCells, plus
+// the game's 100 m reveal around every player-built piece (someone stood
+// there; it also covers what was built after the last "Record").
+func (e *Extractor) exploredMask(w *save.World) *explored.Encoded {
+	m, source := e.tables, explored.SourceTables
+	if m == nil {
+		m, source = explored.FromZones(w.Zones).Erode(explored.ZoneShrinkCells), explored.SourceZones
+	}
+	cells := map[[2]int]struct{}{}
+	for _, p := range e.pieces {
+		px, py := explored.CellOf(float64(p.X), float64(p.Z))
+		cells[[2]int{px, py}] = struct{}{}
+	}
+	for c := range cells {
+		m.Reveal(c[0], c[1])
+	}
+	enc := explored.Encode(m, source)
+	return &enc
+}
+
 // Finish builds the Snapshot for world w. readAt is when this process
 // extracted the snapshot (Snapshot.ReadAt); the snapshot's SavedAt is the
 // game's own save time, w.SavedAt.
@@ -83,8 +130,9 @@ func (e *Extractor) Finish(w *save.World, serverID string, readAt time.Time) *Sn
 		ServerID: serverID, SaveID: w.SaveID, SavedAt: w.SavedAt.UTC(), ReadAt: readAt, Format: string(w.Format),
 		WorldVersion: w.Version,
 		GlobalKeys:   w.GlobalKeys, ExploredZones: w.Zones, Markers: e.markers,
-		World: worldInfo(w),
-		Stats: Stats{ZDOs: w.ZDOCount, Pieces: len(e.pieces), UnknownPrefabs: len(e.unknown)},
+		World:    worldInfo(w),
+		Explored: e.exploredMask(w),
+		Stats:    Stats{ZDOs: w.ZDOCount, Pieces: len(e.pieces), UnknownPrefabs: len(e.unknown)},
 	}
 	pairPortals(s.Markers)
 	for i, l := range w.Locations {
