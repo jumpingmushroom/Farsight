@@ -179,3 +179,54 @@ record now and then.
 - The seed name is shown on the server card, so a determined player can
   still regenerate the world elsewhere; this design stops casual
   spoilers from the atlas itself.
+
+## Implementation notes (Plan 6)
+
+Decisions the plan made where this spec left room:
+
+- **Zone shrink:** 20 cells, as a square erosion. Against MuleVikings' real
+  table map it scores IoU 0.719, up from 0.435 unshrunk. Mulennials also
+  peaks at 20 (0.647). A Euclidean erosion peaked lower (0.708). The golden
+  test `TestGoldenZoneShrinkCalibration` pins the constant.
+- **Old snapshots:** the central app rasterises `exploredZones` without the
+  shrink. It has no piece positions to add the 100 m reveal back.
+- **Field:** the explored edge runs halfway between an explored and an
+  unexplored cell centre. The int8 field is clamped to ±127 half-metres
+  (±63.5 m), because an int8 can't hold +128. 63.5 m is still past the widest
+  band (57.6 m). Bilinear sampling of cell-centre distances isn't itself
+  bounded by the unexplored cells a sample crosses at a concave corner of
+  the explored area, so a sampled point is capped at the unexplored side
+  whenever its own nearest cell is unexplored: a pixel inside an unexplored
+  cell is always fully fogged, even at a concave corner.
+- **Tile classes** come from the field's min and max over every cell a
+  tile's pixels can sample:
+  - *Fog* also needs the tile wholly inside the world disc.
+  - Tiles crossing the rim are *edge*, so the terrain's own alpha is used.
+  - Tiles wholly outside the disc are *clear*.
+- **Fog key:** it hashes the raw bitset, not its gzip form, so it can't
+  change with compression.
+- **Cache:** the in-memory cache key also includes the tile-set key, so a
+  re-rendered terrain set never serves a stale composition. A pure fog tile
+  doesn't depend on the terrain, the server or the fog key, only on
+  (z, x, y), so it caches under a key that drops the rest and is shared
+  across every server and fog key, instead of composing once per server per
+  fog key. A snapshot whose fog key is unchanged reuses the previous
+  field and tile classes rather than rebuilding them.
+- **z6 terrain** is the z5 parent quadrant upscaled 2× bilinearly, in
+  premultiplied alpha.
+- **API:** `fogKey` and `explored` are in the snapshot API only; the card
+  keeps `exploredPct`. The browser decodes `explored` with
+  `DecompressionStream`. Where that is missing, the mask is absent and only
+  the server's pin filtering applies. A tile request with a stale but
+  well-formed fog key 302s (`Cache-Control: no-store`) to the current key
+  instead of 404ing, since the id and key have already passed the same
+  checks any other request needs; a malformed key or a locked server still
+  404s.
+- **Browser:** the old tile layer is kept until the new one's first tile
+  loads (or a timeout), but only when just the fog key changed for the same
+  server and tile-set key — any other change (switching servers, a new
+  tile set, losing a snapshot) clears the old layer immediately, so stale
+  terrain never lingers on screen.
+- **Performance:** an edge tile measured 13.9 ms/op (decode, blend, encode
+  at BestSpeed) on the dev box's Intel Xeon E5-2660 v2 @ 2.20GHz. The field
+  and the tile classes take about 0.6 s once per fog key.
