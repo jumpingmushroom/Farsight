@@ -92,6 +92,8 @@ In the app, place the banner at the top of the map area, right of the side panel
 
 `:837-908`. It has a desktop 520-px aside and a mobile full-height sheet, plus the "Where each entry comes from" note. It is not built in the MVP. In the MVP, the "Full timeline →" links in the side panel and the mobile sheet **must be omitted**.
 
+**Built in Plan 7** (`docs/superpowers/specs/2026-10-05-activity-timeline-design.md`): "Full timeline →" is back in the side panel's Recent activity, and on mobile the menu sheet has a "Full timeline" row.
+
 ### 1.6 Section 06: How to join [MVP]
 
 The header (`:776`) reads "06 · How to join", with the subline "The join code is read from the server log’s “registered with join code” line, so it’s current after every restart. Desktop: “How to join” in the server card. The platform switch here is live."
@@ -110,6 +112,8 @@ The header (`:748`) reads "07 · Multiple servers", with the subline "Each serve
 ### 1.8 Section 08: Profiles, world rules, time and weather [OUT, except the world rules card]
 
 `:636-745`. It contains the mobile player profile, the time and weather dropdown, and the **world rules card**. The world rules card is reused in the World tab and the join dialog, so **it is in the MVP** (spec 06: "world rules card"). Also out: the night map tint (`nightFilter`), the time pill and the "Profile →" links.
+
+**Profiles built in Plan 7** (`docs/superpowers/specs/2026-10-05-player-profile-design.md`): "Profile →" is on Online and Recently online rows, desktop and mobile. The time and weather pieces stay out.
 
 ---
 

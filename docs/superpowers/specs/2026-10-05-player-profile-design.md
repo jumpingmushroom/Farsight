@@ -90,3 +90,31 @@ first; portals and tames show "None yet" until the agent is updated.
 
 1. Central app: profiles live except portals and tames.
 2. Agent, at a quiet time: portals and tames fill in.
+
+## Implementation notes (Plan 7)
+
+Decisions the plan made where this spec left room:
+
+- **Player id:** the sessions' `platformId` (no platform prefix) in the URL
+  (`#p=`) and the API. A tame's namer (`TamedNameAuthor`, "Steam_…") is
+  matched as `platform + "_" + platformId`; "host" names nobody.
+- **Names:** save data links by every name the platform ID has played under,
+  not only the latest.
+- **Time zone:** each server in the config gets `timeZone` (IANA, default
+  `UTC`), set to its agent's `FARSIGHT_LOG_TZ`; the app can't read the
+  agent's environment.
+- **"This week"** is the chart's seven local days (today and the six before),
+  not a rolling 168 hours, so the tile and the bars agree. Deaths "this week"
+  use the same days.
+- **Explored only:** beds, bases, portals, tames and current tombstones are
+  filtered to explored ground, like the snapshot API. A portal shows as
+  paired only when its partner is explored. "N spotted" counts every
+  tombstone.
+- **Tombstone history** is kept incrementally: the world-save diff that
+  writes timeline events also records every distinct tombstone, with the
+  save it first appeared in, in a `tombstones` table. Stored snapshots are
+  pruned after 14 days; the table isn't.
+- **Beds:** the nearest explored base within 300 m names a bed, otherwise
+  its biome.
+- **Tracked since** is the server's earliest stored event (the first session
+  if there is none), shown as a note under first and last seen.

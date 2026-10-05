@@ -93,3 +93,38 @@ until then the Raids chip shows 0.
 
 Ships with the player profile. App first (timeline complete except raids);
 the agent update adds raids together with the profile's portals and tames.
+
+## Implementation notes (Plan 7)
+
+Decisions the plan made where this spec left room:
+
+- **Matching across saves:** marker and base ids are per-save rankings, so
+  tombstones and portals match by owner or tag within 4 m, bases by the
+  previous base whose centre is nearest (within its radius plus 32 m), and
+  tames by counting (species, name): tames walk about. Unnamed tames (bred
+  or freshly tamed animals) aren't reported. Owners and namers aren't part
+  of any match, so the agent update that adds them reports nothing.
+- **Baseline:** the first stored save of a server yields no events; what is
+  in it predates tracking.
+- **Portals:** a new portal's event says whether it is paired already;
+  "now paired" is only for two existing portals that pair, so one new pair
+  is reported once.
+- **Retention:** only heartbeat and players_now events are pruned after 14
+  days now; everything else stays, so the timeline reaches back to when
+  tracking began.
+- **Paging** is by the server's local days: without `before` the window ends
+  at the end of today; the response's `from` is the next page's `before`.
+  "Tracking began" shows once `from` reaches `earliest`.
+- **Autosaves:** a run of autosaves with nothing between them is collapsed
+  to its newest, in the API, before counting.
+- **People** chips list every player the server has seen (online first) and
+  are multi-select ("Everyone" clears them). Chip counts and "Who was on
+  today" follow the people filter; the category chips don't change counts.
+- **Raids:** the event names mapped to messages are the ones known from the
+  game; anything else shows as its raw name ("Raid: army_gjall"). A raid's
+  event id leaves the name out, so no other event's id changed.
+- **Derivation** runs inside snapshot ingest (a failure is logged, not
+  returned to the agent) and once per server at startup.
+- **The card's activity** uses the timeline's entry shape, so the side
+  panel's short list follows the same filters; its world-save rows show
+  "save HH:MM".

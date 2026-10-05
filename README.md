@@ -4,6 +4,8 @@ A companion site for Valheim dedicated servers. It offers a world atlas rebuilt 
 
 - **World atlas.** Terrain is generated from the world seed and rendered into map tiles. Markers for portals, beds, bases, tames, signs, boss altars, traders and dungeons are read from the latest autosave. The fog of war follows the game's own map: what has been recorded at a cartography table, plus 100 m around anything built. It is drawn into the map tiles on the server, so unexplored terrain never reaches the browser.
 - **Server card.** Shows who's online and who was recently online, recent activity, the in-game day, bosses defeated, world rules, and the live crossplay join code.
+- **Player profiles.** Playtime this week and since tracking began, the last 7 days hour by hour, and each player's bases, beds, portals, named tames and deaths, linked from the save by who placed or named them.
+- **Activity timeline.** Joins, leaves, restarts and raids from the server log, plus what changed between world saves: new tombstones, portals, tames and bases, bases that grew and bosses defeated. Filter it by kind and by player, back to when tracking began.
 - **Private by default.** Each server is unlocked with a shared passphrase. Player positions are never shown.
 
 Farsight has two parts:
@@ -24,6 +26,8 @@ make e2e                          # Playwright end-to-end tests
 ```
 
 Without the `webui` build tag, `farsight` serves a placeholder page instead of the UI. Container images are built from `Dockerfile` and `Dockerfile.agent`.
+
+Each server in `farsight.json` may set `timeZone`, an IANA name such as `"Europe/Oslo"` (default `"UTC"`). Set it to the same zone as that server's agent's `FARSIGHT_LOG_TZ`: profiles and the activity timeline count days in it.
 
 ## Not affiliated with Iron Gate
 
