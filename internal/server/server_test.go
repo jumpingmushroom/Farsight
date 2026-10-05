@@ -627,7 +627,7 @@ func TestSnapshotAPIClassifiesRawLocations(t *testing.T) {
 	e := newEnv(t)
 	snap := testSnapshot("s1", at(-time.Minute))
 	snap.Locations = []extract.Marker{
-		{ID: "loc-forge", Kind: "location", Type: "AncientUpgradeStation", X: 70, Z: 20},           // explored, mapped: kept
+		{ID: "loc-forge", Kind: "location", Type: "AncientUpgradeStation", X: 70, Z: 20},            // explored, mapped: kept
 		{ID: "loc-bogwitch", Kind: "location", Type: "BogWitch_Camp", Unplaced: true, X: 70, Z: 20}, // explored, unplaced unique: dropped
 		{ID: "loc-rune", Kind: "location", Type: "Runestone_Meadows", X: 70, Z: 20},                 // explored, unmapped: dropped
 		{ID: "loc-crypt2", Kind: "location", Type: "Crypt2", X: -5000, Z: -5000},                    // mapped, unexplored: dropped
