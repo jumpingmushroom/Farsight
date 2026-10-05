@@ -139,11 +139,44 @@ func TestDiffPortals(t *testing.T) {
 	e.Markers = append(e.Markers, extract.Marker{ID: "portal-4", Kind: "portal", Label: "copper", X: 2000, Z: 2000, Pair: "portal-3"})
 	e.Markers[2].Pair = "portal-4"
 	evs = Diff(d, e, fakeGeo{})
-	if got := types(evs); len(got) != 2 || got[0] != TypePortalPaired || got[1] != TypePortalPaired {
+	// Fix round 1 (M4): one event per pair, not one per end.
+	if got := types(evs); len(got) != 1 || got[0] != TypePortalPaired {
 		t.Fatalf("pairing later: %+v", evs)
 	}
 	if evs[0].Tag != "copper" || evs[0].Owner != "Bjorn" {
 		t.Fatalf("paired = %+v", evs[0])
+	}
+}
+
+// Fix round 1 (I1): a portal's partner being in unexplored ground must
+// never be revealed, whether as a new portal's paired flag or as a
+// world_portal_paired event once both ends were already old.
+func TestDiffPortalsHideUnexploredPartner(t *testing.T) {
+	a := world("chunked:1", t0)
+	a.Markers = append(a.Markers, extract.Marker{ID: "portal-9", Kind: "portal", Label: "hidden", X: -7000, Z: 5})
+	b := world("chunked:2", t0.Add(20*time.Minute))
+	b.Markers = append(b.Markers,
+		// A brand-new portal paired with an existing one in unexplored ground.
+		extract.Marker{ID: "portal-9", Kind: "portal", Label: "hidden", X: -7000, Z: 5, Pair: "portal-10"},
+		extract.Marker{ID: "portal-10", Kind: "portal", Label: "hidden", X: 700, Z: 700, Pair: "portal-9"},
+	)
+	evs := Diff(a, b, fakeGeo{})
+	if len(evs) != 1 {
+		t.Fatalf("events = %+v", evs)
+	}
+	if e := evs[0]; e.Type != TypePortal || e.Tag != "hidden" || e.Paired {
+		t.Fatalf("new portal with an unexplored partner must not read as paired: %+v", e)
+	}
+
+	// Two already-old portals become paired, but one sits in unexplored
+	// ground: no world_portal_paired event reveals the pairing.
+	c := world("chunked:3", t0.Add(40*time.Minute))
+	c.Markers = append(c.Markers, extract.Marker{ID: "portal-9", Kind: "portal", Label: "copper", X: -7000, Z: 5})
+	d := world("chunked:4", t0.Add(60*time.Minute))
+	d.Markers = append(d.Markers, extract.Marker{ID: "portal-9", Kind: "portal", Label: "copper", X: -7000, Z: 5, Pair: "portal-3"})
+	d.Markers[2].Pair = "portal-9" // world()'s portal-3
+	if evs := Diff(c, d, fakeGeo{}); len(evs) != 0 {
+		t.Fatalf("pairing with an unexplored end: %+v", evs)
 	}
 }
 
@@ -195,6 +228,56 @@ func TestDiffBases(t *testing.T) {
 	}
 }
 
+// Fix round 1 (M2): bases match one to one, so a merge or a split cannot
+// double-match the same previous (or current) base.
+func TestDiffBasesOneToOneMatching(t *testing.T) {
+	// A merge: two old camps (400 + 100 pieces) are replaced by one new,
+	// bigger camp (505) too far from either original centre (beyond its
+	// radius plus 32 m) to match. Rather than crediting it with "grew by
+	// 105" (most of which is Camp B's pre-existing pieces, not new
+	// building), it is reported as a new base.
+	a := world("chunked:1", t0)
+	a.Bases = append(a.Bases,
+		extract.Base{ID: "base-m1", Name: "Camp A", X: 6000, Z: 6000, Radius: 40, Pieces: 400},
+		extract.Base{ID: "base-m2", Name: "Camp B", X: 6200, Z: 6000, Radius: 20, Pieces: 100},
+	)
+	b := world("chunked:2", t0.Add(20*time.Minute))
+	b.Bases = append(b.Bases, extract.Base{ID: "base-merged", Name: "Camp A", X: 6100, Z: 6000, Radius: 60, Pieces: 505})
+	evs := Diff(a, b, fakeGeo{})
+	var merged *Event
+	for i := range evs {
+		if evs[i].Name == "Camp A" && evs[i].Pieces == 505 {
+			merged = &evs[i]
+		}
+	}
+	if merged == nil || merged.Type != TypeBaseNew {
+		t.Fatalf("merged camp = %+v (events %+v)", merged, evs)
+	}
+	for _, e := range evs {
+		if e.Type == TypeBaseGrew && e.Grew == 105 {
+			t.Fatalf("growth inflated by the merge: %+v", e)
+		}
+	}
+
+	// A split: one old base (300 pieces) becomes two current ones. Only the
+	// nearer one (at the same spot, shrunk to 150: no event, since it
+	// didn't grow) matches; the other, 60 m away but still within the old
+	// base's radius (50) plus baseLink, can no longer also match the same
+	// old base, so it is reported as new rather than silently ignored or
+	// mis-matched.
+	c := world("chunked:3", t0.Add(40*time.Minute))
+	c.Bases = append(c.Bases, extract.Base{ID: "base-s", Name: "Old Hall", X: 8000, Z: 8000, Radius: 50, Pieces: 300})
+	d := world("chunked:4", t0.Add(60*time.Minute))
+	d.Bases = append(d.Bases,
+		extract.Base{ID: "base-s1", Name: "Old Hall", X: 8000, Z: 8000, Radius: 50, Pieces: 150},
+		extract.Base{ID: "base-s2", Name: "New Wing", X: 8060, Z: 8000, Radius: 20, Pieces: 160},
+	)
+	evs = Diff(c, d, fakeGeo{})
+	if len(evs) != 1 || evs[0].Type != TypeBaseNew || evs[0].Name != "New Wing" || evs[0].Pieces != 160 {
+		t.Fatalf("split's second half = %+v", evs)
+	}
+}
+
 func TestDiffBosses(t *testing.T) {
 	a := world("chunked:1", t0)
 	b := world("chunked:2", t0.Add(20*time.Minute))
@@ -213,11 +296,34 @@ func TestDiffBosses(t *testing.T) {
 	}
 }
 
+// Fix round 1 (M3): the boss fallback to a snapshot's own boss list is
+// symmetric. Both saves here predate global keys; a boss defeated between
+// them must still be reported, not lost until the next keyed save (which
+// would otherwise treat it as already defeated).
+func TestDiffBossesBothPredateGlobalKeys(t *testing.T) {
+	a := world("chunked:1", t0)
+	a.GlobalKeys = nil
+	a.Bosses = []extract.Boss{{Key: "defeated_eikthyr", Name: "Eikthyr", Defeated: true}}
+	b := world("chunked:2", t0.Add(20*time.Minute))
+	b.GlobalKeys = nil
+	b.Bosses = []extract.Boss{
+		{Key: "defeated_eikthyr", Name: "Eikthyr", Defeated: true},
+		{Key: "defeated_gdking", Name: "The Elder", Defeated: true},
+	}
+	evs := Diff(a, b, fakeGeo{})
+	if len(evs) != 1 || evs[0].Type != TypeBoss || evs[0].Boss != "The Elder" {
+		t.Fatalf("bosses (both pre-keys) = %+v", evs)
+	}
+}
+
 func TestNearWording(t *testing.T) {
 	locs := world("x", t0).Locations
 	locs = append(locs,
 		extract.Marker{Kind: "boss_altar", Label: "Moder", X: 5000, Z: 5000},
 		extract.Marker{Kind: "trader", Label: "Hildir", X: -4000, Z: 4000},
+		// Fix round 1 (M5): explored itself, close to the unexplored
+		// boundary, so it can be "near" a point just the other side of it.
+		extract.Marker{Kind: "trader", Label: "Hildir2", X: -4800, Z: 0},
 	)
 	for _, c := range []struct {
 		x, z float32
@@ -229,6 +335,10 @@ func TestNearWording(t *testing.T) {
 		{-4100, 4000, "Hildir"},
 		{-6000, 50, ""}, // Haldor is there but unexplored
 		{0, 0, ""},
+		// Fix round 1 (M5): the event's own point must be explored, not
+		// just the nearby location: Hildir2 is explored and 250 m away,
+		// but the point itself (x = -5050) isn't.
+		{-5050, 0, ""},
 	} {
 		if got := Near(locs, fakeGeo{}, c.x, c.z); got != c.want {
 			t.Errorf("Near(%v, %v) = %q, want %q", c.x, c.z, got, c.want)

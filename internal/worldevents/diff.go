@@ -1,6 +1,8 @@
 package worldevents
 
 import (
+	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/jumpingmushroom/farsight/internal/extract"
@@ -89,34 +91,90 @@ func (d *differ) tombstones() {
 	}
 }
 
+// portalExplored reports whether the portal with the given id (in now) is
+// explored; false if there is no such portal (a dangling pair reference).
+// The map hides an unexplored marker and unpairs any portal whose partner
+// is unexplored, so an event must never reveal that an unexplored portal
+// exists or is a pair's other end.
+func portalExplored(now map[string]extract.Marker, geo Geo, id string) bool {
+	m, ok := now[id]
+	return ok && geo.Explored(m.X, m.Z)
+}
+
+// pairSortKey orders a portal within its pair, deterministically and
+// independently of save-to-save marker ids: by label, then position.
+func pairSortKey(m extract.Marker) (string, int, int) { return m.Label, round(m.X), round(m.Z) }
+
+func pairLess(a, b extract.Marker) bool {
+	al, ax, az := pairSortKey(a)
+	bl, bx, bz := pairSortKey(b)
+	if al != bl {
+		return al < bl
+	}
+	if ax != bx {
+		return ax < bx
+	}
+	return az < bz
+}
+
 // portals reports new portals (matched by tag and position, not owner:
 // snapshots from agents before Plan 7 have no owner), and old portals that
 // became paired with another old portal. A portal paired with a new one is
-// covered by the new one's event.
+// covered by the new one's event. A pairing is only ever reported, and a
+// portal only ever reported paired, once both ends are explored: the map
+// unpairs a portal whose partner is unexplored, so an event must not
+// reveal that an unexplored partner exists. One world_portal_paired event
+// is written per pair, not one per end, using a canonical (label,
+// position) ordering of the two ends for a deterministic id and body.
 func (d *differ) portals() {
 	before := ofKind(d.prev.Markers, "portal")
 	now := ofKind(d.cur.Markers, "portal")
+	byID := make(map[string]extract.Marker, len(now))
+	for _, m := range now {
+		byID[m.ID] = m
+	}
 	isNew := map[string]bool{}
 	for _, m := range now {
 		if _, ok := match(m, before, labelKey); !ok {
 			isNew[m.ID] = true
 		}
 	}
+	reported := map[string]bool{} // canonical pair key already written, this call
 	for _, m := range now {
 		if isNew[m.ID] {
+			paired := m.Pair != "" && portalExplored(byID, d.geo, m.Pair)
 			e := Event{ID: eventID(TypePortal, d.cur.SaveID, m.Label, round(m.X), round(m.Z)), Type: TypePortal,
-				Tag: m.Label, Paired: m.Pair != "", Owner: m.Owner}
+				Tag: m.Label, Paired: paired, Owner: m.Owner}
 			d.place(&e, m.X, m.Z)
 			d.add(e)
 			continue
 		}
-		p, _ := match(m, before, labelKey)
-		if p.Pair == "" && m.Pair != "" && !isNew[m.Pair] {
-			e := Event{ID: eventID(TypePortalPaired, d.cur.SaveID, m.Label, round(m.X), round(m.Z)), Type: TypePortalPaired,
-				Tag: m.Label, Owner: m.Owner}
-			d.place(&e, m.X, m.Z)
-			d.add(e)
+		if m.Pair == "" || isNew[m.Pair] {
+			continue
 		}
+		p, ok := match(m, before, labelKey)
+		if !ok || p.Pair != "" {
+			continue // already paired before (the other end reports it)
+		}
+		partner, ok := byID[m.Pair]
+		if !ok || !d.geo.Explored(m.X, m.Z) || !d.geo.Explored(partner.X, partner.Z) {
+			continue // dangling reference, or one end isn't explored yet
+		}
+		a, b := m, partner
+		if pairLess(b, a) {
+			a, b = b, a
+		}
+		al, ax, az := pairSortKey(a)
+		bl, bx, bz := pairSortKey(b)
+		key := fmt.Sprintf("%s,%d,%d|%s,%d,%d", al, ax, az, bl, bx, bz)
+		if reported[key] {
+			continue
+		}
+		reported[key] = true
+		e := Event{ID: eventID(TypePortalPaired, d.cur.SaveID, al, ax, az, bl, bx, bz), Type: TypePortalPaired,
+			Tag: a.Label, Owner: a.Owner}
+		d.place(&e, a.X, a.Z)
+		d.add(e)
 	}
 }
 
@@ -156,34 +214,70 @@ func (d *differ) tames() {
 	}
 }
 
-// bases matches each base to the previous base whose centre is nearest,
-// among those within that base's radius plus baseLink: base ids are a
-// size ranking, not stable across saves. Unmatched bases are new; matched
-// ones that grew by GrowthMin or more pieces are reported.
-func (d *differ) bases() {
-	for _, b := range d.cur.Bases {
-		var best *extract.Base
-		bestD := 0.0
-		for i := range d.prev.Bases {
-			p := &d.prev.Bases[i]
-			dd := dist(p.X, p.Z, b.X, b.Z)
-			if dd <= float64(p.Radius)+baseLink && (best == nil || dd < bestD) {
-				best, bestD = p, dd
+// basePair is a candidate match between a previous and a current base,
+// within the previous one's radius plus baseLink.
+type basePair struct {
+	pi, ci int
+	dist   float64
+}
+
+// matchBases pairs each current base with at most one previous base (the
+// globally closest valid pair first, then the next closest among what's
+// left, and so on), each previous base used at most once: base ids are a
+// size ranking, not stable across saves, and a one-to-one match keeps a
+// base that merges two old ones, or splits into two, from inflating
+// growth or mis-reporting a split half as grown. It returns, per current
+// base index, the matched previous base's index (ok false if unmatched).
+func matchBases(prev, cur []extract.Base) map[int]int {
+	var candidates []basePair
+	for pi := range prev {
+		p := &prev[pi]
+		for ci := range cur {
+			c := &cur[ci]
+			dd := dist(p.X, p.Z, c.X, c.Z)
+			if dd <= float64(p.Radius)+baseLink {
+				candidates = append(candidates, basePair{pi, ci, dd})
 			}
 		}
+	}
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].dist < candidates[j].dist })
+	usedPrev := map[int]bool{}
+	matched := map[int]int{}
+	for _, c := range candidates {
+		if usedPrev[c.pi] {
+			continue
+		}
+		if _, ok := matched[c.ci]; ok {
+			continue
+		}
+		usedPrev[c.pi] = true
+		matched[c.ci] = c.pi
+	}
+	return matched
+}
+
+// bases reports a current base with no matched previous base as new, and
+// a matched one that grew by GrowthMin or more pieces as grown.
+func (d *differ) bases() {
+	matched := matchBases(d.prev.Bases, d.cur.Bases)
+	for ci := range d.cur.Bases {
+		b := &d.cur.Bases[ci]
 		var builders []string
 		for _, bl := range b.Builders {
 			if bl.Name != "" {
 				builders = append(builders, bl.Name)
 			}
 		}
-		switch {
-		case best == nil:
+		pi, ok := matched[ci]
+		if !ok {
 			e := Event{ID: eventID(TypeBaseNew, d.cur.SaveID, round(b.X), round(b.Z)), Type: TypeBaseNew,
 				Name: b.Name, Pieces: b.Pieces, Builders: builders}
 			d.place(&e, b.X, b.Z)
 			d.add(e)
-		case b.Pieces-best.Pieces >= GrowthMin:
+			continue
+		}
+		best := &d.prev.Bases[pi]
+		if b.Pieces-best.Pieces >= GrowthMin {
 			e := Event{ID: eventID(TypeBaseGrew, d.cur.SaveID, round(b.X), round(b.Z)), Type: TypeBaseGrew,
 				Name: b.Name, Pieces: b.Pieces, Grew: b.Pieces - best.Pieces, Builders: builders}
 			d.place(&e, b.X, b.Z)
@@ -192,16 +286,20 @@ func (d *differ) bases() {
 	}
 }
 
-// defeated is the set of bosses snap shows defeated: from its global keys
-// (extract.BossesFromKeys), or, for a snapshot stored before global keys
-// were sent, from its own boss list.
+// bossesOf returns the bosses snap shows, as cardBosses does: from its
+// global keys (extract.BossesFromKeys), or, for a snapshot stored before
+// global keys were sent, from its own boss list.
+func bossesOf(snap *extract.Snapshot) []extract.Boss {
+	if snap.GlobalKeys != nil {
+		return extract.BossesFromKeys(snap.GlobalKeys)
+	}
+	return snap.Bosses
+}
+
+// defeated is the set of bosses snap shows defeated.
 func defeated(snap *extract.Snapshot) map[string]bool {
 	out := map[string]bool{}
-	bosses := snap.Bosses
-	if snap.GlobalKeys != nil {
-		bosses = extract.BossesFromKeys(snap.GlobalKeys)
-	}
-	for _, b := range bosses {
+	for _, b := range bossesOf(snap) {
 		if b.Defeated {
 			out[b.Key] = true
 		}
@@ -209,9 +307,14 @@ func defeated(snap *extract.Snapshot) map[string]bool {
 	return out
 }
 
+// bosses applies the same fallback to cur as to prev (bossesOf), so a
+// boss defeated between two snapshots that both predate global keys is
+// not lost: without it, only prev falls back to its own boss list, and
+// cur's always-nil GlobalKeys would make BossesFromKeys(nil) report none
+// defeated.
 func (d *differ) bosses() {
 	was := defeated(d.prev)
-	for _, b := range extract.BossesFromKeys(d.cur.GlobalKeys) {
+	for _, b := range bossesOf(d.cur) {
 		if b.Defeated && !was[b.Key] {
 			d.add(Event{ID: eventID(TypeBoss, d.cur.SaveID, b.Key), Type: TypeBoss, Boss: b.Name})
 		}
@@ -221,8 +324,14 @@ func (d *differ) bosses() {
 // Near names the known location (boss altar, trader or dungeon) nearest
 // to (x, z) within NearRadius, in explored ground only, for "near …"
 // wording: "a sunken crypt", "burial chambers", "Haldor", "Moder’s altar".
-// "" if there is none.
+// "" if there is none, or if (x, z) itself isn't explored: an event in
+// unexplored ground must not read as being near a landmark the map
+// doesn't show there, even when that landmark is itself explored and
+// within range. The caller falls back to the biome.
 func Near(locs []extract.Marker, geo Geo, x, z float32) string {
+	if !geo.Explored(x, z) {
+		return ""
+	}
 	var best *extract.Marker
 	bestD := 0.0
 	for i := range locs {

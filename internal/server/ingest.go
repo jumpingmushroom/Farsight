@@ -221,12 +221,11 @@ func (s *server) ingestSnapshot(w http.ResponseWriter, r *http.Request) {
 	// Idempotent and cheap, so run it even for a duplicate: it restarts a
 	// render that failed or was lost to a restart.
 	s.Tiles.Ensure(snap.World.Seed, snap.World.GenVersion)
-	// Diff the new save against the previous one into world events. Also
+	// Diff the new save against the previous one into world events, in the
+	// background: a slow backfill must never hold up the response. Also
 	// idempotent; a failure is logged, not the agent's problem: the next
 	// save (or a restart's backfill) catches up.
-	if _, err := s.World.CatchUp(r.Context(), id); err != nil {
-		s.Log.Error("server: world events", "server", id, "err", err)
-	}
+	s.World.CatchUpAsync(id)
 	s.Log.Info("ingest", "server", id, "kind", "snapshot", "stored", stored, "saveId", snap.SaveID, "bytes", n)
 	writeJSON(w, http.StatusOK, map[string]bool{"stored": stored})
 }

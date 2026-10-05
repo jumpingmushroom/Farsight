@@ -26,6 +26,10 @@ type Deriver struct {
 
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex // one per server: CatchUps for a server run one at a time
+
+	// wg tracks CatchUpAsync calls still running, so Idle (tests only) can
+	// wait for them without a sleep.
+	wg sync.WaitGroup
 }
 
 // NewDeriver returns a Deriver over st. log may be nil.
@@ -108,6 +112,30 @@ func (d *Deriver) CatchUp(ctx context.Context, serverID string) (int, error) {
 		d.log.Info("world events", "server", serverID, "events", written, "saves", len(keys))
 	}
 	return written, nil
+}
+
+// CatchUpAsync starts CatchUp for serverID in the background and returns
+// at once: ingest calls this so a slow backfill never holds up the
+// response. It is still safe to race a concurrent CatchUp or CatchUpAsync
+// for the same server (the per-server lock serialises them) or a process
+// restart (every insert ignores existing rows); nothing it writes is
+// request-scoped, so it runs with its own context, independent of the
+// request's. Errors are logged, not returned.
+func (d *Deriver) CatchUpAsync(serverID string) {
+	d.wg.Add(1)
+	go func() {
+		defer d.wg.Done()
+		if _, err := d.CatchUp(context.Background(), serverID); err != nil {
+			d.log.Error("world events", "server", serverID, "err", err)
+		}
+	}()
+}
+
+// Idle blocks until every CatchUpAsync call made so far has returned. For
+// tests, which would otherwise race a background CatchUpAsync to read its
+// result, or to close the store from under it.
+func (d *Deriver) Idle() {
+	d.wg.Wait()
 }
 
 // apply writes cur's events (against prev) and its new tombstones, and

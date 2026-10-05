@@ -8,8 +8,10 @@ import (
 	"github.com/jumpingmushroom/farsight/internal/worldevents"
 )
 
-// Ingesting a save diffs it against the previous one into world events;
-// re-posting a save writes nothing new.
+// Ingesting a save diffs it against the previous one into world events,
+// in the background (M1 fix round 1): re-posting a save writes nothing
+// new. waitWorld joins the background derivation deterministically,
+// without a sleep.
 func TestIngestDerivesWorldEvents(t *testing.T) {
 	e := newEnv(t)
 	if err := e.post("alpha", "alpha-token", "snapshot", testSnapshot("s1", at(-30*time.Minute))); err != nil {
@@ -22,6 +24,7 @@ func TestIngestDerivesWorldEvents(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	e.waitWorld()
 	evs, err := e.store.EventsBetween(t.Context(), "alpha", at(-time.Hour), at(time.Hour))
 	if err != nil {
 		t.Fatal(err)
