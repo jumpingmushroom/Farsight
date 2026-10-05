@@ -26,7 +26,7 @@ function synth(n: number, seed: number, spread = 10_000, prefix = 'm'): MapMarke
 			id: `${prefix}${i}`,
 			x: (r() * 2 - 1) * spread,
 			z: (r() * 2 - 1) * spread,
-			layer: 'locations'
+			layer: 'landmarks'
 		} as MapMarker;
 		if (i % 3 === 0) m.minZoom = 3;
 		return m;

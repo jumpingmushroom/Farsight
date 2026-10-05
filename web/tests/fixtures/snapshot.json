@@ -76,7 +76,8 @@
       "y": 40.0,
       "z": 900.0,
       "label": "Eikthyr",
-      "type": "Eikthyrnir"
+      "type": "Eikthyrnir",
+      "group": "landmarks"
     },
     {
       "id": "loc-57",
@@ -85,7 +86,8 @@
       "y": 40.0,
       "z": -120.0,
       "label": "Yagluth",
-      "type": "GoblinKing"
+      "type": "GoblinKing",
+      "group": "landmarks"
     },
     {
       "id": "loc-88",
@@ -94,7 +96,8 @@
       "y": 40.0,
       "z": 600.0,
       "label": "Haldor",
-      "type": "Vendor_BlackForest"
+      "type": "Vendor_BlackForest",
+      "group": "landmarks"
     },
     {
       "id": "loc-140",
@@ -103,7 +106,8 @@
       "y": 40.0,
       "z": -900.0,
       "label": "Sunken crypt",
-      "type": "SunkenCrypt4"
+      "type": "SunkenCrypt4",
+      "group": "dungeons"
     },
     {
       "id": "loc-203",
@@ -112,7 +116,8 @@
       "y": 40.0,
       "z": 1200.0,
       "label": "Troll cave",
-      "type": "TrollCave02"
+      "type": "TrollCave02",
+      "group": "dungeons"
     },
     {
       "id": "loc-311",
@@ -121,7 +126,28 @@
       "y": 40.0,
       "z": 3000.0,
       "label": "Sunken crypt",
-      "type": "SunkenCrypt4"
+      "type": "SunkenCrypt4",
+      "group": "dungeons"
+    },
+    {
+      "id": "loc-420",
+      "kind": "landmark",
+      "x": 200.0,
+      "y": 40.0,
+      "z": 300.0,
+      "label": "Forge of Potential",
+      "type": "AncientUpgradeStation",
+      "group": "landmarks"
+    },
+    {
+      "id": "loc-421",
+      "kind": "landmark",
+      "x": 650.0,
+      "y": 40.0,
+      "z": 1100.0,
+      "label": "Bear cave",
+      "type": "BearCave",
+      "group": "minor"
     }
   ],
   "markers": [

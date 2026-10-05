@@ -119,6 +119,28 @@ describe('search', () => {
 		expect(search(all, 'haldor')[0]).toMatchObject({ id: 'loc-3', sub: 'Trader', icon: 'coins' });
 		expect(search(all, 'trader').map((r) => r.id)).toEqual(['loc-3']);
 	});
+
+	test('a landmark is searchable like a trader: sub-line = kicker (its own label)', () => {
+		const ms = buildMarkers(
+			mini([], {
+				locations: [
+					{
+						id: 'lm-1',
+						kind: 'landmark',
+						x: 0,
+						y: 0,
+						z: 0,
+						type: 'AncientUpgradeStation',
+						label: 'Forge of Potential',
+						group: 'landmarks'
+					}
+				]
+			})
+		);
+		const r = search(ms, 'forge');
+		expect(r.map((x) => x.id)).toEqual(['lm-1']);
+		expect(r[0]).toMatchObject({ title: 'Forge of Potential', sub: 'Forge of Potential', icon: 'anvil' });
+	});
 });
 
 describe('hints', () => {

@@ -43,7 +43,8 @@
 
 	function sub(key: LayerKey): { text: string; accent: boolean } | undefined {
 		if (key === 'portals' && counts.unpaired > 0) return { text: `${counts.unpaired} unpaired`, accent: true };
-		if (key === 'locations') return { text: 'Only where someone has been', accent: false };
+		if (key === 'landmarks' || key === 'dungeons' || key === 'minor')
+			return { text: 'Only where someone has been', accent: false };
 		return undefined;
 	}
 </script>

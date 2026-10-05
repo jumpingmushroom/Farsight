@@ -13,9 +13,23 @@ import type { Base, Marker, SnapshotView, WorldCard } from './types';
 
 export type { IconName } from './icons/paths';
 
-export type LayerKey = 'biomes' | 'structures' | 'portals' | 'beds' | 'tombstones' | 'tames' | 'signs' | 'locations';
+export type LayerKey =
+	| 'biomes'
+	| 'structures'
+	| 'portals'
+	| 'beds'
+	| 'tombstones'
+	| 'tames'
+	| 'signs'
+	| 'landmarks'
+	| 'dungeons'
+	| 'minor';
 
-/** §3.13, minus vehicles and wards, in order. */
+/**
+ * §3.13, minus vehicles and wards, in order. The 2026-10-05 cursor/locations
+ * spec replaces the single "Dungeons & locations" layer with Landmarks (on),
+ * Dungeons (off) and Minor places (off).
+ */
 export const LAYERS: { key: LayerKey; label: string; short: string; icon: IconName; default: boolean }[] = [
 	{ key: 'biomes', label: 'Biomes & terrain', short: 'Terrain', icon: 'mountain', default: true },
 	{ key: 'structures', label: 'Structures & bases', short: 'Bases', icon: 'home', default: true },
@@ -24,7 +38,9 @@ export const LAYERS: { key: LayerKey; label: string; short: string; icon: IconNa
 	{ key: 'tombstones', label: 'Tombstones', short: 'Tombstones', icon: 'skull', default: true },
 	{ key: 'tames', label: 'Tamed creatures', short: 'Tames', icon: 'paw-print', default: true },
 	{ key: 'signs', label: 'Signs', short: 'Signs', icon: 'signpost', default: false },
-	{ key: 'locations', label: 'Dungeons & locations', short: 'Locations', icon: 'arch', default: true }
+	{ key: 'landmarks', label: 'Landmarks', short: 'Landmarks', icon: 'flame', default: true },
+	{ key: 'dungeons', label: 'Dungeons', short: 'Dungeons', icon: 'arch', default: false },
+	{ key: 'minor', label: 'Minor places', short: 'Minor places', icon: 'mountain', default: false }
 ];
 
 export function defaultLayers(): Record<LayerKey, boolean> {
@@ -53,7 +69,17 @@ export const BIOME_LEGEND: { name: string; hex: string }[] = [
 	{ name: 'Unexplored', hex: '#cfbe9c' }
 ];
 
-export type PinType = 'base' | 'portal' | 'tomb' | 'altar' | 'bed' | 'tame' | 'sign' | 'trader' | 'dungeon';
+export type PinType =
+	| 'base'
+	| 'portal'
+	| 'tomb'
+	| 'altar'
+	| 'bed'
+	| 'tame'
+	| 'sign'
+	| 'trader'
+	| 'dungeon'
+	| 'landmark';
 
 export interface Pin {
 	size: number;
@@ -117,35 +143,40 @@ const KICK: Record<PinType, string> = {
 	tame: 'Tamed creature',
 	sign: 'Sign',
 	trader: 'Trader',
-	dungeon: 'Dungeon'
+	dungeon: 'Dungeon',
+	// Overridden per marker to its own label (card: kicker = label); never shown as-is.
+	landmark: 'Landmark'
 };
 
+/** Static fallback layer per type; boss_altar/trader/dungeon/landmark use `locationLayer` instead (their layer is per-marker, from `group`). */
 const LAYER_OF: Record<PinType, LayerKey> = {
 	base: 'structures',
 	portal: 'portals',
 	tomb: 'tombstones',
-	altar: 'locations',
+	altar: 'landmarks',
 	bed: 'beds',
 	tame: 'tames',
 	sign: 'signs',
-	trader: 'locations',
-	dungeon: 'locations'
+	trader: 'landmarks',
+	dungeon: 'dungeons',
+	landmark: 'landmarks'
 };
 
-/** Array order (bases, portals, altars, traders, dungeons, tombstones, tames, beds, signs). */
+/** Array order (bases, portals, altars, traders, landmarks, dungeons, tombstones, tames, beds, signs). */
 const SORT: Record<PinType, number> = {
 	base: 0,
 	portal: 1,
 	altar: 2,
 	trader: 3,
-	dungeon: 4,
-	tomb: 5,
-	tame: 6,
-	bed: 7,
-	sign: 8
+	landmark: 4,
+	dungeon: 5,
+	tomb: 6,
+	tame: 7,
+	bed: 8,
+	sign: 9
 };
 
-/** Search order within a rank (§5.2 ruling); unsearchable kinds last. */
+/** Search order within a rank (§5.2 ruling, extended for landmarks); unsearchable kinds last. */
 const KIND_ORDER: Record<PinType, number> = {
 	portal: 0,
 	base: 1,
@@ -153,9 +184,10 @@ const KIND_ORDER: Record<PinType, number> = {
 	sign: 3,
 	altar: 4,
 	trader: 5,
-	dungeon: 6,
-	tomb: 7,
-	bed: 8
+	landmark: 6,
+	dungeon: 7,
+	tomb: 8,
+	bed: 9
 };
 
 const SELLS: Record<string, string> = {
@@ -164,11 +196,48 @@ const SELLS: Record<string, string> = {
 	'Bog Witch': 'Ingredients & trinkets'
 };
 
+// BearCave is kind `landmark` now (group `minor`), so it never reaches the
+// dungeon case below; it stays listed here only as documentation of the
+// cave-icon rule's history; its actual icon comes from `landmarkIcon`.
 const CAVE_TYPES = new Set(['MountainCave02', 'TrollCave02', 'BearCave', 'Hildir_cave']);
 
 const DUNGEON_NOTE = 'Shown because someone has explored this area. Locations in unexplored areas stay hidden.';
 const NEAR_BASE_M = 300;
 const DUNGEON_MIN_ZOOM = 3;
+
+/**
+ * A classified location's layer (2026-10-05 cursor/locations spec): its own
+ * `group` when valid, else the pre-group fallback by kind (older servers,
+ * or snapshots an older agent already classified without a group).
+ */
+function locationLayer(kind: string, group: Marker['group']): LayerKey {
+	if (group === 'landmarks' || group === 'dungeons' || group === 'minor') return group;
+	return kind === 'dungeon' ? 'dungeons' : 'landmarks';
+}
+
+/** Dungeons and minor places are hidden below zoom 3; landmarks are not. */
+function locationMinZoom(layer: LayerKey): number | undefined {
+	return layer === 'dungeons' || layer === 'minor' ? DUNGEON_MIN_ZOOM : undefined;
+}
+
+/** Landmark icon by prefab (spec table); any other landmark gets the arch. */
+function landmarkIcon(type: string | undefined): IconName {
+	switch (type) {
+		case 'AncientUpgradeStation':
+			return 'anvil';
+		case 'StartTemple':
+			return 'circle-dot';
+		case 'CharredFortress':
+			return 'castle';
+		case 'NorthMemorialPlace':
+			return 'landmark';
+		// Ruling: BearCave keeps the cave look even though it's now a landmark.
+		case 'BearCave':
+			return 'mountain';
+		default:
+			return type?.startsWith('PlaceofMystery') ? 'sparkles' : 'arch';
+	}
+}
 
 function pinFor(type: PinType, icon: IconName, opts: { paired?: boolean; defeated?: boolean } = {}): Pin {
 	const make = (size: number, bg: string, border: string, iconColor: string, ring?: boolean): Pin => {
@@ -211,15 +280,19 @@ interface Draft {
 	tooltipTitle?: string;
 	label?: string;
 	minZoom?: number;
+	/** Overrides `LAYER_OF[d.type]` (classified locations: layer is per-marker, from `group`). */
+	layer?: LayerKey;
+	/** Overrides `KICK[d.type]` (landmarks: the card's kicker is the location's own label). */
+	kicker?: string;
 }
 
 function finish(d: Draft): MapMarker {
 	const pin = pinFor(d.type, d.icon, d.pinOpts);
-	const kicker = KICK[d.type];
+	const kicker = d.kicker ?? KICK[d.type];
 	const m: MapMarker = {
 		id: d.id,
 		type: d.type,
-		layer: LAYER_OF[d.type],
+		layer: d.layer ?? LAYER_OF[d.type],
 		x: d.x,
 		z: d.z,
 		title: d.title,
@@ -406,6 +479,7 @@ function markerFor(
 			const facts: CardModel['facts'] = [{ k: 'Forsaken', v: boss }];
 			const biome = BOSS_BIOME[boss];
 			if (biome) facts.push({ k: 'Biome', v: biome });
+			const layer = locationLayer('boss_altar', m.group);
 			return finish({
 				id: m.id,
 				type: 'altar',
@@ -417,12 +491,15 @@ function markerFor(
 				badges: [defeated ? { text: 'Defeated', tone: 'sage' } : { text: 'Not yet defeated', tone: 'neutral' }],
 				facts,
 				note: defeated ? 'The world remembers this victory.' : 'Still waiting for a brave crew.',
-				terms: [lc(boss)]
+				terms: [lc(boss)],
+				layer,
+				minZoom: locationMinZoom(layer)
 			});
 		}
 		case 'trader': {
 			const name = m.label || m.type || 'Trader';
 			const sells = SELLS[name];
+			const layer = locationLayer('trader', m.group);
 			return finish({
 				id: m.id,
 				type: 'trader',
@@ -432,10 +509,13 @@ function markerFor(
 				icon: 'coins',
 				facts: sells ? [{ k: 'Sells', v: sells }] : [],
 				note: 'Trader camp. Shown because someone has been here.',
-				terms: ['trader', lc(name)]
+				terms: ['trader', lc(name)],
+				layer,
+				minZoom: locationMinZoom(layer)
 			});
 		}
-		case 'dungeon':
+		case 'dungeon': {
+			const layer = locationLayer('dungeon', m.group);
 			return finish({
 				id: m.id,
 				type: 'dungeon',
@@ -444,8 +524,27 @@ function markerFor(
 				title: m.label || m.type || 'Dungeon',
 				icon: m.type && CAVE_TYPES.has(m.type) ? 'mountain' : 'arch',
 				note: DUNGEON_NOTE,
-				minZoom: DUNGEON_MIN_ZOOM
+				layer,
+				minZoom: locationMinZoom(layer)
 			});
+		}
+		case 'landmark': {
+			const label = m.label || m.type || 'Landmark';
+			const layer = locationLayer('landmark', m.group);
+			return finish({
+				id: m.id,
+				type: 'landmark',
+				x: m.x,
+				z: m.z,
+				title: label,
+				kicker: label,
+				icon: landmarkIcon(m.type),
+				note: DUNGEON_NOTE,
+				terms: [lc(label)],
+				layer,
+				minZoom: locationMinZoom(layer)
+			});
+		}
 		default:
 			return undefined;
 	}
@@ -506,7 +605,9 @@ export function layerCounts(all: MapMarker[]): Record<LayerKey, number> & { unpa
 		tombstones: 0,
 		tames: 0,
 		signs: 0,
-		locations: 0,
+		landmarks: 0,
+		dungeons: 0,
+		minor: 0,
 		unpaired: 0,
 		pairs: 0
 	};
