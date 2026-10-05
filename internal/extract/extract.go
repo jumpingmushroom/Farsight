@@ -152,20 +152,9 @@ func (e *Extractor) Finish(w *save.World, serverID string, readAt time.Time) *Sn
 		s.Markers[i].Owner = e.players[id]
 	}
 	for i, l := range w.Locations {
-		name := names.Name(l.Hash)
-		kind, label := "", ""
-		if v, ok := bossAltars[name]; ok {
-			kind, label = "boss_altar", v
-		} else if v, ok := traders[name]; ok {
-			kind, label = "trader", v
-		} else if v, ok := dungeons[name]; ok {
-			kind, label = "dungeon", v
-		} else {
-			continue
-		}
 		s.Locations = append(s.Locations, Marker{
-			ID: fmt.Sprintf("loc-%d", i+1), Kind: kind, Type: name, Label: label,
-			X: l.Pos[0], Y: l.Pos[1], Z: l.Pos[2],
+			ID: fmt.Sprintf("loc-%d", i+1), Kind: "location", Type: names.Name(l.Hash),
+			X: l.Pos[0], Y: l.Pos[1], Z: l.Pos[2], Unplaced: !l.Placed,
 		})
 	}
 	s.Bosses = BossesFromKeys(w.GlobalKeys)

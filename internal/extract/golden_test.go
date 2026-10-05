@@ -66,7 +66,7 @@ func TestGoldenMuleVikings(t *testing.T) {
 		t.Errorf("no portal has an owner")
 	}
 	altars := 0
-	for _, l := range s.Locations {
+	for _, l := range ClassifyLocations(s.Locations) {
 		if l.Kind == "boss_altar" {
 			altars++
 		}

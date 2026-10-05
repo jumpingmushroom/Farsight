@@ -44,9 +44,9 @@ func TestExtractMarkersPlayersBosses(t *testing.T) {
 		Zones:      [][2]int16{{0, 0}},
 		GlobalKeys: []string{"defeated_eikthyr", "defeated_writhan"},
 		Locations: []save.Location{
-			{Hash: h("Eikthyrnir"), Pos: [3]float32{100, 30, 200}},
-			{Hash: h("Crypt2"), Pos: [3]float32{1, 1, 1}},
-			{Hash: h("Runestone_Meadows"), Pos: [3]float32{2, 2, 2}},
+			{Hash: h("Eikthyrnir"), Pos: [3]float32{100, 30, 200}, Placed: true},
+			{Hash: h("Crypt2"), Pos: [3]float32{1, 1, 1}, Placed: true},
+			{Hash: h("Runestone_Meadows"), Pos: [3]float32{2, 2, 2}, Placed: true},
 		},
 	}
 	s := e.Finish(w, "mulevikings", time.Unix(1700000000, 0).UTC())
@@ -71,8 +71,12 @@ func TestExtractMarkersPlayersBosses(t *testing.T) {
 	if len(s.Players) != 1 || s.Players[0].ID != 1000000099 || s.Players[0].Name != "Sigrun" {
 		t.Fatalf("players = %+v", s.Players)
 	}
-	if len(s.Locations) != 2 || s.Locations[0].Kind != "boss_altar" || s.Locations[0].Label != "Eikthyr" || s.Locations[1].Kind != "dungeon" {
-		t.Fatalf("locations = %+v", s.Locations)
+	if len(s.Locations) != 3 || s.Locations[0].Kind != "location" || s.Locations[0].Type != "Eikthyrnir" {
+		t.Fatalf("raw locations = %+v", s.Locations)
+	}
+	classified := ClassifyLocations(s.Locations)
+	if len(classified) != 2 || classified[0].Kind != "boss_altar" || classified[0].Label != "Eikthyr" || classified[1].Kind != "dungeon" {
+		t.Fatalf("classified locations = %+v", classified)
 	}
 	if len(s.Bosses) != 8 || !s.Bosses[0].Defeated || s.Bosses[1].Defeated {
 		t.Fatalf("bosses = %+v", s.Bosses)
