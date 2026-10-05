@@ -130,7 +130,9 @@ func weatherFor(netTime float64, biomes []worldgen.Biome, home worldgen.Biome) *
 func (s *server) clockAndWeather(ctx context.Context, id string, ws *worldState, online []store.Session) (*clockJSON, *weatherJSON, error) {
 	now := s.Now()
 	anchorT, anchorAt, source := ws.snap.World.NetTime, ws.snap.SavedAt, "save"
-	se, ok, err := s.Store.LatestEventOfType(ctx, id, logwatch.EvTimeSkip)
+	// Only a sleep whose wake-up is after the save can win; bounding the
+	// query there keeps it off the server's older history.
+	se, ok, err := s.Store.LatestEventOfTypeSince(ctx, id, logwatch.EvTimeSkip, anchorAt.Add(-sleepWake))
 	if err != nil {
 		return nil, nil, err
 	}

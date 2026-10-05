@@ -103,16 +103,15 @@ func (s *Store) EarliestEvent(ctx context.Context, serverID string) (at time.Tim
 	return fromMillis(v), true, nil
 }
 
-// LatestEventOfType returns serverID's newest event of type typ (ties by
-// id, descending). ok is false if there is none.
-func (s *Store) LatestEventOfType(ctx context.Context, serverID, typ string) (StoredEvent, bool, error) {
+// LatestEventOfTypeSince returns serverID's newest event of type typ with
+// at >= since (ties by id, descending). ok is false if there is none. The
+// lower bound keeps it a range scan of the (server_id, at) index from
+// since onwards, rather than a walk of the server's whole history when no
+// such event exists.
+func (s *Store) LatestEventOfTypeSince(ctx context.Context, serverID, typ string, since time.Time) (StoredEvent, bool, error) {
 	var e StoredEvent
 	var at int64
-	err := s.db.QueryRowContext(ctx, `
-		SELECT id, type, at, body FROM events
-		WHERE server_id = ? AND type = ?
-		ORDER BY at DESC, id DESC
-		LIMIT 1`, serverID, typ).Scan(&e.ID, &e.Type, &at, &e.Body)
+	err := s.db.QueryRowContext(ctx, latestEventOfTypeSinceSQL, serverID, typ, millis(since)).Scan(&e.ID, &e.Type, &at, &e.Body)
 	switch {
 	case err == sql.ErrNoRows:
 		return StoredEvent{}, false, nil
@@ -122,6 +121,12 @@ func (s *Store) LatestEventOfType(ctx context.Context, serverID, typ string) (St
 	e.At = fromMillis(at)
 	return e, true, nil
 }
+
+const latestEventOfTypeSinceSQL = `
+		SELECT id, type, at, body FROM events
+		WHERE server_id = ? AND type = ? AND at >= ?
+		ORDER BY at DESC, id DESC
+		LIMIT 1`
 
 func scanEvents(rows *sql.Rows) ([]StoredEvent, error) {
 	var out []StoredEvent

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -763,11 +764,12 @@ func TestTxCommitsOnSuccessAndRollsBackOnError(t *testing.T) {
 	}
 }
 
-func TestLatestEventOfType(t *testing.T) {
+func TestLatestEventOfTypeSince(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
+	epoch := ms("2026-01-01T00:00:00Z")
 
-	if _, ok, err := s.LatestEventOfType(ctx, "srv", logwatch.EvTimeSkip); err != nil || ok {
+	if _, ok, err := s.LatestEventOfTypeSince(ctx, "srv", logwatch.EvTimeSkip, epoch); err != nil || ok {
 		t.Fatalf("empty: ok=%v err=%v, want none", ok, err)
 	}
 	for _, e := range []logwatch.Event{
@@ -783,7 +785,7 @@ func TestLatestEventOfType(t *testing.T) {
 	if _, err := s.InsertEventIfNew(ctx, nil, "other", logwatch.Event{ID: "x", Type: logwatch.EvTimeSkip, At: ms("2026-01-01T00:00:05Z")}); err != nil {
 		t.Fatal(err)
 	}
-	got, ok, err := s.LatestEventOfType(ctx, "srv", logwatch.EvTimeSkip)
+	got, ok, err := s.LatestEventOfTypeSince(ctx, "srv", logwatch.EvTimeSkip, epoch)
 	if err != nil || !ok {
 		t.Fatalf("ok=%v err=%v", ok, err)
 	}
@@ -793,5 +795,36 @@ func TestLatestEventOfType(t *testing.T) {
 	}
 	if got.ID != "b" || got.Type != logwatch.EvTimeSkip || !got.At.Equal(ms("2026-01-01T00:00:03Z")) || e.To != 300 {
 		t.Fatalf("latest = %+v (to %v), want b", got, e.To)
+	}
+	// The bound is inclusive; events before it are never returned.
+	if got, ok, err := s.LatestEventOfTypeSince(ctx, "srv", logwatch.EvTimeSkip, ms("2026-01-01T00:00:03Z")); err != nil || !ok || got.ID != "b" {
+		t.Fatalf("at the bound: %+v ok=%v err=%v, want b", got, ok, err)
+	}
+	if got, ok, err := s.LatestEventOfTypeSince(ctx, "srv", logwatch.EvTimeSkip, ms("2026-01-01T00:00:04Z")); err != nil || ok {
+		t.Fatalf("after every time_skip: %+v ok=%v err=%v, want none", got, ok, err)
+	}
+}
+
+// The bounded query must range-scan the (server_id, at) index, not walk
+// the server's whole history.
+func TestLatestEventOfTypeSinceUsesTheIndex(t *testing.T) {
+	s := newTestStore(t)
+	rows, err := s.db.Query("EXPLAIN QUERY PLAN "+latestEventOfTypeSinceSQL, "srv", logwatch.EvTimeSkip, int64(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var plan []string
+	for rows.Next() {
+		var id, parent, notused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &notused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		plan = append(plan, detail)
+	}
+	t.Logf("plan: %q", plan)
+	if len(plan) == 0 || !strings.Contains(plan[0], "idx_events_server_at (server_id=? AND at>?)") {
+		t.Fatalf("plan = %q, want a range search of idx_events_server_at", plan)
 	}
 }
