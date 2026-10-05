@@ -19,6 +19,7 @@ var (
 	kTamedName = names.StableHash("TamedName")
 	kText      = names.StableHash("text")
 	kCreator   = names.StableHash("creator")
+	kNameAuth  = names.StableHash("TamedNameAuthor")
 )
 
 type Extractor struct {
@@ -28,6 +29,10 @@ type Extractor struct {
 	players map[int64]string
 	unknown map[int32]bool
 	tables  *explored.Mask // union of the cartography tables' maps; nil until one decodes
+	// portalCreator maps a portal's index in markers to its creator's
+	// player ID; Finish resolves it to a name once every bed and tombstone
+	// has filled players.
+	portalCreator map[int]int64
 }
 
 // KeepBytes picks the prefabs whose byte arrays Add needs (pass it as
@@ -35,7 +40,7 @@ type Extractor struct {
 func KeepBytes(prefab int32) bool { return prefab == save.MapTablePrefab }
 
 func New() *Extractor {
-	return &Extractor{counts: map[string]int{}, players: map[int64]string{}, unknown: map[int32]bool{}}
+	return &Extractor{counts: map[string]int{}, players: map[int64]string{}, unknown: map[int32]bool{}, portalCreator: map[int]int64{}}
 }
 
 func (e *Extractor) mark(kind string, z *save.ZDO) *Marker {
@@ -70,6 +75,9 @@ func (e *Extractor) Add(z *save.ZDO) {
 	switch {
 	case strings.HasPrefix(name, "portal"):
 		e.mark("portal", z).Label = z.Strings[kTag]
+		if id := z.Longs[kCreator]; id != 0 {
+			e.portalCreator[len(e.markers)-1] = id
+		}
 	case name == "bed" || strings.HasPrefix(name, "piece_bed"):
 		e.mark("bed", z).Owner = e.owner(z)
 	case name == "Player_tombstone":
@@ -81,6 +89,11 @@ func (e *Extractor) Add(z *save.ZDO) {
 		// player-kept tame; everything else in this branch (e.g. Hen) is.
 		m := e.mark("tame", z)
 		m.Species, m.Label = name, z.Strings[kTamedName]
+		// The game writes "host" when the namer wasn't signed in to a
+		// platform; that names nobody.
+		if a := z.Strings[kNameAuth]; a != "host" {
+			m.Namer = a
+		}
 	}
 }
 
@@ -135,6 +148,9 @@ func (e *Extractor) Finish(w *save.World, serverID string, readAt time.Time) *Sn
 		Stats:    Stats{ZDOs: w.ZDOCount, Pieces: len(e.pieces), UnknownPrefabs: len(e.unknown)},
 	}
 	pairPortals(s.Markers)
+	for i, id := range e.portalCreator {
+		s.Markers[i].Owner = e.players[id]
+	}
 	for i, l := range w.Locations {
 		name := names.Name(l.Hash)
 		kind, label := "", ""

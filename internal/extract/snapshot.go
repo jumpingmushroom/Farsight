@@ -59,6 +59,9 @@ type Marker struct {
 	Species string  `json:"species,omitempty"`
 	Type    string  `json:"type,omitempty"`
 	Pair    string  `json:"pair,omitempty"`
+	// Namer is a tame's TamedNameAuthor: the platform user ID ("Steam_…")
+	// of whoever named it. Empty when unnamed or named by the host.
+	Namer string `json:"namer,omitempty"`
 }
 
 type Base struct {
