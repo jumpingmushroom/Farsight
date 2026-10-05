@@ -25,11 +25,23 @@ type Deriver struct {
 	log   *slog.Logger
 
 	mu    sync.Mutex
-	locks map[string]*sync.Mutex // one per server: CatchUps for a server run one at a time
+	locks map[string]chan struct{} // one per server, size 1: CatchUps for a server run one at a time
 
-	// wg tracks CatchUpAsync calls still running, so Idle (tests only) can
-	// wait for them without a sleep.
+	// ctx is CatchUpAsync's own long-lived context (independent of any
+	// request's); cancel stops it, for shutdown. CatchUp itself always
+	// uses the ctx its caller passes in.
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	// wg tracks CatchUpAsync calls still running, so Idle (tests, and
+	// shutdown) can wait for them without a sleep.
 	wg sync.WaitGroup
+
+	// AfterApply, if set, is called synchronously after each snapshot
+	// CatchUp applies, before moving to the next one. For tests only: it
+	// lets a test pace or observe a backfill deterministically, without a
+	// sleep.
+	AfterApply func()
 }
 
 // NewDeriver returns a Deriver over st. log may be nil.
@@ -37,19 +49,43 @@ func NewDeriver(st *store.Store, log *slog.Logger) *Deriver {
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	return &Deriver{store: st, log: log, locks: map[string]*sync.Mutex{}}
+	ctx, cancel := context.WithCancel(context.Background())
+	return &Deriver{store: st, log: log, locks: map[string]chan struct{}{}, ctx: ctx, cancel: cancel}
 }
 
-func (d *Deriver) lock(serverID string) *sync.Mutex {
+// sem returns serverID's lock: a size-1 channel semaphore (rather than a
+// sync.Mutex) so acquiring it can be abandoned when ctx is done instead of
+// blocking for however long the holder takes.
+func (d *Deriver) sem(serverID string) chan struct{} {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	l := d.locks[serverID]
-	if l == nil {
-		l = &sync.Mutex{}
-		d.locks[serverID] = l
+	ch := d.locks[serverID]
+	if ch == nil {
+		ch = make(chan struct{}, 1)
+		d.locks[serverID] = ch
 	}
-	return l
+	return ch
 }
+
+// acquire holds serverID's lock until release is called, or reports ok
+// false if ctx is done first (without taking the lock).
+func (d *Deriver) acquire(ctx context.Context, serverID string) (release func(), ok bool) {
+	ch := d.sem(serverID)
+	select {
+	case ch <- struct{}{}:
+		return func() { <-ch }, true
+	case <-ctx.Done():
+		return nil, false
+	}
+}
+
+// Cancel stops any future CatchUpAsync work, and cancels any already
+// running: a call to CatchUp it started returns (with ctx.Err()) instead
+// of blocking on another server's lock or running further snapshots. It
+// does not affect a ctx passed directly to CatchUp. Call Idle afterwards
+// to wait for the in-flight work to actually return, e.g. before closing
+// the store.
+func (d *Deriver) Cancel() { d.cancel() }
 
 // load decodes one stored snapshot; ok is false if it isn't stored.
 func (d *Deriver) load(ctx context.Context, serverID, saveID string) (*extract.Snapshot, bool, error) {
@@ -65,11 +101,17 @@ func (d *Deriver) load(ctx context.Context, serverID, saveID string) (*extract.S
 }
 
 // CatchUp brings serverID's world events up to its newest stored snapshot
-// and returns the number of events written.
+// and returns the number of events written. It returns ctx.Err() at once
+// if ctx is done before the per-server lock is acquired, and checks ctx
+// again between snapshots, so a long backfill (or one waiting its turn
+// behind another) stops promptly when ctx is cancelled instead of running
+// to completion.
 func (d *Deriver) CatchUp(ctx context.Context, serverID string) (int, error) {
-	l := d.lock(serverID)
-	l.Lock()
-	defer l.Unlock()
+	release, ok := d.acquire(ctx, serverID)
+	if !ok {
+		return 0, ctx.Err()
+	}
+	defer release()
 
 	state, backfilled, err := d.store.WorldDiffState(ctx, nil, serverID)
 	if err != nil {
@@ -94,6 +136,9 @@ func (d *Deriver) CatchUp(ctx context.Context, serverID string) (int, error) {
 	}
 	written := 0
 	for _, k := range keys {
+		if err := ctx.Err(); err != nil {
+			return written, err
+		}
 		cur, ok, err := d.load(ctx, serverID, k.SaveID)
 		if err != nil {
 			return written, err
@@ -107,6 +152,9 @@ func (d *Deriver) CatchUp(ctx context.Context, serverID string) (int, error) {
 		}
 		written += n
 		prev, backfilled = cur, true
+		if d.AfterApply != nil {
+			d.AfterApply()
+		}
 	}
 	if written > 0 {
 		d.log.Info("world events", "server", serverID, "events", written, "saves", len(keys))
@@ -119,13 +167,14 @@ func (d *Deriver) CatchUp(ctx context.Context, serverID string) (int, error) {
 // response. It is still safe to race a concurrent CatchUp or CatchUpAsync
 // for the same server (the per-server lock serialises them) or a process
 // restart (every insert ignores existing rows); nothing it writes is
-// request-scoped, so it runs with its own context, independent of the
-// request's. Errors are logged, not returned.
+// request-scoped, so it runs with the Deriver's own context (cancelled by
+// Cancel, for shutdown), independent of the request's. Errors are logged,
+// not returned, except the one Cancel itself causes.
 func (d *Deriver) CatchUpAsync(serverID string) {
 	d.wg.Add(1)
 	go func() {
 		defer d.wg.Done()
-		if _, err := d.CatchUp(context.Background(), serverID); err != nil {
+		if _, err := d.CatchUp(d.ctx, serverID); err != nil && d.ctx.Err() == nil {
 			d.log.Error("world events", "server", serverID, "err", err)
 		}
 	}()

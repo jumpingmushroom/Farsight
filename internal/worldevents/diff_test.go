@@ -178,6 +178,24 @@ func TestDiffPortalsHideUnexploredPartner(t *testing.T) {
 	if evs := Diff(c, d, fakeGeo{}); len(evs) != 0 {
 		t.Fatalf("pairing with an unexplored end: %+v", evs)
 	}
+
+	// Fix round 2 (I1): a brand-new portal that is ITSELF in unexplored
+	// ground must not read as paired, even when its partner is an
+	// existing, explored portal.
+	g := world("chunked:5", t0.Add(80*time.Minute))
+	g.Markers = append(g.Markers, extract.Marker{ID: "portal-11", Kind: "portal", Label: "hidden", X: 700, Z: 700})
+	h := world("chunked:6", t0.Add(100*time.Minute))
+	h.Markers = append(h.Markers,
+		extract.Marker{ID: "portal-11", Kind: "portal", Label: "hidden", X: 700, Z: 700, Pair: "portal-12"},
+		extract.Marker{ID: "portal-12", Kind: "portal", Label: "hidden", X: -7000, Z: 50, Pair: "portal-11"},
+	)
+	evs = Diff(g, h, fakeGeo{})
+	if len(evs) != 1 {
+		t.Fatalf("events = %+v", evs)
+	}
+	if ev := evs[0]; ev.Type != TypePortal || ev.Tag != "hidden" || ev.Paired {
+		t.Fatalf("new portal in unexplored ground, paired with an explored one, must not read as paired: %+v", ev)
+	}
 }
 
 func TestDiffTames(t *testing.T) {
@@ -232,30 +250,25 @@ func TestDiffBases(t *testing.T) {
 // double-match the same previous (or current) base.
 func TestDiffBasesOneToOneMatching(t *testing.T) {
 	// A merge: two old camps (400 + 100 pieces) are replaced by one new,
-	// bigger camp (505) too far from either original centre (beyond its
-	// radius plus 32 m) to match. Rather than crediting it with "grew by
-	// 105" (most of which is Camp B's pre-existing pieces, not new
-	// building), it is reported as a new base.
+	// bigger camp (505) whose centre is within reach (radius + 32 m) of
+	// BOTH originals, so matching actually runs: Camp A at dist 30 (<=
+	// 40+32=72) and Camp B at dist 50 (<= 20+32=52). One-to-one matching
+	// assigns the merged base to its nearest match, Camp A, but Camp B is
+	// also within the merged base's reach and matched to nothing else, so
+	// its pieces count too: growth is measured against their combined 500,
+	// not just Camp A's 400, so it reads as 5 pieces grown (below
+	// GrowthMin), not a misleading "grew by 105".
 	a := world("chunked:1", t0)
 	a.Bases = append(a.Bases,
 		extract.Base{ID: "base-m1", Name: "Camp A", X: 6000, Z: 6000, Radius: 40, Pieces: 400},
-		extract.Base{ID: "base-m2", Name: "Camp B", X: 6200, Z: 6000, Radius: 20, Pieces: 100},
+		extract.Base{ID: "base-m2", Name: "Camp B", X: 6080, Z: 6000, Radius: 20, Pieces: 100},
 	)
 	b := world("chunked:2", t0.Add(20*time.Minute))
-	b.Bases = append(b.Bases, extract.Base{ID: "base-merged", Name: "Camp A", X: 6100, Z: 6000, Radius: 60, Pieces: 505})
+	b.Bases = append(b.Bases, extract.Base{ID: "base-merged", Name: "Camp A", X: 6030, Z: 6000, Radius: 60, Pieces: 505})
 	evs := Diff(a, b, fakeGeo{})
-	var merged *Event
-	for i := range evs {
-		if evs[i].Name == "Camp A" && evs[i].Pieces == 505 {
-			merged = &evs[i]
-		}
-	}
-	if merged == nil || merged.Type != TypeBaseNew {
-		t.Fatalf("merged camp = %+v (events %+v)", merged, evs)
-	}
 	for _, e := range evs {
-		if e.Type == TypeBaseGrew && e.Grew == 105 {
-			t.Fatalf("growth inflated by the merge: %+v", e)
+		if e.Name == "Camp A" && e.Pieces == 505 {
+			t.Fatalf("merged camp must not be reported (grew by 5, below GrowthMin): %+v", e)
 		}
 	}
 

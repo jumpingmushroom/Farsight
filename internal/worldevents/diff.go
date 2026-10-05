@@ -121,11 +121,13 @@ func pairLess(a, b extract.Marker) bool {
 // snapshots from agents before Plan 7 have no owner), and old portals that
 // became paired with another old portal. A portal paired with a new one is
 // covered by the new one's event. A pairing is only ever reported, and a
-// portal only ever reported paired, once both ends are explored: the map
+// portal only ever reported paired, once both ends — including, for a new
+// portal's own event, the new portal itself — are explored: the map
 // unpairs a portal whose partner is unexplored, so an event must not
-// reveal that an unexplored partner exists. One world_portal_paired event
-// is written per pair, not one per end, using a canonical (label,
-// position) ordering of the two ends for a deterministic id and body.
+// reveal that an unexplored partner exists, nor that an unexplored portal
+// has an explored partner. One world_portal_paired event is written per
+// pair, not one per end, using a canonical (label, position) ordering of
+// the two ends for a deterministic id and body.
 func (d *differ) portals() {
 	before := ofKind(d.prev.Markers, "portal")
 	now := ofKind(d.cur.Markers, "portal")
@@ -142,7 +144,7 @@ func (d *differ) portals() {
 	reported := map[string]bool{} // canonical pair key already written, this call
 	for _, m := range now {
 		if isNew[m.ID] {
-			paired := m.Pair != "" && portalExplored(byID, d.geo, m.Pair)
+			paired := m.Pair != "" && d.geo.Explored(m.X, m.Z) && portalExplored(byID, d.geo, m.Pair)
 			e := Event{ID: eventID(TypePortal, d.cur.SaveID, m.Label, round(m.X), round(m.Z)), Type: TypePortal,
 				Tag: m.Label, Paired: paired, Owner: m.Owner}
 			d.place(&e, m.X, m.Z)
@@ -257,9 +259,20 @@ func matchBases(prev, cur []extract.Base) map[int]int {
 }
 
 // bases reports a current base with no matched previous base as new, and
-// a matched one that grew by GrowthMin or more pieces as grown.
+// a matched one that grew by GrowthMin or more pieces as grown. Growth is
+// measured against the combined pieces of every previous base within
+// reach of the current one (its matched anchor plus any other previous
+// base, within that base's own radius plus baseLink, that isn't itself
+// the matched anchor of a DIFFERENT current base): a current base that
+// absorbs two old ones in a merge is compared to their combined total,
+// not just the nearest one's, so the merge itself is never reported as
+// "grew by" the other, absorbed base's entire pre-existing size.
 func (d *differ) bases() {
 	matched := matchBases(d.prev.Bases, d.cur.Bases)
+	matchedBy := map[int]int{} // previous index -> the current index it's matched to
+	for ci, pi := range matched {
+		matchedBy[pi] = ci
+	}
 	for ci := range d.cur.Bases {
 		b := &d.cur.Bases[ci]
 		var builders []string
@@ -268,18 +281,26 @@ func (d *differ) bases() {
 				builders = append(builders, bl.Name)
 			}
 		}
-		pi, ok := matched[ci]
-		if !ok {
+		if _, ok := matched[ci]; !ok {
 			e := Event{ID: eventID(TypeBaseNew, d.cur.SaveID, round(b.X), round(b.Z)), Type: TypeBaseNew,
 				Name: b.Name, Pieces: b.Pieces, Builders: builders}
 			d.place(&e, b.X, b.Z)
 			d.add(e)
 			continue
 		}
-		best := &d.prev.Bases[pi]
-		if b.Pieces-best.Pieces >= GrowthMin {
+		total := 0
+		for pj := range d.prev.Bases {
+			p := &d.prev.Bases[pj]
+			if other, taken := matchedBy[pj]; taken && other != ci {
+				continue // the matched anchor of a different current base
+			}
+			if dist(p.X, p.Z, b.X, b.Z) <= float64(p.Radius)+baseLink {
+				total += p.Pieces
+			}
+		}
+		if b.Pieces-total >= GrowthMin {
 			e := Event{ID: eventID(TypeBaseGrew, d.cur.SaveID, round(b.X), round(b.Z)), Type: TypeBaseGrew,
-				Name: b.Name, Pieces: b.Pieces, Grew: b.Pieces - best.Pieces, Builders: builders}
+				Name: b.Name, Pieces: b.Pieces, Grew: b.Pieces - total, Builders: builders}
 			d.place(&e, b.X, b.Z)
 			d.add(e)
 		}

@@ -23,6 +23,7 @@ import (
 	"github.com/jumpingmushroom/farsight/internal/save/savetest"
 	"github.com/jumpingmushroom/farsight/internal/store"
 	"github.com/jumpingmushroom/farsight/internal/tileset"
+	"github.com/jumpingmushroom/farsight/internal/worldevents"
 )
 
 // syncBuffer is a bytes.Buffer safe for the concurrent writes of the
@@ -103,11 +104,17 @@ func TestEndToEnd(t *testing.T) {
 
 	logs := &syncBuffer{}
 	applier := &live.Applier{Store: st, Now: clock.Now}
+	world := worldevents.NewDeriver(st, nil)
+	// Ingest derives world events in the background (CatchUpAsync); join it
+	// before the store closes, as newEnvBurst does (t.Cleanup is LIFO, so
+	// this, registered after st.Close's cleanup, runs first).
+	t.Cleanup(world.Idle)
 	h := New(Deps{
 		Config:  cfg,
 		Store:   st,
 		Applier: applier,
 		Tiles:   tm,
+		World:   world,
 		Codec:   auth.Codec{Key: cfg.CookieKey, Now: clock.Now},
 		Limiter: auth.NewLimiter(5, 5, clock.Now),
 		Now:     clock.Now,

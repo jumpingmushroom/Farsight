@@ -379,3 +379,64 @@ func TestBackfillWorldEventsOnStartup(t *testing.T) {
 		t.Fatalf("beta has no snapshots, so no state: ok=%v err=%v", ok, err)
 	}
 }
+
+// Fix round 2 (serve.go shutdown): waitWorldIdle, the helper runServe uses
+// to join background world-event derivation before closing the store,
+// returns promptly once the Deriver's context is cancelled, instead of
+// waiting for a long backfill to run to completion. AfterApply (test
+// only) lets the test pin down exactly how far the backfill got.
+func TestWaitWorldIdleReturnsPromptlyOnCancel(t *testing.T) {
+	st, err := store.Open("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+
+	var logs strings.Builder
+	log := slog.New(slog.NewJSONHandler(&logs, nil))
+	world := worldevents.NewDeriver(st, log)
+
+	// Many snapshots, so a real (uncancelled) backfill would have a lot
+	// left to do when we cancel after just the second one.
+	for i := 0; i < 50; i++ {
+		at := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC).Add(time.Duration(i) * time.Minute)
+		blob := fmt.Sprintf(`{"serverId":"alpha","saveId":"s%d","savedAt":%q,"world":{"seed":7,"genVersion":2}}`, i, at.Format(time.RFC3339))
+		if _, err := st.PutSnapshot(ctx, "alpha", fmt.Sprintf("s%d", i), at, at, []byte(blob)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	n := 0
+	world.AfterApply = func() {
+		n++
+		if n == 2 {
+			close(entered)
+			<-release
+		}
+	}
+	world.CatchUpAsync("alpha")
+	<-entered // the backfill is now blocked, 48 of 50 snapshots still to go
+
+	world.Cancel() // as shutdown would
+	close(release)
+
+	start := time.Now()
+	waitWorldIdle(world, 2*time.Second, log)
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("waitWorldIdle took %v after cancellation, want well under its 2s timeout", elapsed)
+	}
+	if n != 2 {
+		t.Fatalf("backfill processed %d snapshots after being cancelled, want 2 (it must not run to completion)", n)
+	}
+
+	// Nothing from the cancelled backfill should have logged an error: the
+	// shutdown path cancels it on purpose. waitWorldIdle having returned
+	// already guarantees nothing is still running to log anything later,
+	// e.g. once the caller actually closes the store.
+	if strings.Contains(logs.String(), "err") {
+		t.Fatalf("log unexpectedly contains an error: %s", logs.String())
+	}
+}

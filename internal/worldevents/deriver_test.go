@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -177,5 +179,89 @@ func TestCatchUpAfterThePreviousSnapshotWasPruned(t *testing.T) {
 	ulf, _ := st.Tombstones(ctx, "srv", "Ulf")
 	if len(bjorn) != 1 || len(ulf) != 1 {
 		t.Fatalf("tombstones: Bjorn %+v (want the one stored), Ulf %+v (want 1)", bjorn, ulf)
+	}
+}
+
+// Fix round 2 (serve.go shutdown): CatchUp checks ctx between snapshots,
+// so a long backfill stops promptly once ctx is cancelled instead of
+// running to completion. AfterApply (test-only) paces the backfill
+// deterministically, without a sleep.
+func TestCatchUpChecksContextBetweenSnapshots(t *testing.T) {
+	st := newStore(t)
+	d := NewDeriver(st, nil)
+	for i := 0; i < 20; i++ {
+		put(t, st, world(fmt.Sprintf("chunked:%d", i), t0.Add(time.Duration(i)*time.Minute)))
+	}
+
+	cctx, cancel := context.WithCancel(context.Background())
+	applied := make(chan struct{})
+	release := make(chan struct{})
+	n := 0
+	d.AfterApply = func() {
+		n++
+		if n == 3 {
+			close(applied)
+			<-release
+		}
+	}
+
+	done := make(chan struct{})
+	var gotErr error
+	go func() {
+		_, gotErr = d.CatchUp(cctx, "srv")
+		close(done)
+	}()
+	<-applied
+	cancel()
+	close(release)
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("CatchUp did not return after ctx was cancelled")
+	}
+	if !errors.Is(gotErr, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", gotErr)
+	}
+	if n >= 20 {
+		t.Fatalf("ran all %d snapshots despite cancellation", n)
+	}
+}
+
+// Fix round 2 (serve.go shutdown): a CatchUp waiting for another one's
+// per-server lock returns as soon as its own ctx is cancelled, instead of
+// waiting for the lock holder to finish.
+func TestCatchUpLockWaitRespectsContext(t *testing.T) {
+	st := newStore(t)
+	d := NewDeriver(st, nil)
+	put(t, st, world("chunked:1", t0))
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	d.AfterApply = func() {
+		close(entered)
+		<-release
+	}
+	go d.CatchUp(context.Background(), "srv") // holds the lock until release
+	<-entered
+
+	cctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled: must not wait for the lock at all
+	done := make(chan struct{})
+	var n int
+	var gotErr error
+	go func() {
+		n, gotErr = d.CatchUp(cctx, "srv")
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		close(release)
+		t.Fatal("CatchUp did not return promptly while the lock was held")
+	}
+	close(release)
+	if n != 0 || !errors.Is(gotErr, context.Canceled) {
+		t.Fatalf("n=%d err=%v, want 0, context.Canceled", n, gotErr)
 	}
 }

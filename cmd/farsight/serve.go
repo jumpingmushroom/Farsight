@@ -180,6 +180,12 @@ func runServe(ctx context.Context, cfgPath string, getenv func(string) string, l
 		runErr = fmt.Errorf("ingest http server: %w", err)
 	}
 
+	// Stop any in-flight or future background world-event derivation
+	// (CatchUpAsync; the backfill loop below honours loopCtx on its own,
+	// once it's cancelled) before anything closes the store out from
+	// under it.
+	world.Cancel()
+
 	toShutdown := []*http.Server{srv}
 	if splitIngest {
 		toShutdown = append(toShutdown, ingestSrv)
@@ -189,8 +195,33 @@ func runServe(ctx context.Context, cfgPath string, getenv func(string) string, l
 	}
 	cancelLoops()
 	wg.Wait()
+	// Cancel only asks CatchUpAsync work to stop; wait, bounded, for it to
+	// actually have returned, so nothing touches the store (closed by the
+	// caller's defer) afterwards.
+	waitWorldIdle(world, shutdownTimeout, log)
 	log.Info("stopped")
 	return runErr
+}
+
+// waitWorldIdle waits up to timeout for every world.CatchUpAsync call so
+// far to have returned (Cancel, called beforehand, having already asked
+// them to stop), so the caller's deferred store Close never races a
+// lingering background derivation. It logs a warning, rather than
+// blocking indefinitely, if the deadline passes first: data is never at
+// risk either way, since every snapshot is applied in its own
+// transaction and the derivation resumes, from where it left off, on the
+// next ingest or restart.
+func waitWorldIdle(world *worldevents.Deriver, timeout time.Duration, log *slog.Logger) {
+	done := make(chan struct{})
+	go func() {
+		world.Idle()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		log.Warn("world events: shutdown timed out waiting for background derivation to stop")
+	}
 }
 
 // shutdownAll shuts down each of servers concurrently, each with its own,
