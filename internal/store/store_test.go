@@ -214,31 +214,22 @@ func TestLatestSnapshotIDMatchesLatestSnapshot(t *testing.T) {
 	}
 }
 
-func TestPruneSnapshotsKeepsLatest(t *testing.T) {
+func TestPruneSnapshotsNoWorldDiffRowPrunesNothing(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	// Server "a": one old, non-latest snapshot that should be pruned, and
-	// one latest snapshot that must survive even though it too predates
-	// the cutoff.
+	// Server "a" has no world_diff row (the backfill hasn't run), so even
+	// a 30-day-old snapshot must survive a 14-day prune.
 	if _, err := s.PutSnapshot(ctx, "a", "s1", ms("2026-01-01T00:00:00Z"), ms("2026-01-01T00:00:01Z"), []byte("s1")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.PutSnapshot(ctx, "a", "s2", ms("2026-01-02T00:00:00Z"), ms("2026-01-02T00:00:01Z"), []byte("s2")); err != nil {
-		t.Fatal(err)
-	}
 
-	n, err := s.PruneSnapshots(ctx, ms("2030-01-01T00:00:00Z"))
+	n, err := s.PruneSnapshots(ctx, ms("2026-01-31T00:00:00Z"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 1 {
-		t.Fatalf("pruned %d rows, want 1", n)
-	}
-
-	blob, savedAt, ok, err := s.LatestSnapshot(ctx, "a")
-	if err != nil || !ok || string(blob) != "s2" || !savedAt.Equal(ms("2026-01-02T00:00:00Z")) {
-		t.Fatalf("blob=%q savedAt=%v ok=%v err=%v", blob, savedAt, ok, err)
+	if n != 0 {
+		t.Fatalf("pruned %d rows, want 0 (no world_diff row for server a)", n)
 	}
 
 	var count int
@@ -247,6 +238,53 @@ func TestPruneSnapshotsKeepsLatest(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("snapshots remaining for a = %d, want 1", count)
+	}
+}
+
+func TestPruneSnapshotsKeepsFromWorldDiffKeyOnwardRegardlessOfAge(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// "before": older than the cutoff and before world_diff's key, so it
+	// must be pruned.
+	if _, err := s.PutSnapshot(ctx, "a", "before", ms("2026-01-01T00:00:00Z"), ms("2026-01-01T00:00:01Z"), []byte("before")); err != nil {
+		t.Fatal(err)
+	}
+	// "key": world_diff's own snapshot, the predecessor of the next
+	// diff, older than the cutoff too but must be kept.
+	if _, err := s.PutSnapshot(ctx, "a", "key", ms("2026-01-02T00:00:00Z"), ms("2026-01-02T00:00:01Z"), []byte("key")); err != nil {
+		t.Fatal(err)
+	}
+	// "after": newer than world_diff's key, must also be kept.
+	if _, err := s.PutSnapshot(ctx, "a", "after", ms("2026-01-03T00:00:00Z"), ms("2026-01-03T00:00:01Z"), []byte("after")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutWorldDiffState(ctx, nil, "a", SnapshotKey{SaveID: "key", SavedAt: ms("2026-01-02T00:00:00Z")}); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := s.PruneSnapshots(ctx, ms("2030-01-01T00:00:00Z"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("pruned %d rows, want 1 (only \"before\")", n)
+	}
+
+	var remaining []string
+	rows, err := s.db.QueryContext(ctx, `SELECT save_id FROM snapshots WHERE server_id = 'a' ORDER BY save_id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		remaining = append(remaining, id)
+	}
+	if len(remaining) != 2 || remaining[0] != "after" || remaining[1] != "key" {
+		t.Fatalf("remaining snapshots = %v, want [after, key]", remaining)
 	}
 }
 

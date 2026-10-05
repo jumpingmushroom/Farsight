@@ -201,7 +201,10 @@ var migrations = [][]string{
 			first_seen INTEGER NOT NULL,
 			PRIMARY KEY (server_id, id)
 		) WITHOUT ROWID`,
-		`CREATE INDEX IF NOT EXISTS idx_sessions_server_platform ON sessions (server_id, platform_id)`,
+		// (server_id, platform_id, since): PlayerSessions filters on the
+		// first two and orders by the third, so this serves it with an
+		// index scan and no sort.
+		`CREATE INDEX IF NOT EXISTS idx_sessions_server_platform ON sessions (server_id, platform_id, since)`,
 	},
 }
 

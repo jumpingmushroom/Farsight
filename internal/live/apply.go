@@ -18,15 +18,19 @@ import (
 // swept as lost (SweepStale).
 const HeartbeatTimeout = 3 * time.Minute
 
-// EventRetention is how long the event log keeps events before serve
-// prunes them. Deduplication by event id only works inside this window,
-// so Apply refuses events too close to (or past) it: see maxEventAge.
+// EventRetention is how long serve keeps heartbeat and players_now
+// events before pruning them; every other event type (and every
+// snapshot the world-diff backfill still needs) is kept indefinitely.
+// Deduplication by event id for those two noise types only works inside
+// this window, so Apply refuses any event too close to (or past) it:
+// see maxEventAge.
 const EventRetention = 14 * 24 * time.Hour
 
 // maxEventAge is the oldest an event's At may be (relative to now) and
-// still be applied: a day inside EventRetention, so an event is refused
-// well before serve's prune could have dropped its dedupe row, and a
-// replayed weeks-old event can never rewind live state or sessions.
+// still be applied: a day inside EventRetention, so a heartbeat or
+// players_now event is refused well before serve's prune could have
+// dropped its dedupe row, and a replayed weeks-old event of any type can
+// never rewind live state or sessions.
 const maxEventAge = EventRetention - 24*time.Hour
 
 // maxFuture is how far past Now an event's At may be before it is

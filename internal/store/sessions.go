@@ -134,7 +134,7 @@ func (s *Store) PlayerSessions(ctx context.Context, serverID, platformID string)
 		SELECT server_id, platform_id, name, since, platform, until, seconds, reason
 		FROM sessions
 		WHERE server_id = ? AND platform_id = ?
-		ORDER BY since ASC`, serverID, platformID)
+		ORDER BY since ASC, name ASC`, serverID, platformID)
 	if err != nil {
 		return nil, fmt.Errorf("store: player sessions: %w", err)
 	}
@@ -150,7 +150,7 @@ func (s *Store) SessionsOverlapping(ctx context.Context, serverID string, from, 
 		SELECT server_id, platform_id, name, since, platform, until, seconds, reason
 		FROM sessions
 		WHERE server_id = ? AND since < ? AND (until IS NULL OR until > ?)
-		ORDER BY since ASC`, serverID, millis(until), millis(from))
+		ORDER BY since ASC, name ASC`, serverID, millis(until), millis(from))
 	if err != nil {
 		return nil, fmt.Errorf("store: sessions overlapping: %w", err)
 	}
@@ -176,7 +176,7 @@ func (s *Store) Players(ctx context.Context, serverID string) ([]Player, error) 
 		SELECT server_id, platform_id, name, since, platform, until, seconds, reason
 		FROM sessions
 		WHERE server_id = ? AND platform_id <> ''
-		ORDER BY since ASC`, serverID)
+		ORDER BY since ASC, name ASC`, serverID)
 	if err != nil {
 		return nil, fmt.Errorf("store: players: %w", err)
 	}

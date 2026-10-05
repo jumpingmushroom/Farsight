@@ -89,17 +89,18 @@ func (s *Store) EventsBetween(ctx context.Context, serverID string, from, until 
 // heartbeat and players_now: when tracking began for it. ok is false if
 // there is none.
 func (s *Store) EarliestEvent(ctx context.Context, serverID string) (at time.Time, ok bool, err error) {
-	var v sql.NullInt64
+	var v int64
 	err = s.db.QueryRowContext(ctx, `
-		SELECT MIN(at) FROM events WHERE server_id = ? AND type NOT IN (?, ?)`,
+		SELECT at FROM events WHERE server_id = ? AND type NOT IN (?, ?)
+		ORDER BY at ASC LIMIT 1`,
 		append([]any{serverID}, noiseTypes...)...).Scan(&v)
-	if err != nil {
+	switch {
+	case err == sql.ErrNoRows:
+		return time.Time{}, false, nil
+	case err != nil:
 		return time.Time{}, false, fmt.Errorf("store: earliest event: %w", err)
 	}
-	if !v.Valid {
-		return time.Time{}, false, nil
-	}
-	return fromMillis(v.Int64), true, nil
+	return fromMillis(v), true, nil
 }
 
 func scanEvents(rows *sql.Rows) ([]StoredEvent, error) {

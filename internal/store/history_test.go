@@ -16,6 +16,19 @@ func TestMigrationTwoUpgradesAVersionOneDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
+
+	// Populate v1 data that must survive the upgrade untouched.
+	if _, err := s.InsertEventIfNew(ctx, nil, "srv", logwatch.Event{ID: "e1", Type: logwatch.EvPlayerJoin, At: ms("2026-10-01T00:00:00Z"), Name: "Astrid"}); err != nil {
+		t.Fatal(err)
+	}
+	until := ms("2026-10-01T01:00:00Z")
+	if err := s.InsertClosedSession(ctx, nil, Session{ServerID: "srv", Name: "Astrid", Platform: "Steam", PlatformID: "1", Since: ms("2026-10-01T00:00:00Z"), Until: &until, Seconds: 3600, Reason: "left"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PutSnapshot(ctx, "srv", "save1", ms("2026-10-01T00:00:00Z"), ms("2026-10-01T00:00:01Z"), []byte("v1-snapshot")); err != nil {
+		t.Fatal(err)
+	}
+
 	// Roll the file back to schema version 1.
 	for _, q := range []string{`DROP TABLE world_diff`, `DROP TABLE tombstones`, `DROP INDEX idx_sessions_server_platform`, `UPDATE schema_version SET v = 1`} {
 		if _, err := s.db.ExecContext(ctx, q); err != nil {
@@ -38,6 +51,21 @@ func TestMigrationTwoUpgradesAVersionOneDatabase(t *testing.T) {
 	}
 	if _, err := s.InsertTombstone(ctx, nil, "srv", Tombstone{ID: "t", Owner: "A", FirstSeen: ms("2026-10-01T00:00:00Z")}); err != nil {
 		t.Fatal(err)
+	}
+
+	// The v1 rows seeded before the rollback must have survived the
+	// upgrade untouched.
+	acts, err := s.RecentActivity(ctx, "srv", 10)
+	if err != nil || len(acts) != 1 || acts[0].ID != "e1" || acts[0].Name != "Astrid" {
+		t.Fatalf("event after upgrade = %+v err=%v, want e1/Astrid to survive", acts, err)
+	}
+	sessions, err := s.PlayerSessions(ctx, "srv", "1")
+	if err != nil || len(sessions) != 1 || sessions[0].Seconds != 3600 || sessions[0].Reason != "left" {
+		t.Fatalf("session after upgrade = %+v err=%v, want the closed v1 session to survive", sessions, err)
+	}
+	blob, _, ok, err := s.LatestSnapshot(ctx, "srv")
+	if err != nil || !ok || string(blob) != "v1-snapshot" {
+		t.Fatalf("snapshot after upgrade = %q ok=%v err=%v, want v1-snapshot to survive", blob, ok, err)
 	}
 }
 
