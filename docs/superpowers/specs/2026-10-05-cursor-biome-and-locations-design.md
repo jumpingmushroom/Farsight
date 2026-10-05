@@ -42,9 +42,9 @@ Valheim 1.0 "alt biomes" (sector modifiers that rename or restyle regions) need 
 
 Today the agent maps prefab → kind and drops everything else, so every mapping change needs an agent rollout. New:
 
-- The agent sends every location in `Snapshot.Locations` as a `Marker` with `kind: "location"`, `type` = prefab name, no label, and the new `unplaced: true` when the save's `Placed` flag is false (omitted otherwise, so older snapshots read as placed). IDs stay positional (`loc-N`). About 12k entries per world; snapshots are gzip-stored, so the cost is small. One agent rollout, then mapping changes are server-only.
+- The agent sends each location in `Snapshot.Locations` as a `Marker` with `kind: "location"`, `type` = prefab name, no label, and the new `unplaced: true` when the save's `Placed` flag is false (omitted otherwise, so older snapshots read as placed). IDs stay positional among the sent entries (`loc-N`). A world plans about 12k locations total, but `extract.Finish` keeps only the ones inside its own explored mask (the same cell test the server uses, `explored.Mask.At`) — mostly unplaced candidates of unique sites and sites in ground nobody has found, so what's actually sent is a small fraction of that; snapshots are gzip-stored besides, so the cost is small either way. (I3: without this filter the gzip'd payload measured about 6× the old agent's, since the server was the only place filtering by the explored mask; filtering in the agent avoids shipping and decoding the ~90% that never survives it.) One agent rollout, then mapping changes are server-only.
 - `extract.ClassifyLocations(raw []Marker) []Marker` is the one place that applies the table: it looks up each entry by `type` (so snapshots from older agents, already classified, are re-labelled the same way), sets `kind`, `label` and the new `group`, drops unmapped types, and drops unplaced entries of unique sites. The central app applies it once per stored snapshot (in `worldState`), and `worldevents` applies it before its "near a location" lookup.
-- The snapshot API then filters to the explored mask, as today.
+- The snapshot API then filters to the explored mask, as today — now mostly a no-op, since the agent already dropped what wouldn't pass it.
 
 ### The set
 

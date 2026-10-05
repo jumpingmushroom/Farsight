@@ -7,6 +7,7 @@ import (
 
 	"github.com/jumpingmushroom/farsight/internal/names"
 	"github.com/jumpingmushroom/farsight/internal/save"
+	"github.com/jumpingmushroom/farsight/internal/save/savetest"
 )
 
 func h(s string) int32 { return names.StableHash(s) }
@@ -34,7 +35,12 @@ func TestExtractMarkersPlayersBosses(t *testing.T) {
 	tomb := z("Player_tombstone", [3]float32{-2182, 33, 1996})
 	tomb.Strings = map[int32]string{h("ownerName"): "Thordis"}
 	unknown := &save.ZDO{Prefab: 12345}
-	for _, zz := range []*save.ZDO{p1, p2, p3, bed, goblinBed, wolf, wildWolf, tomb, unknown} {
+	// A built piece near the origin, so the locations below (all within its
+	// 100 m reveal) are explored: the zone fallback alone would erode a
+	// single 64 m zone to nothing (TestExploredFallsBackToShrunkZones).
+	piece := z("piece_ArcheryTarget", [3]float32{0, 0, 0})
+	piece.Longs = map[int32]int64{h("creator"): 2}
+	for _, zz := range []*save.ZDO{p1, p2, p3, bed, goblinBed, wolf, wildWolf, tomb, unknown, piece} {
 		e.Add(zz)
 	}
 	w := &save.World{
@@ -44,7 +50,7 @@ func TestExtractMarkersPlayersBosses(t *testing.T) {
 		Zones:      [][2]int16{{0, 0}},
 		GlobalKeys: []string{"defeated_eikthyr", "defeated_writhan"},
 		Locations: []save.Location{
-			{Hash: h("Eikthyrnir"), Pos: [3]float32{100, 30, 200}, Placed: true},
+			{Hash: h("Eikthyrnir"), Pos: [3]float32{30, 30, 10}, Placed: true},
 			{Hash: h("Crypt2"), Pos: [3]float32{1, 1, 1}, Placed: true},
 			{Hash: h("Runestone_Meadows"), Pos: [3]float32{2, 2, 2}, Placed: true},
 		},
@@ -92,6 +98,37 @@ func TestExtractMarkersPlayersBosses(t *testing.T) {
 	}
 	if s.Stats.UnknownPrefabs != 1 || s.Stats.ZDOs != 9 || s.ServerID != "mulevikings" || s.SaveID != "chunked:9" || s.Format != "chunked" {
 		t.Fatalf("snapshot header/stats = %+v", s)
+	}
+}
+
+// TestFinishKeepsOnlyExploredRawLocations is the I3 fix: the agent, not
+// the server, drops a save's raw locations outside its own explored mask
+// (same cell test as the server: explored.Mask.At), since most of a
+// save's ~12k locations are unplaced candidates or in ground nobody has
+// visited, and the server would filter them out anyway.
+func TestFinishKeepsOnlyExploredRawLocations(t *testing.T) {
+	e := New()
+	t1 := z("piece_cartographytable", [3]float32{0, 30, 0})
+	t1.ByteArrays = map[int32][]byte{save.MapDataKey: savetest.MapData(3, cellIndex(100, 100))}
+	e.Add(t1)
+	w := &save.World{Locations: []save.Location{
+		{Hash: h("Eikthyrnir"), Pos: [3]float32{100, 30, 100}, Placed: true}, // recorded cell: kept
+		{Hash: h("Crypt2"), Pos: [3]float32{9000, 30, 9000}, Placed: true},   // outside the mask: dropped
+	}}
+	s := e.Finish(w, "x", time.Now())
+	if len(s.Locations) != 1 || s.Locations[0].ID != "loc-1" || s.Locations[0].Type != "Eikthyrnir" {
+		t.Fatalf("locations = %+v", s.Locations)
+	}
+}
+
+// TestKeepExploredNilMaskKeepsAll is the defensive branch: exploredMask
+// never actually returns a nil mask, but keepExplored must not interpret
+// "no mask" as "nothing is explored".
+func TestKeepExploredNilMaskKeepsAll(t *testing.T) {
+	locs := []save.Location{{Hash: h("Eikthyrnir")}, {Hash: h("Crypt2")}}
+	got := keepExplored(locs, nil)
+	if len(got) != 2 {
+		t.Fatalf("keepExplored(nil mask) = %+v, want both kept", got)
 	}
 }
 

@@ -65,13 +65,19 @@ func TestGoldenMuleVikings(t *testing.T) {
 	if owned == 0 {
 		t.Errorf("no portal has an owner")
 	}
+	// Boss altars survive explored-only filtering (I3, Finish keeps only
+	// raw locations inside its own explored mask): this used to check all
+	// 8 were present in the unfiltered location plan, which every world
+	// has regardless of what's been explored. Now a location only reaches
+	// Snapshot.Locations once it's been explored, so this save's players
+	// having stood near at least one altar is what's left to check.
 	altars := 0
 	for _, l := range ClassifyLocations(s.Locations) {
 		if l.Kind == "boss_altar" {
 			altars++
 		}
 	}
-	if altars < 8 || s.World.Modifiers["portals"] != "casual" {
+	if altars == 0 || s.World.Modifiers["portals"] != "casual" {
 		t.Fatalf("altars=%d modifiers=%v", altars, s.World.Modifiers)
 	}
 }

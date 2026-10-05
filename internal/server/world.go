@@ -54,7 +54,15 @@ func (f *fogLazy) get() (*fog.Field, *fog.ClassMap) {
 // predates the explored mask has only exploredZones; those are rasterised
 // onto the same 12 m grid, so both formats feed one code path.
 func newWorldState(snap *extract.Snapshot, log *slog.Logger) *worldState {
-	w := &worldState{saveID: snap.SaveID, snap: snap, locs: extract.ClassifyLocations(snap.Locations)}
+	locs := extract.ClassifyLocations(snap.Locations)
+	// snap is shared read-only, so copy it rather than clearing the
+	// caller's Locations in place. Nothing else reads ws.snap.Locations
+	// (the snapshot and card handlers read w.locs instead), and the raw
+	// locations are the bulk of a decoded snapshot's memory (Plan 8, I3),
+	// so this state doesn't keep both copies alive for its lifetime.
+	trimmed := *snap
+	trimmed.Locations = nil
+	w := &worldState{saveID: trimmed.SaveID, snap: &trimmed, locs: locs}
 	if snap.Explored != nil {
 		m, err := explored.Decode(*snap.Explored)
 		if err == nil {

@@ -68,6 +68,29 @@ func TestNewWorldStateCanonicalizesTheExploredEncoding(t *testing.T) {
 	}
 }
 
+// Plan 8, I3: ws.snap.Locations is cleared once classified into ws.locs,
+// since nothing else reads it and it's the bulk of a decoded snapshot
+// (raw agent locations, filtered to the explored mask by the agent but
+// still the biggest slice on the struct). The caller's own snapshot must
+// be untouched: worldState copies rather than mutating it, since a
+// snapshot is shared read-only.
+func TestNewWorldStateClearsSnapLocations(t *testing.T) {
+	snap := &extract.Snapshot{
+		ServerID: "alpha", SaveID: "s1", SavedAt: t0,
+		Locations: []extract.Marker{{ID: "loc-1", Kind: "location", Type: "Eikthyrnir"}},
+	}
+	w := newWorldState(snap, discardLog)
+	if w.snap.Locations != nil {
+		t.Errorf("ws.snap.Locations = %+v, want nil", w.snap.Locations)
+	}
+	if len(w.locs) != 1 || w.locs[0].Kind != "boss_altar" {
+		t.Errorf("ws.locs = %+v, want the classified Eikthyr altar", w.locs)
+	}
+	if len(snap.Locations) != 1 {
+		t.Errorf("caller's snapshot was mutated: Locations = %+v", snap.Locations)
+	}
+}
+
 // cardBosses rebuilds the boss list from GlobalKeys rather than
 // trusting the stored Bosses, so the central app doesn't depend on the
 // agent having been updated to drop the invented 8th boss, Writhan
