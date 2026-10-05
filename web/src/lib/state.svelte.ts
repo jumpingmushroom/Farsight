@@ -7,7 +7,7 @@
 // immediately on becoming visible; servers every 60 s; the snapshot whenever
 // `card.world.savedAt` changes. `now` ticks every 30 s.
 
-import { ApiError, getActivity, getCard, getProfile, getSessionsToday, getSnapshot, listServers, unlock } from './api';
+import { ApiError, getActivity, getBiomes, getCard, getProfile, getSessionsToday, getSnapshot, listServers, unlock } from './api';
 import type { TileSample } from './derive';
 import { filters } from './filters.svelte';
 import { hashFor, parseHash, sameView, type View } from './share';
@@ -102,6 +102,13 @@ export class AppState {
 	card = $state<Card | undefined>(undefined);
 	/** undefined = not loaded, null = none yet. */
 	snapshot = $state<SnapshotView | null | undefined>(undefined);
+	/**
+	 * The current tile set's biome grid (Task 4), for the cursor readout.
+	 * Undefined while unloaded or after a failed fetch — a failed fetch is
+	 * retried only the next time `card.tiles.key` changes, never on the
+	 * next poll of the same key (see syncBiomes).
+	 */
+	biomes = $state.raw<{ key: string; grid: Uint8Array } | undefined>(undefined);
 	theme = $state<Theme>('dark');
 	now = $state(new Date());
 	tileSamples: TileSample[] = [];
@@ -155,6 +162,10 @@ export class AppState {
 	 * the hash for the new server, instead of parsing it as a link.
 	 */
 	private pendingPop = false;
+	/** (id, key) the shown or last-attempted biomes grid is for (syncBiomes). */
+	private biomesFor: { id: string; key: string } | undefined;
+	/** Bumped on every (re)attempt or reset: discards a fetch that resolves after it. */
+	private biomesGen = 0;
 	/** (id, player) the shown profile/profileFailed are for, or the one just requested. */
 	private profileFor: { id: string; player: string } | undefined;
 	/** Bumped on every (re)fetch, close or switch: a stale fetch's result is dropped, which is as close to "abort" as a plain fetch gets. */
@@ -274,6 +285,9 @@ export class AppState {
 		this.snapshot = undefined;
 		this.savedAt = undefined;
 		this.tileSamples = [];
+		this.biomes = undefined;
+		this.biomesFor = undefined;
+		this.biomesGen++;
 		// The timeline's shared filters (fix round 1): people are platform
 		// IDs from the old server, which mean nothing on the new one (and
 		// could silently hide every event there), so a switch clears both.
@@ -334,6 +348,7 @@ export class AppState {
 			const card = await getCard(id, this.f);
 			if (stale()) return;
 			this.card = card;
+			this.syncBiomes(id, card.tiles.key);
 			// A quiet refresh of the open profile or Activity view, on the
 			// same cadence as the card: neither clears what's shown (no
 			// skeleton), so a status change (e.g. the player going offline,
@@ -630,6 +645,35 @@ export class AppState {
 		})();
 	}
 
+	/**
+	 * Loads the biome grid for `key` (Task 4's `GET /tiles/{id}/{key}/biomes`)
+	 * when it names a tile set not already loaded or attempted for this
+	 * server. A failed fetch (e.g. a 404 while `key` is briefly not yet the
+	 * server's current tile set) clears `biomes` and sets nothing else up
+	 * for a retry: the next call with the same (id, key) is a no-op, so
+	 * retrying happens only when `key` changes again — until then the
+	 * readout just shows no biome. Not logged: unlike the card/profile/
+	 * activity fetches this augments, failing it is not a connectivity
+	 * signal worth a warning, just a cosmetic miss.
+	 */
+	private syncBiomes(id: string, key: string | undefined): void {
+		if (key === undefined) return;
+		if (this.biomesFor?.id === id && this.biomesFor.key === key) return;
+		this.biomesFor = { id, key };
+		this.biomesGen++;
+		const g = this.biomesGen;
+		void (async () => {
+			try {
+				const grid = await getBiomes(id, key, this.f);
+				if (g !== this.biomesGen) return;
+				this.biomes = { key, grid };
+			} catch {
+				if (g !== this.biomesGen) return;
+				this.biomes = undefined;
+			}
+		})();
+	}
+
 	// --- internals ------------------------------------------------------------
 
 	private readTheme(): Theme {
@@ -686,6 +730,9 @@ export class AppState {
 		this.snapshot = undefined;
 		this.savedAt = undefined;
 		this.tileSamples = [];
+		this.biomes = undefined;
+		this.biomesFor = undefined;
+		this.biomesGen++;
 		filters.reset();
 		this.syncProfile();
 		this.syncActivity();

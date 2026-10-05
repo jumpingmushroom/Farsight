@@ -1,5 +1,7 @@
+import './testing/leaflet-node';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { ApiError, getActivity, getCard, getProfile, getSessionsToday, getSnapshot, listServers, tileUrl, unlock } from './api';
+import { ApiError, biomesUrl, getActivity, getBiomes, getCard, getProfile, getSessionsToday, getSnapshot, listServers, tileUrl, unlock } from './api';
+import { GRID_BYTES } from './biomes';
 import type { ServerSummary } from './types';
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -127,6 +129,44 @@ describe('tileUrl', () => {
 	});
 });
 
+describe('biomesUrl', () => {
+	test('escapes id and key', () => {
+		expect(biomesUrl('a b', 'k/1')).toBe('/tiles/a%20b/k%2F1/biomes');
+	});
+});
+
+describe('getBiomes', () => {
+	function gridResponse(bytes: Uint8Array<ArrayBuffer>, status = 200): Response {
+		return new Response(bytes, { status });
+	}
+
+	test('200 -> the decoded grid, fetched with credentials same-origin', async () => {
+		const bytes = new Uint8Array(GRID_BYTES);
+		bytes[0] = 3;
+		bytes[GRID_BYTES - 1] = 9;
+		const fake = vi.fn().mockResolvedValue(gridResponse(bytes));
+		const result = await getBiomes('a', 'k1', fake as unknown as typeof fetch);
+		// Not toEqual: Vitest's deep-equality over a 1 MB typed array is slow
+		// (seconds); length plus spot checks is enough to prove it round-tripped.
+		expect(result.length).toBe(GRID_BYTES);
+		expect(result[0]).toBe(3);
+		expect(result[GRID_BYTES - 1]).toBe(9);
+		const [url, init] = fake.mock.calls[0];
+		expect(url).toBe('/tiles/a/k1/biomes');
+		expect(init).toMatchObject({ credentials: 'same-origin', cache: 'no-store' });
+	});
+
+	test('404 (a stale tile-set key) -> ApiError(404)', async () => {
+		const fake = vi.fn().mockResolvedValue(textResponse('not found', 404));
+		await expect(getBiomes('a', 'stale', fake as unknown as typeof fetch)).rejects.toMatchObject({ status: 404 });
+	});
+
+	test('a body that is not exactly 1024² bytes rejects', async () => {
+		const fake = vi.fn().mockResolvedValue(gridResponse(new Uint8Array(10)));
+		await expect(getBiomes('a', 'k1', fake as unknown as typeof fetch)).rejects.toBeInstanceOf(ApiError);
+	});
+});
+
 describe('timeouts', () => {
 	beforeEach(() => vi.useFakeTimers());
 	afterEach(() => vi.useRealTimers());
@@ -169,6 +209,14 @@ describe('timeouts', () => {
 	test('getSnapshot times out at the default 60 s', async () => {
 		const fake = hangingFetch();
 		const p = getSnapshot('a', fake);
+		const assertion = expect(p).rejects.toMatchObject({ status: 0, message: 'timeout' });
+		await vi.advanceTimersByTimeAsync(60_000);
+		await assertion;
+	});
+
+	test('getBiomes times out at the default 60 s', async () => {
+		const fake = hangingFetch();
+		const p = getBiomes('a', 'k1', fake);
 		const assertion = expect(p).rejects.toMatchObject({ status: 0, message: 'timeout' });
 		await vi.advanceTimersByTimeAsync(60_000);
 		await assertion;

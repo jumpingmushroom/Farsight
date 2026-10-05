@@ -2,6 +2,7 @@
 // section). Every request is same-origin only; GETs are never cached so the
 // UI always sees the latest state.
 
+import { GRID_BYTES } from './biomes';
 import { decodeExplored } from './explored';
 import type { ActivityPage, Card, Profile, ServerSummary, SnapshotView, TodaySessions } from './types';
 
@@ -26,6 +27,7 @@ const SNAPSHOT_TIMEOUT_MS = 60_000;
 const UNLOCK_TIMEOUT_MS = 15_000;
 const PROFILE_TIMEOUT_MS = 20_000;
 const ACTIVITY_TIMEOUT_MS = 20_000;
+const BIOMES_TIMEOUT_MS = 60_000;
 
 // `run` covers the whole request — fetch() resolving is not enough, since a
 // server can send headers promptly and then stall the body — so the caller
@@ -158,4 +160,32 @@ export async function unlock(
 /** The fog tiles of tile set `key` under fog key `fog` (spec 2026-10-01 §2). */
 export function tileUrl(id: string, key: string, fog: string): string {
 	return `/tiles/${encodeURIComponent(id)}/${encodeURIComponent(key)}/${encodeURIComponent(fog)}/{z}/{x}/{y}.png`;
+}
+
+/** The base-biome grid of tile set `key` (Task 3's `GET /tiles/{id}/{key}/biomes`), for the cursor readout. */
+export function biomesUrl(id: string, key: string): string {
+	return `/tiles/${encodeURIComponent(id)}/${encodeURIComponent(key)}/biomes`;
+}
+
+/**
+ * The world's base-biome grid for tile set `key` (biomes.ts): a flat
+ * 1024×1024 byte array, one byte per 20 m cell. The browser already
+ * un-gzips the response via `Content-Encoding`, so the body is read
+ * straight into a `Uint8Array`; a 404 means `key` is not the server's
+ * current tile set (it rotates when the world is rebuilt), and a body
+ * that isn't exactly `GRID_BYTES` long is rejected as malformed.
+ */
+export async function getBiomes(
+	id: string,
+	key: string,
+	f: typeof fetch = fetch,
+	timeoutMs = BIOMES_TIMEOUT_MS
+): Promise<Uint8Array> {
+	return withTimeout(timeoutMs, async (signal) => {
+		const res = await f(biomesUrl(id, key), jsonInit(signal));
+		if (!res.ok) throw new ApiError(res.status, await res.text());
+		const grid = new Uint8Array(await res.arrayBuffer());
+		if (grid.length !== GRID_BYTES) throw new ApiError(res.status, 'malformed biome grid');
+		return grid;
+	});
 }
