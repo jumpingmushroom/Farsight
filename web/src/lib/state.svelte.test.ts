@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { AppState, unlockMessage, type Visibility } from './state.svelte';
-import type { Card, ServerSummary, SnapshotView, WorldCard } from './types';
+import type { Card, Profile, ServerSummary, SnapshotView, WorldCard } from './types';
 
 // --- fixtures (invented names only) ----------------------------------------
 
@@ -40,6 +40,29 @@ function makeCard(id: string, overrides: Partial<Card> = {}): Card {
 	};
 }
 
+function makeProfile(over: Partial<Profile> = {}): Profile {
+	return {
+		id: '1',
+		name: 'Astrid',
+		platform: 'Steam',
+		timeZone: 'UTC',
+		online: true,
+		since: '2026-09-30T10:00:00Z',
+		firstSeen: '2026-09-29T10:00:00Z',
+		trackedSince: '2026-09-29T10:00:00Z',
+		weekSeconds: 100,
+		allSeconds: 100,
+		sessions: 1,
+		days: [],
+		beds: { count: 0, near: [] },
+		bases: [],
+		portals: [],
+		tames: [],
+		deaths: { spotted: 0, week: 0, tombstones: [] },
+		...over
+	};
+}
+
 const SNAPSHOT: SnapshotView = {
 	savedAt: '2026-09-30T10:00:00Z',
 	fogKey: '0123456789abcdef',
@@ -68,6 +91,8 @@ class FakeServer {
 	calls: Call[] = [];
 	servers: ServerSummary[] = [...SERVERS];
 	cards: Record<string, Card | number> = { a: makeCard('a'), b: makeCard('b') };
+	/** Keyed "server/player"; a number is a status to fail with, undefined -> 404. */
+	profiles: Record<string, Profile | number> = {};
 	unlockStatus = 204;
 	unlockAdds: ServerSummary | undefined = undefined;
 	fail = false;
@@ -93,6 +118,14 @@ class FakeServer {
 		if (path === '/api/servers') return json({ servers: this.servers });
 		const snap = path.match(/^\/api\/servers\/([^/]+)\/snapshot$/);
 		if (snap) return json(SNAPSHOT);
+		const profile = path.match(/^\/api\/servers\/([^/]+)\/players\/([^/]+)$/);
+		if (profile) {
+			const key = `${decodeURIComponent(profile[1])}/${decodeURIComponent(profile[2])}`;
+			const p = this.profiles[key];
+			if (p === undefined) return new Response('not found', { status: 404 });
+			if (typeof p === 'number') return new Response('err', { status: p });
+			return json(p);
+		}
 		const card = path.match(/^\/api\/servers\/([^/]+)$/);
 		if (card) {
 			const c = this.cards[decodeURIComponent(card[1])];
@@ -826,8 +859,8 @@ describe('views (Plan 7)', () => {
 		expect(replaceState).toHaveBeenLastCalledWith(KIT_STATE, '', '#s=b');
 	});
 
-	test('opening a view over another replaces it; switching server closes it', async () => {
-		const { app, location, replaceState } = setup('#s=a');
+	test('opening a view over another replaces it; switching server pops the pushed entry, not merely replaces it', async () => {
+		const { app, location, replaceState, back, hashChanged } = setup('#s=a');
 		app.start();
 		await flush();
 		app.openView({ kind: 'activity' });
@@ -836,7 +869,37 @@ describe('views (Plan 7)', () => {
 		expect(location.hash).toBe('#s=a&p=1');
 		app.select('b');
 		expect(app.view).toBeUndefined();
+		// Fix round 1: the pushed entry is popped (history.back()) instead of
+		// replaced outright, which would otherwise leave the entry beneath it
+		// (the pre-view "#s=a") sitting right behind "#s=b" — so Back would
+		// show a stale "#s=a" while the app still displays server b.
+		expect(back).toHaveBeenCalledTimes(1);
+		expect(location.hash).toBe('#s=a&p=1'); // unchanged until the pop lands
+		// The browser's back() lands on the pre-view entry; we fix up its hash.
+		location.hash = '#s=a';
+		hashChanged();
 		expect(location.hash).toBe('#s=b');
+		expect(app.currentId).toBe('b');
+	});
+
+	test('closing a view reopened by browser forward goes back through it too (pushed set by syncView)', async () => {
+		const { app, location, back, hashChanged } = setup('#s=a');
+		app.start();
+		await flush();
+		app.openView({ kind: 'profile', player: '1' }); // pushes #s=a&p=1
+		app.closeView(); // back() #1; pushed reset to false
+		expect(back).toHaveBeenCalledTimes(1);
+		location.hash = '#s=a';
+		hashChanged();
+		expect(app.view).toBeUndefined();
+		// Browser forward re-enters the view's own history entry.
+		location.hash = '#s=a&p=1';
+		hashChanged();
+		expect(app.view).toEqual({ kind: 'profile', player: '1' });
+		// Closing again must go back through it (not replace, which would be
+		// a no-op landing on the same "#s=a" and never actually move back).
+		app.closeView();
+		expect(back).toHaveBeenCalledTimes(2);
 	});
 
 	test('a hash for another server is ignored', async () => {
@@ -846,5 +909,126 @@ describe('views (Plan 7)', () => {
 		location.hash = '#s=b&activity';
 		hashChanged();
 		expect(app.view).toBeUndefined();
+	});
+});
+
+describe('profile refresh (fix round 1)', () => {
+	test('opening a profile fetches it at once', async () => {
+		const { app, server } = setup('#s=a');
+		server.profiles['a/1'] = makeProfile({ online: true });
+		app.start();
+		await flush();
+		app.openView({ kind: 'profile', player: '1' });
+		await flush();
+		expect(app.profile).toMatchObject({ id: '1', online: true });
+		expect(app.profileFailed).toBe(false);
+	});
+
+	test('a card poll quietly refreshes the open profile, and a status change lands without reopening', async () => {
+		const { app, server } = setup('#s=a');
+		server.profiles['a/1'] = makeProfile({ online: true, since: '2026-09-30T09:00:00Z' });
+		app.start();
+		await flush();
+		app.openView({ kind: 'profile', player: '1' });
+		await flush();
+		expect(app.profile?.online).toBe(true);
+		// The player goes offline; the next card poll's quiet profile refresh
+		// picks it up without the profile view being reopened.
+		server.profiles['a/1'] = makeProfile({ online: false, lastSeen: '2026-09-30T09:40:00Z' });
+		await vi.advanceTimersByTimeAsync(15_000);
+		await flush();
+		expect(app.profile?.online).toBe(false);
+		expect(app.profile?.lastSeen).toBe('2026-09-30T09:40:00Z');
+	});
+
+	test('a quiet refresh never clears the shown profile while the new fetch is in flight', async () => {
+		const { app, server } = setup('#s=a');
+		server.profiles['a/1'] = makeProfile();
+		app.start();
+		await flush();
+		app.openView({ kind: 'profile', player: '1' });
+		await flush();
+		const shown = app.profile;
+		expect(shown).not.toBeNull();
+		let release!: () => void;
+		const gate = new Promise<void>((r) => (release = r));
+		server.override = async (call) => {
+			if (call.path === '/api/servers/a/players/1') await gate;
+			return server.route(call);
+		};
+		await vi.advanceTimersByTimeAsync(15_000);
+		// The quiet refresh is in flight; the panel still shows the old data.
+		expect(app.profile).toBe(shown);
+		release();
+		await flush();
+		expect(app.profile).not.toBeUndefined();
+	});
+
+	test('does not refetch the profile while the tab is hidden', async () => {
+		const { app, server, visibility } = setup('#s=a');
+		server.profiles['a/1'] = makeProfile();
+		app.start();
+		await flush();
+		app.openView({ kind: 'profile', player: '1' });
+		await flush();
+		visibility.isVisible = false;
+		const before = server.count('/api/servers/a/players/1');
+		await vi.advanceTimersByTimeAsync(15_000);
+		expect(server.count('/api/servers/a/players/1')).toBe(before);
+		visibility.show();
+		await flush();
+		expect(server.count('/api/servers/a/players/1')).toBe(before + 1);
+	});
+
+	test('closing the profile discards a slow fetch still in flight', async () => {
+		const { app, server } = setup('#s=a');
+		let release!: () => void;
+		const gate = new Promise<void>((r) => (release = r));
+		server.override = async (call) => {
+			if (call.path === '/api/servers/a/players/1') await gate;
+			return server.route(call);
+		};
+		server.profiles['a/1'] = makeProfile();
+		app.start();
+		await flush();
+		app.openView({ kind: 'profile', player: '1' });
+		app.closeView();
+		release();
+		await flush();
+		// The late response is discarded: nothing reappears after closing.
+		expect(app.profile).toBeUndefined();
+	});
+
+	test('switching server discards a slow fetch for the old one', async () => {
+		const { app, server } = setup('#s=a');
+		let release!: () => void;
+		const gate = new Promise<void>((r) => (release = r));
+		server.override = async (call) => {
+			if (call.path === '/api/servers/a/players/1') await gate;
+			return server.route(call);
+		};
+		server.profiles['a/1'] = makeProfile();
+		app.start();
+		await flush();
+		app.openView({ kind: 'profile', player: '1' });
+		app.select('b');
+		release();
+		await flush();
+		expect(app.profile).toBeUndefined();
+	});
+
+	test('a failed fetch sets profileFailed; retryProfile() tries again at once', async () => {
+		const { app, server } = setup('#s=a');
+		server.profiles['a/1'] = 500;
+		app.start();
+		await flush();
+		app.openView({ kind: 'profile', player: '1' });
+		await flush();
+		expect(app.profileFailed).toBe(true);
+		server.profiles['a/1'] = makeProfile();
+		app.retryProfile();
+		await flush();
+		expect(app.profileFailed).toBe(false);
+		expect(app.profile).toMatchObject({ id: '1' });
 	});
 });

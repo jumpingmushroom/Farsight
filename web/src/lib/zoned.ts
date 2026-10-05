@@ -5,6 +5,7 @@
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const WEEKDAYS_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 export interface Zoned {
 	y: number;
@@ -102,4 +103,10 @@ export function zDayRef(at: string | Date, tz: string, now: Date): string {
 /** The weekday initial of a local date key: "2026-10-05" → "M". */
 export function weekdayInitial(key: string): string {
 	return WEEKDAYS[new Date(`${key}T12:00:00Z`).getUTCDay()][0];
+}
+
+/** An unambiguous label for a local date key (fix round 1): "2026-09-29" → "Tuesday 29 Sep". */
+export function fullDayLabel(key: string): string {
+	const d = new Date(`${key}T12:00:00Z`);
+	return `${WEEKDAYS_FULL[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
 }

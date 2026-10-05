@@ -7,10 +7,10 @@
 // immediately on becoming visible; servers every 60 s; the snapshot whenever
 // `card.world.savedAt` changes. `now` ticks every 30 s.
 
-import { ApiError, getCard, getSnapshot, listServers, unlock } from './api';
+import { ApiError, getCard, getProfile, getSnapshot, listServers, unlock } from './api';
 import type { TileSample } from './derive';
 import { hashFor, parseHash, sameView, type View } from './share';
-import type { Card, ServerSummary, SnapshotView } from './types';
+import type { Card, Profile, ServerSummary, SnapshotView } from './types';
 
 export type Theme = 'dark' | 'light';
 export type UnlockResult = 'ok' | 'wrong' | 'limited';
@@ -102,6 +102,24 @@ export class AppState {
 	unlockPrompt = $state<UnlockPrompt | undefined>(undefined);
 	/** The open view (a profile or the activity timeline), mirrored in the URL hash. */
 	view = $state<View | undefined>(undefined);
+	/**
+	 * The open profile (fix round 1): undefined while loading or when no
+	 * profile view is open, null when the server has never seen the
+	 * player. Kept in AppState (not the component) so it refreshes on the
+	 * same poll as the card, rather than only once on open.
+	 */
+	profile = $state<Profile | null | undefined>(undefined);
+	/** The last profile fetch failed; retryProfile() tries again at once. */
+	profileFailed = $state(false);
+	/**
+	 * The name shown on the row that opened the current view (fix round
+	 * 1), set only on the first open (not when one view replaces
+	 * another). DesktopShell reads and clears this to refocus that row —
+	 * or a fallback, if it's gone — once the view closes, since the row
+	 * fully unmounts while a profile is shown. Mobile doesn't need this:
+	 * its row stays mounted under the sheet.
+	 */
+	viewOpenerName: string | undefined;
 
 	private f: typeof fetch;
 	private storage: Storage | null;
@@ -110,6 +128,17 @@ export class AppState {
 	private onHashChange: (cb: () => void) => () => void;
 	/** The open view added a history entry (openView), so closing it goes back. */
 	private pushed = false;
+	/**
+	 * Set by select() when it must pop a pushed view's entry before
+	 * switching server (fix round 1): the very next hashchange is that pop
+	 * landing, whatever it carries, so syncView() only uses it to fix up
+	 * the hash for the new server, instead of parsing it as a link.
+	 */
+	private pendingPop = false;
+	/** (id, player) the shown profile/profileFailed are for, or the one just requested. */
+	private profileFor: { id: string; player: string } | undefined;
+	/** Bumped on every (re)fetch, close or switch: a stale fetch's result is dropped, which is as close to "abort" as a plain fetch gets. */
+	private profileGen = 0;
 	private vis: Visibility;
 	private root: AppDeps['root'];
 	private log: (message: string, err: unknown) => void;
@@ -203,12 +232,14 @@ export class AppState {
 		if (pick === link.server && link.view) {
 			this.view = link.view;
 			this.replaceHash(pick);
+			this.syncProfile();
 		}
 	}
 
 	/** Switches server: updates the hash (replaceState), clears the old data and loads at once. */
 	select(id: string): void {
 		this.gen++;
+		const popView = this.pushed && !!this.hist;
 		this.currentId = id;
 		this.view = undefined;
 		this.pushed = false;
@@ -216,7 +247,19 @@ export class AppState {
 		this.snapshot = undefined;
 		this.savedAt = undefined;
 		this.tileSamples = [];
-		this.replaceHash(id);
+		this.syncProfile();
+		if (popView) {
+			// The open view had pushed a history entry. Replacing it outright
+			// would leave the entry beneath it (the pre-view hash for the OLD
+			// server) sitting right behind the new server's hash, so Back
+			// would land on a stale "#s=<old>" while the app already shows
+			// this one. Popping it first keeps that entry honest; syncView()
+			// finishes the swap once the resulting hashchange lands.
+			this.pendingPop = true;
+			this.hist!.back();
+		} else {
+			this.replaceHash(id);
+		}
 		void this.refresh();
 	}
 
@@ -259,6 +302,10 @@ export class AppState {
 			const card = await getCard(id, this.f);
 			if (stale()) return;
 			this.card = card;
+			// A quiet refresh of the open profile, on the same cadence as the
+			// card: it never clears what's shown (no skeleton), so a status
+			// change (e.g. the player going offline) lands without reopening.
+			this.syncProfile(true);
 			this.sampleTiles(card);
 			this.ok();
 			const savedAt = card.world?.savedAt;
@@ -339,19 +386,22 @@ export class AppState {
 	/**
 	 * Opens a profile or the activity timeline. The first view opened adds a
 	 * history entry (so browser back closes it); opening another over it
-	 * replaces that entry.
+	 * replaces that entry. `openerName`, the name on the row that opened it,
+	 * is kept only for the first open (desktop focus restore; fix round 1).
 	 */
-	openView(v: View): void {
+	openView(v: View, openerName?: string): void {
 		const id = this.currentId;
 		if (id === undefined || sameView(v, this.view)) return;
 		const replace = this.view !== undefined;
+		if (!replace) this.viewOpenerName = openerName;
 		this.view = v;
 		if (replace || !this.loc) {
 			this.replaceHash(id);
-			return;
+		} else {
+			this.pushed = true;
+			this.loc.hash = hashFor(id, v);
 		}
-		this.pushed = true;
-		this.loc.hash = hashFor(id, v);
+		this.syncProfile();
 	}
 
 	/** Closes the open view: back through its history entry, or by replacing the hash. */
@@ -361,17 +411,79 @@ export class AppState {
 		if (this.pushed && this.hist) {
 			this.pushed = false;
 			this.hist.back();
-			return;
+		} else if (this.currentId !== undefined) {
+			this.replaceHash(this.currentId);
 		}
-		if (this.currentId !== undefined) this.replaceHash(this.currentId);
+		this.syncProfile();
+	}
+
+	/** Retries a failed profile fetch at once, instead of waiting for the next poll. */
+	retryProfile(): void {
+		this.syncProfile(true);
 	}
 
 	/** Follows the hash after browser back or forward. */
 	private syncView(): void {
+		if (this.pendingPop) {
+			// Our own select()-triggered pop landing: finish the hash swap for
+			// the new server, whatever this hashchange carries.
+			this.pendingPop = false;
+			if (this.currentId !== undefined) this.replaceHash(this.currentId);
+			return;
+		}
 		const link = parseHash(this.loc?.hash ?? '');
 		if (link.server !== this.currentId) return;
 		if (!sameView(link.view, this.view)) this.view = link.view;
-		if (!link.view) this.pushed = false;
+		// A view reopened by browser forward (or back) still has a history
+		// entry of its own, so closing it again must go back through it too.
+		this.pushed = !!link.view;
+		this.syncProfile();
+	}
+
+	/**
+	 * Fetches or refreshes the open profile: a fresh load (clearing
+	 * `profile`/`profileFailed` so the skeleton shows again) when the view
+	 * just opened or now names a different player; otherwise, when `poll`
+	 * is true, a quiet background refresh that only updates `profile` /
+	 * `profileFailed` once it lands, so a card poll never flickers the
+	 * panel. With no profile view open, this discards whatever the last
+	 * fetch was doing and clears both fields — covering close and
+	 * switching server, which call it with `this.view` already cleared.
+	 */
+	private syncProfile(poll = false): void {
+		const id = this.currentId;
+		const view = this.view;
+		if (id === undefined || view?.kind !== 'profile') {
+			if (this.profileFor !== undefined) {
+				this.profileGen++;
+				this.profileFor = undefined;
+				this.profile = undefined;
+				this.profileFailed = false;
+			}
+			return;
+		}
+		const player = view.player;
+		const fresh = this.profileFor?.id !== id || this.profileFor?.player !== player;
+		if (!fresh && !poll) return;
+		if (fresh) {
+			this.profile = undefined;
+			this.profileFailed = false;
+		}
+		this.profileFor = { id, player };
+		this.profileGen++;
+		const g = this.profileGen;
+		void (async () => {
+			try {
+				const p = await getProfile(id, player, this.f);
+				if (g !== this.profileGen) return;
+				this.profile = p;
+				this.profileFailed = false;
+			} catch (err) {
+				if (g !== this.profileGen) return;
+				this.profileFailed = true;
+				this.log('farsight: profile refresh failed', err);
+			}
+		})();
 	}
 
 	// --- internals ------------------------------------------------------------
@@ -424,10 +536,13 @@ export class AppState {
 		}
 		this.gen++;
 		this.currentId = undefined;
+		this.view = undefined;
+		this.pushed = false;
 		this.card = undefined;
 		this.snapshot = undefined;
 		this.savedAt = undefined;
 		this.tileSamples = [];
+		this.syncProfile();
 	}
 
 	private ok(): void {

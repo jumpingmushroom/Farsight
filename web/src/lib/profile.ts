@@ -4,7 +4,7 @@
 
 import { fmtInt, fmtLastSeen, fmtSession } from './format';
 import type { Profile } from './types';
-import { weekdayInitial, zDate, zDayRef } from './zoned';
+import { fullDayLabel, weekdayInitial, zDate, zDayRef } from './zoned';
 
 export interface ProfileDayBar {
 	/** Weekday initial: "M". */
@@ -14,6 +14,8 @@ export interface ProfileDayBar {
 	/** Bar height, % of the chart (the busiest day is 78). */
 	pct: number;
 	today: boolean;
+	/** An unambiguous accessible label (fix round 1): "Tuesday 29 Sep: 2.7 h", ", today" appended for today's bar. */
+	aria: string;
 }
 
 export interface ProfileView {
@@ -51,14 +53,24 @@ export function hoursLabel(sec: number): string {
 	return Number.isInteger(h) ? String(h) : h.toFixed(1);
 }
 
+/** "2.7 h", or "0 hours" (spoken out, unlike the bare "" chart label). */
+function hoursSpoken(sec: number): string {
+	const label = hoursLabel(sec);
+	return label ? `${label} h` : '0 hours';
+}
+
 export function dayBars(days: Profile['days']): ProfileDayBar[] {
 	const max = Math.max(...days.map((d) => d.seconds / 3600), 1);
-	return days.map((d, i) => ({
-		d: weekdayInitial(d.date),
-		label: hoursLabel(d.seconds),
-		pct: Math.round((d.seconds / 3600 / max) * 78),
-		today: i === days.length - 1
-	}));
+	return days.map((d, i) => {
+		const today = i === days.length - 1;
+		return {
+			d: weekdayInitial(d.date),
+			label: hoursLabel(d.seconds),
+			pct: Math.round((d.seconds / 3600 / max) * 78),
+			today,
+			aria: `${fullDayLabel(d.date)}: ${hoursSpoken(d.seconds)}${today ? ', today' : ''}`
+		};
+	});
 }
 
 export function profileView(p: Profile, now: Date): ProfileView {

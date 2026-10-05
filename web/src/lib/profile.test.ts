@@ -59,13 +59,19 @@ describe('dayBars', () => {
 		const bars = dayBars(makeProfile().days);
 		expect(bars.map((b) => b.d).join('')).toBe('TWTFSSM');
 		expect(bars[3].pct).toBe(78);
-		expect(bars[1]).toEqual({ d: 'W', label: '', pct: 0, today: false });
+		expect(bars[1]).toMatchObject({ d: 'W', label: '', pct: 0, today: false });
 		expect(bars[6].today).toBe(true);
 		expect(bars[6].label).toBe('2.7');
 	});
 	test('a quiet week stays low (max is at least an hour)', () => {
 		const bars = dayBars([{ date: '2026-10-05', seconds: 1800 }]);
 		expect(bars[0].pct).toBe(39);
+	});
+	test('each bar carries a full, unambiguous aria label; today is marked (fix round 1)', () => {
+		const bars = dayBars(makeProfile().days);
+		expect(bars[1].aria).toBe('Wednesday 30 Sep: 0 hours');
+		expect(bars[3].aria).toBe('Friday 2 Oct: 4.5 h');
+		expect(bars[6].aria).toBe('Monday 5 Oct: 2.7 h, today');
 	});
 });
 

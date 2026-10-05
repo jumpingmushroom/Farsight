@@ -24,6 +24,7 @@
 -->
 <script lang="ts">
 	import type L from 'leaflet';
+	import { tick } from 'svelte';
 	import { mapView } from '$lib/derive';
 	import {
 		buildMarkers,
@@ -185,7 +186,14 @@
 		focusMarker(partner, Math.max(3.5, map.getZoom()));
 	}
 
-	/** A profile's "Map →": close the sheet, then centre on the item (selecting its marker when on the map). */
+	/**
+	 * A profile's "Map →": close the sheet, then centre on the item
+	 * (selecting its marker when on the map). The row with focus closes
+	 * along with the sheet, so once things settle (fix round 1), focus
+	 * moves to the docked marker card's Close button when the item landed
+	 * on one, or to the map itself otherwise (an item not currently on the
+	 * map, e.g. filtered out or still unexplored).
+	 */
 	function mapTo(x: number, z: number, id: string): void {
 		app.closeView();
 		snap = 'peek';
@@ -195,6 +203,10 @@
 		} else if (map) {
 			atlas?.centerOn(x, z, 4, centerDy(map.getSize().y));
 		}
+		void tick().then(() => {
+			const close = document.querySelector<HTMLElement>('[data-testid="mobile-marker-card"] [aria-label="Close"]');
+			(close ?? map?.getContainer())?.focus();
+		});
 	}
 
 	/** Search pick (§5.2, Mobile ruling): close the menu, select the marker at zoom 4.25. */

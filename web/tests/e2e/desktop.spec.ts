@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import {
 	checkGuard,
 	expect,
+	overrideCard,
 	pinsOfKind,
 	postSnapshot,
 	refreshNow,
@@ -270,6 +271,52 @@ test('4 · online tab: players, recently online and activity', async ({ page }) 
 	const activity = page.getByRole('region', { name: 'Recent activity' });
 	await expect(activity).toContainText('Astrid joined');
 	await expect(activity.getByRole('listitem').filter({ hasText: 'Autosave finished' })).toHaveCount(1);
+});
+
+test('fix · desktop profile: focus moves to Back on open, and back to the opening row on close (button, Escape, browser back)', async ({
+	page
+}) => {
+	await unlock(page);
+	const online = page.getByRole('list', { name: 'Online now' });
+	const row = online.getByRole('button', { name: 'Profile of Astrid' });
+	const back = page.getByRole('button', { name: 'Back' });
+
+	await row.click();
+	await expect(back).toBeFocused();
+	await expect(page).toHaveURL(/#s=demo&p=76561190000000001$/);
+	await back.click();
+	await expect(page.getByTestId('profile-panel')).toHaveCount(0);
+	await expect(row).toBeFocused();
+
+	await row.click();
+	await expect(back).toBeFocused();
+	await page.keyboard.press('Escape');
+	await expect(page.getByTestId('profile-panel')).toHaveCount(0);
+	await expect(row).toBeFocused();
+
+	await row.click();
+	await page.goBack();
+	await expect(page.getByTestId('profile-panel')).toHaveCount(0);
+	await expect(row).toBeFocused();
+});
+
+test('fix · desktop profile: closing falls back to the Online tab when the opening row is gone', async ({ page }) => {
+	await unlock(page);
+	const online = page.getByRole('list', { name: 'Online now' });
+	await online.getByRole('button', { name: 'Profile of Astrid' }).click();
+	const back = page.getByRole('button', { name: 'Back' });
+	await expect(back).toBeFocused();
+
+	// Astrid drops off the online (and recent) lists before the next poll;
+	// the open profile itself is unaffected (it's keyed on the player, not
+	// the card).
+	await overrideCard(page, (c) => ({ ...c, online: c.online.filter((p) => p.name !== 'Astrid') }));
+	await refreshNow(page);
+	await expect(page.getByTestId('profile-panel')).toContainText('Astrid');
+
+	await back.click();
+	await expect(page.getByTestId('profile-panel')).toHaveCount(0);
+	await expect(page.getByRole('tab', { name: /^Online/ })).toBeFocused();
 });
 
 test('5 · world tab: day, bosses, next up and world rules', async ({ page }) => {

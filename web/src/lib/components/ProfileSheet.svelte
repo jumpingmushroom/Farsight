@@ -50,7 +50,9 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		padding: 0 12px 4px 4px;
+		/* A few px of top/left room (fix round 1): .sheet's overflow-y: auto
+		   otherwise clips the Back button's focus ring at the scroll edge. */
+		padding: 4px 12px 4px 6px;
 	}
 	.back {
 		width: 48px;

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { dayKey, prevDayKey, weekdayInitial, zClock, zDate, zDayRef, zWeekday, zoned } from './zoned';
+import { dayKey, fullDayLabel, prevDayKey, weekdayInitial, zClock, zDate, zDayRef, zWeekday, zoned } from './zoned';
 
 describe('zoned', () => {
 	test('wall clock in the server zone, not the viewer’s', () => {
@@ -17,6 +17,7 @@ describe('zoned', () => {
 		expect(zWeekday('2026-09-29T08:00:00Z', 'UTC')).toBe('Tue 29 Sep');
 		expect(prevDayKey('2026-10-01')).toBe('2026-09-30');
 		expect(weekdayInitial('2026-10-05')).toBe('M');
+		expect(fullDayLabel('2026-09-29')).toBe('Tuesday 29 Sep');
 	});
 	test('zDayRef', () => {
 		const now = new Date('2026-10-05T12:00:00Z');

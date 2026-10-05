@@ -5,15 +5,21 @@
   the 7-day chart (hours online per local day, today in the accent);
   first seen, last seen, beds; Bases; Portals placed; Tames they named;
   Deaths; the tracked-since note and the design's source footnote.
-  Fetches the profile when `player` changes; shows a skeleton while
-  loading and "not found" for a player the server doesn't know. "Map →"
-  calls `onmap` with the item's position and marker id.
+
+  Fetching and refreshing (fix round 1) live in AppState
+  (state.svelte.ts's syncProfile), on the same poll cadence as the card —
+  not here — so a player going offline updates the status line without
+  reopening, and switching the open view's player never flashes the wrong
+  profile. `app.profile`/`app.profileFailed` are only ever for the one
+  open view, so this just renders them: a skeleton while loading, "not
+  found" for a player the server doesn't know, and a retry button when
+  the last fetch failed. `serverId`/`player` double as a defensive check
+  that the shown profile really is the one this instance was asked for.
+  "Map →" calls `onmap` with the item's position and marker id.
 -->
 <script lang="ts">
-	import { getProfile } from '$lib/api';
 	import { profileView } from '$lib/profile';
 	import { app } from '$lib/state.svelte';
-	import type { Profile } from '$lib/types';
 	import MarkerIcon from './MarkerIcon.svelte';
 
 	let {
@@ -29,33 +35,17 @@
 	} = $props();
 
 	const uid = $props.id();
-	let profile = $state<Profile | null | undefined>(undefined);
-	let failed = $state(false);
 
-	$effect(() => {
-		const id = serverId;
-		const p = player;
-		let live = true;
-		profile = undefined;
-		failed = false;
-		getProfile(id, p)
-			.then((r) => {
-				if (live) profile = r;
-			})
-			.catch(() => {
-				if (live) failed = true;
-			});
-		return () => {
-			live = false;
-		};
-	});
-
+	const matches = $derived(app.view?.kind === 'profile' && app.view.player === player && app.currentId === serverId);
+	const profile = $derived(matches ? app.profile : undefined);
+	const failed = $derived(matches && app.profileFailed);
 	const v = $derived(profile ? profileView(profile, app.now) : undefined);
 </script>
 
 <div class="profile" class:mobile aria-busy={profile === undefined && !failed}>
 	{#if failed}
 		<p class="state">Couldn’t load this profile. Try again in a moment.</p>
+		<button class="btn btn-secondary retry" type="button" onclick={() => app.retryProfile()}>Retry</button>
 	{:else if profile === null}
 		<p class="state">This player hasn’t been seen on this server.</p>
 	{:else if !profile || !v}
@@ -84,7 +74,7 @@
 			<div class="row-head"><h3 id="{uid}-week">Last 7 days</h3><span class="aside">hours online</span></div>
 			<ol class="bars" aria-label="Hours online per day">
 				{#each v.days as d, i (i)}
-					<li class="bar-col" aria-label="{d.d}: {d.label || '0'} h">
+					<li class="bar-col" aria-label={d.aria}>
 						<span class="bar-label">{d.label}</span>
 						<span class="bar" class:today={d.today} style:height="{d.pct}%"></span>
 					</li>
@@ -170,9 +160,12 @@
 		padding: 4px 16px var(--sheet-bottom, 20px);
 	}
 	.state {
-		margin: 24px 0;
+		margin: 24px 0 8px;
 		font-size: 14px;
 		color: var(--muted);
+	}
+	.retry {
+		align-self: flex-start;
 	}
 	.skeleton {
 		display: flex;

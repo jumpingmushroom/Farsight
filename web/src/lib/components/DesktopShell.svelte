@@ -16,7 +16,7 @@
 -->
 <script lang="ts">
 	import type L from 'leaflet';
-	import { onDestroy, untrack } from 'svelte';
+	import { onDestroy, tick, untrack } from 'svelte';
 	import { toLatLng } from '$lib/geo';
 	import { mapView } from '$lib/derive';
 	import {
@@ -177,6 +177,35 @@
 			atlas?.resetView();
 		}
 		lastServer = id;
+	});
+
+	/**
+	 * Desktop focus (fix round 1): opening a profile unmounts the SidePanel
+	 * (and whatever "Profile →" row had focus) in favour of ProfilePanel,
+	 * which focuses its own Back button on mount. Closing it remounts the
+	 * SidePanel, but as a fresh instance — a captured element reference
+	 * would just be disconnected — so once that settles (tick(), since the
+	 * panel's own effects and PlayersTab's fetch-free render still need a
+	 * beat) this looks up the row by the name `openView` recorded, and
+	 * falls back to the Online tab when that row is gone (e.g. the player
+	 * left and dropped off "Recently online" by the time the profile closed).
+	 */
+	let closingFocusName: string | undefined;
+	$effect(() => {
+		if (profilePlayer !== undefined) {
+			untrack(() => (closingFocusName = app.viewOpenerName));
+			return;
+		}
+		if (closingFocusName === undefined) return;
+		const name = closingFocusName;
+		closingFocusName = undefined;
+		untrack(() => {
+			void tick().then(() => {
+				const rows = document.querySelectorAll<HTMLButtonElement>('.panel .profile');
+				const row = Array.from(rows).find((b) => b.getAttribute('aria-label') === `Profile of ${name}`);
+				(row ?? document.getElementById('tab-players'))?.focus();
+			});
+		});
 	});
 
 	/** §5.9: right of the pin (or left when it would overflow), clamped vertically. */

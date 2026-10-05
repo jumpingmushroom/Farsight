@@ -40,7 +40,7 @@
 						<div class="sub">online {fmtSession(sessionSeconds(p.since, now))}</div>
 					</div>
 					{#if p.platformId}
-						<button class="btn btn-ghost profile" type="button" aria-label="Profile of {p.name}" onclick={() => app.openView({ kind: 'profile', player: p.platformId })}>Profile →</button>
+						<button class="btn btn-ghost profile" type="button" aria-label="Profile of {p.name}" onclick={() => app.openView({ kind: 'profile', player: p.platformId }, p.name)}>Profile →</button>
 					{/if}
 				</li>
 			{/each}
@@ -57,7 +57,7 @@
 						<div class="sub">{fmtLastSeen(r.until, now)}</div>
 					</div>
 					{#if r.platformId}
-						<button class="btn btn-ghost profile" type="button" aria-label="Profile of {r.name}" onclick={() => app.openView({ kind: 'profile', player: r.platformId })}>Profile →</button>
+						<button class="btn btn-ghost profile" type="button" aria-label="Profile of {r.name}" onclick={() => app.openView({ kind: 'profile', player: r.platformId }, r.name)}>Profile →</button>
 					{/if}
 				</li>
 			{/each}

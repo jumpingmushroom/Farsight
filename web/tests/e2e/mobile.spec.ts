@@ -69,6 +69,26 @@ test('3 · the menu searches; picking a result docks the marker card', async ({ 
 	await expect(peek(page)).toBeVisible();
 });
 
+test('fix · mobile profile: "Map →" closes the sheet and focuses the docked marker card', async ({ page }) => {
+	await unlock(page);
+	const h = await centre(page, '[data-sheet-handle]');
+	await touchDrag(page, h.x, h.y, 250);
+	await expect(pulled(page)).toBeVisible();
+	// .click() rather than .tap(): a second synthetic touch sequence right
+	// after touchDrag's own CDP session is flaky here (observed hanging
+	// without reaching the row's onclick); a plain click exercises the same
+	// handler.
+	await pulled(page).getByRole('button', { name: 'Profile of Astrid' }).click();
+	const sheet = page.getByTestId('sheet-full');
+	await expect(sheet).toBeVisible();
+	await page.getByRole('button', { name: /Longhouse/ }).click();
+	await expect(sheet).toHaveCount(0);
+	const card = page.getByTestId('mobile-marker-card');
+	await expect(card).toBeVisible();
+	await expect(card).toContainText('Longhouse');
+	await expect(card.getByRole('button', { name: 'Close' })).toBeFocused();
+});
+
 test('fix · a search result is activatable by keyboard (focus + Enter)', async ({ page }) => {
 	await unlock(page);
 	await page.getByRole('button', { name: 'Search and layers' }).tap();
