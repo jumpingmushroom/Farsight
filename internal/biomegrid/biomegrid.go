@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"container/list"
+	"fmt"
 	"sync"
 
 	"github.com/jumpingmushroom/farsight/internal/worldgen"
@@ -55,6 +56,7 @@ type entry struct {
 	k    key
 	done chan struct{}
 	gz   []byte
+	err  error
 }
 
 // Cache keeps the gzip'd grids of the max most recently used worlds. A
@@ -77,8 +79,13 @@ func NewCache(max int) *Cache {
 	}
 }
 
-// Get returns (seed, gen)'s gzip'd grid, building it on a miss.
-func (c *Cache) Get(seed, gen int32) []byte {
+// Get returns (seed, gen)'s gzip'd grid, building it on a miss. If build
+// panics, every waiter (concurrent and future, until the next Get for the
+// same key retries) gets the panic back as err instead of blocking
+// forever on a done that never closes: the entry is removed before done
+// closes, so a retry always calls build again rather than reusing the
+// broken one.
+func (c *Cache) Get(seed, gen int32) ([]byte, error) {
 	k := key{seed, gen}
 	c.mu.Lock()
 	if el, ok := c.entries[k]; ok {
@@ -86,17 +93,43 @@ func (c *Cache) Get(seed, gen int32) []byte {
 		e := el.Value.(*entry)
 		c.mu.Unlock()
 		<-e.done
-		return e.gz
+		return e.gz, e.err
 	}
 	e := &entry{k: k, done: make(chan struct{})}
-	c.entries[k] = c.order.PushFront(e)
+	el := c.order.PushFront(e)
+	c.entries[k] = el
 	for c.order.Len() > c.max {
 		old := c.order.Back()
 		c.order.Remove(old)
 		delete(c.entries, old.Value.(*entry).k)
 	}
 	c.mu.Unlock()
-	e.gz = c.build(seed, gen)
+
+	e.gz, e.err = safeBuild(c.build, seed, gen)
+	if e.err != nil {
+		c.mu.Lock()
+		// Remove this entry only if it's still the one cached for k: while
+		// build ran unlocked, another key's miss could already have
+		// evicted it (T3 in the review's deferred-minors ledger) and even
+		// replaced it with a fresh entry for the same k; don't delete that
+		// one.
+		if cur, ok := c.entries[k]; ok && cur == el {
+			c.order.Remove(el)
+			delete(c.entries, k)
+		}
+		c.mu.Unlock()
+	}
 	close(e.done)
-	return e.gz
+	return e.gz, e.err
+}
+
+// safeBuild turns a panic in build into an error, so every Get waiter is
+// always released instead of blocking on a done that never closes.
+func safeBuild(build func(seed, gen int32) []byte, seed, gen int32) (gz []byte, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("biomegrid: build(%d, %d): panic: %v", seed, gen, p)
+		}
+	}()
+	return build(seed, gen), nil
 }

@@ -30,8 +30,13 @@ func (s *server) biomes(w http.ResponseWriter, r *http.Request) {
 		notFound(w)
 		return
 	}
+	gz, err := s.biomeGrids.Get(seed, gen)
+	if err != nil {
+		s.internalError(w, "biomes", id, err)
+		return
+	}
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Encoding", "gzip")
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-	w.Write(s.biomeGrids.Get(seed, gen))
+	w.Write(gz)
 }

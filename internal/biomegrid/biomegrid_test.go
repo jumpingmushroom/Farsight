@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jumpingmushroom/farsight/internal/worldgen"
 )
@@ -81,5 +82,64 @@ func TestCacheSingleFlight(t *testing.T) {
 	c.Get(1, 2)
 	if builds.Load() != 4 {
 		t.Fatalf("builds = %d after eviction", builds.Load())
+	}
+}
+
+// TestCacheGetPanicReleasesWaitersAndRetries is the M1 fix: a panicking
+// build must not leave a key's waiters — concurrent ones already joined
+// the in-flight entry, and future ones — blocked forever on a done that
+// never closes, and a later Get for the same key must retry rather than
+// replaying the broken entry. build blocks on proceed (after signalling
+// entered) so the test can deterministically get a second Get to join the
+// first's in-flight entry before it fails, instead of racing real
+// goroutine scheduling.
+func TestCacheGetPanicReleasesWaitersAndRetries(t *testing.T) {
+	entered := make(chan struct{})
+	proceed := make(chan struct{})
+	var calls atomic.Int32
+	c := NewCache(2)
+	c.build = func(seed, gen int32) []byte {
+		if calls.Add(1) == 1 {
+			close(entered)
+			<-proceed
+			panic("boom")
+		}
+		return []byte{byte(seed)}
+	}
+
+	firstErr := make(chan error, 1)
+	go func() {
+		_, err := c.Get(1, 2)
+		firstErr <- err
+	}()
+	<-entered // the first Get has created the in-flight entry and is now building
+
+	waiterErr := make(chan error, 1)
+	go func() {
+		_, err := c.Get(1, 2) // joins the same in-flight entry
+		waiterErr <- err
+	}()
+	time.Sleep(50 * time.Millisecond) // let the waiter reach the join point before build panics
+	close(proceed)
+
+	for name, ch := range map[string]chan error{"first": firstErr, "waiter": waiterErr} {
+		select {
+		case err := <-ch:
+			if err == nil {
+				t.Errorf("%s Get returned no error for a panicking build", name)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s Get blocked forever after build panicked", name)
+		}
+	}
+
+	// The broken entry must have been removed: a later Get for the same
+	// key calls build again instead of replaying the panic's (nil, err).
+	gz, err := c.Get(1, 2)
+	if err != nil || len(gz) == 0 {
+		t.Fatalf("retry after panic: gz=%v err=%v", gz, err)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("build calls = %d, want 2 (one panicking, one retry)", calls.Load())
 	}
 }
