@@ -1,5 +1,13 @@
 package extract
 
+// NearPhrase is m's "near …" wording (e.g. "a sunken crypt", "Haldor",
+// "the Forge of Potential"), looked up by m.Type (the raw prefab name),
+// which every location carries whether or not m has been classified yet.
+// "" for a prefab not in the table.
+func NearPhrase(m Marker) string {
+	return locationTable[m.Type].Near
+}
+
 // ClassifyLocations applies locationTable to a snapshot's locations: kind,
 // label and group from each entry's prefab (Type), so snapshots from
 // agents that classified locations themselves get the same answer.

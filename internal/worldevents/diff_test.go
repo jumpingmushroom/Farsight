@@ -358,14 +358,27 @@ func TestDiffBossesBothPredateGlobalKeys(t *testing.T) {
 	}
 }
 
+// TestNearWording is the I2 fix: Near's wording comes from each entry's
+// explicit extract.NearPhrase (looked up by Type), not a "a "+lower(Label)
+// heuristic. The old heuristic read "abandoned village" and "infested
+// mine" (vowel-initial) as "a abandoned village"/"a infested mine",
+// "Mörkhalla" (a proper noun) as "a mörkhalla", "Forge of Potential" (a
+// unique site) as "a forge of potential" instead of "the Forge of
+// Potential", and "Charred fortress" as a plural, like "burial chambers",
+// because of its trailing "s" ("near charred fortress" with no article).
 func TestNearWording(t *testing.T) {
 	locs := world("x", t0).Locations
 	locs = append(locs,
-		extract.Marker{Kind: "boss_altar", Label: "Moder", X: 5000, Z: 5000},
-		extract.Marker{Kind: "trader", Label: "Hildir", X: -4000, Z: 4000},
+		extract.Marker{Kind: "boss_altar", Type: "Dragonqueen", Label: "Moder", X: 5000, Z: 5000},
+		extract.Marker{Kind: "trader", Type: "Hildir_camp", Label: "Hildir", X: -4000, Z: 4000},
 		// Fix round 1 (M5): explored itself, close to the unexplored
 		// boundary, so it can be "near" a point just the other side of it.
-		extract.Marker{Kind: "trader", Label: "Hildir2", X: -4800, Z: 0},
+		extract.Marker{Kind: "trader", Type: "Hildir_camp", Label: "Hildir2", X: -4800, Z: 0},
+		extract.Marker{Kind: "landmark", Type: "NorthVillage", Label: "Abandoned village", X: 1000, Z: 1000},
+		extract.Marker{Kind: "dungeon", Type: "Mistlands_DvergrTownEntrance1", Label: "Infested mine", X: 1100, Z: 1100},
+		extract.Marker{Kind: "dungeon", Type: "MorkBorg", Label: "Mörkhalla", X: 1200, Z: 1200},
+		extract.Marker{Kind: "landmark", Type: "AncientUpgradeStation", Label: "Forge of Potential", X: 1300, Z: 1300},
+		extract.Marker{Kind: "landmark", Type: "CharredFortress", Label: "Charred fortress", X: 1400, Z: 1400},
 	)
 	for _, c := range []struct {
 		x, z float32
@@ -381,6 +394,12 @@ func TestNearWording(t *testing.T) {
 		// just the nearby location: Hildir2 is explored and 250 m away,
 		// but the point itself (x = -5050) isn't.
 		{-5050, 0, ""},
+		// I2 regressions: these used to come out wrong (see doc comment).
+		{1000, 1000, "an abandoned village"},
+		{1100, 1100, "an infested mine"},
+		{1200, 1200, "Mörkhalla"},
+		{1300, 1300, "the Forge of Potential"},
+		{1400, 1400, "a charred fortress"},
 	} {
 		if got := Near(locs, fakeGeo{}, c.x, c.z); got != c.want {
 			t.Errorf("Near(%v, %v) = %q, want %q", c.x, c.z, got, c.want)

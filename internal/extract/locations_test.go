@@ -1,6 +1,10 @@
 package extract
 
-import "testing"
+import (
+	"strings"
+	"testing"
+	"unicode"
+)
 
 func TestClassifyLocations(t *testing.T) {
 	raw := []Marker{
@@ -75,5 +79,43 @@ func TestLocationTableComplete(t *testing.T) {
 		if e, ok := locationTable[prefab]; !ok || e.Kind != w.kind || e.Group != w.group {
 			t.Errorf("%s = %+v, want kind %s group %s", prefab, e, w.kind, w.group)
 		}
+	}
+}
+
+// isVowel reports whether r starts a vowel sound for "a"/"an" (ASCII
+// vowels only; none of the table's phrases start with anything else).
+func isVowel(r rune) bool {
+	switch unicode.ToLower(r) {
+	case 'a', 'e', 'i', 'o', 'u':
+		return true
+	}
+	return false
+}
+
+// TestNearPhraseComplete is the I2 fix: every table entry has a non-empty
+// Near phrase (NearPhrase, used by worldevents.Near instead of a
+// "a "+lower(Label) heuristic), it's never a double article ("a a…"), and
+// an "a " phrase never precedes a vowel (that word should use "an").
+// worldevents.TestNearWording checks specific wordings end to end; this
+// checks the invariant holds for every entry, present and future.
+func TestNearPhraseComplete(t *testing.T) {
+	for prefab, e := range locationTable {
+		near := e.Near
+		if near == "" {
+			t.Errorf("%s: empty Near", prefab)
+			continue
+		}
+		if strings.HasPrefix(near, "a a") {
+			t.Errorf("%s: Near = %q, doubled article", prefab, near)
+		}
+		if rest, ok := strings.CutPrefix(near, "a "); ok && len(rest) > 0 && isVowel(rune(rest[0])) {
+			t.Errorf("%s: Near = %q, should be \"an\" before a vowel", prefab, near)
+		}
+		if NearPhrase(Marker{Type: prefab}) != near {
+			t.Errorf("%s: NearPhrase = %q, want %q", prefab, NearPhrase(Marker{Type: prefab}), near)
+		}
+	}
+	if NearPhrase(Marker{Type: "Runestone_Meadows"}) != "" {
+		t.Error("NearPhrase for an unmapped prefab should be empty")
 	}
 }
