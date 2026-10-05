@@ -16,6 +16,10 @@
   - States (§3.22): offline/stale/can't-draw banners sit compact under the
     top bar; charting shows ChartingCard centred; no save shows the waiting
     pill. The top-bar sub-line carries the short state text.
+  - Time and weather (Plan 9): the compact chip sits under the top bar
+    (under the banner when there is one; not while waiting or charting);
+    a tap opens WeatherSheet. While the world clock runs, a 1 s ticker
+    drives the chip, the sheet and the night/evening tile tint.
   - Zoom buttons: the mobile variant 47 px above the measured peek sheet,
     hidden while waiting/charting (nothing to zoom; they'd cover the card).
     No scale readout and no desktop pills on mobile.
@@ -24,7 +28,7 @@
 -->
 <script lang="ts">
 	import type L from 'leaflet';
-	import { tick } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import { mapView } from '$lib/derive';
 	import {
 		buildMarkers,
@@ -38,6 +42,7 @@
 	} from '$lib/markers';
 	import { cardPadBottom, centerDy, mobileDim, topBarSub, zoomBottom, type MobileOverlay, type Snap } from '$lib/mobile';
 	import { app } from '$lib/state.svelte';
+	import { timeView, tintOf } from '$lib/worldtime';
 	import ActivitySheet from './ActivitySheet.svelte';
 	import AtlasMap from './AtlasMap.svelte';
 	import ChartingCard from './ChartingCard.svelte';
@@ -51,6 +56,8 @@
 	import ServerSheet from './ServerSheet.svelte';
 	import StateBanner from './StateBanner.svelte';
 	import WaitingPill from './WaitingPill.svelte';
+	import WeatherPill from './WeatherPill.svelte';
+	import WeatherSheet from './WeatherSheet.svelte';
 	import ZoomControls from './ZoomControls.svelte';
 
 	const DEFAULT_ZOOM = 1.5;
@@ -87,7 +94,20 @@
 
 	const card = $derived(app.card?.id === app.currentId ? app.card : undefined);
 	const summary = $derived(app.servers.find((s) => s.id === app.currentId));
-	const view = $derived(card ? mapView(card, app.now, app.tileSamples, layers.biomes) : undefined);
+	// The world clock (Plan 9), as in DesktopShell: a 1 s ticker while it runs.
+	let clockNow = $state(new Date());
+	const clockRunning = $derived(!!card?.clock?.running);
+	$effect(() => {
+		if (!clockRunning) return;
+		clockNow = new Date();
+		const id = setInterval(() => (clockNow = new Date()), 1000);
+		return () => clearInterval(id);
+	});
+	const time = $derived(card ? timeView(card, clockNow) : undefined);
+	const tint = $derived(time ? tintOf(time.phase) : undefined);
+	const view = $derived(card ? mapView(card, app.now, app.tileSamples, layers.biomes, tint) : undefined);
+	/** The chip: not while waiting or charting (like the desktop pill). */
+	const chipShown = $derived(!!card?.clock && (view?.overlay.kind === 'banner' || view?.overlay.kind === 'pill'));
 	const markersOn = $derived(!!view?.markersOn);
 
 	// Memoised on (server, save, defeated bosses), as in DesktopShell.
@@ -122,6 +142,12 @@
 	});
 
 	const keyOf = (m: MapMarker) => `${m.type}@${m.x},${m.z}`;
+
+	// The clock went away (offline, a server switch) or the map started
+	// charting: close the weather sheet with it.
+	$effect(() => {
+		if (overlay === 'weather' && !chipShown) untrack(() => closeOverlay(false));
+	});
 
 	function select(id: string | undefined): void {
 		if (id === undefined) atlas?.setPadBottom(0);
@@ -322,10 +348,20 @@
 				<ChartingCard pct={o.pct} done={o.done} total={o.total} etaMin={o.etaMin} padLeft={0} />
 			{/if}
 		</div>
-	{:else if view?.overlay.kind === 'banner' && overlay !== 'join'}
-		{@const o = view.overlay}
+	{:else if (view?.overlay.kind === 'banner' || chipShown) && overlay !== 'join'}
 		<div class="banner-slot">
-			<StateBanner tone={o.tone} title={o.title} body={o.body} mobile />
+			{#if view?.overlay.kind === 'banner'}
+				{@const o = view.overlay}
+				<StateBanner tone={o.tone} title={o.title} body={o.body} mobile />
+			{/if}
+			{#if time && chipShown}
+				<WeatherPill
+					view={time}
+					mobile
+					open={overlay === 'weather'}
+					onopen={() => (overlay === 'weather' ? closeOverlay() : openOverlay('weather'))}
+				/>
+			{/if}
 		</div>
 	{/if}
 
@@ -397,6 +433,8 @@
 		<ServerSheet onclose={closeOverlay} />
 	{:else if overlay === 'join' && card}
 		<JoinSheet {card} onclose={() => closeOverlay()} oncopy={toast} />
+	{:else if overlay === 'weather' && time}
+		<WeatherSheet view={time} onclose={() => closeOverlay()} />
 	{/if}
 
 	{#if profilePlayer !== undefined && app.currentId}
@@ -425,6 +463,19 @@
 		right: 12px;
 		top: calc(env(safe-area-inset-top) + 78px);
 		z-index: 10;
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 8px;
+		/* The slot spans the width; only its banner and chip take touches. */
+		pointer-events: none;
+	}
+	.banner-slot > :global(*) {
+		align-self: stretch;
+		pointer-events: auto;
+	}
+	.banner-slot > :global([data-testid='weather-chip']) {
+		align-self: flex-start;
 	}
 	.centre-slot {
 		position: absolute;

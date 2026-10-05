@@ -133,8 +133,8 @@ describe('mobileDim (§3.18)', () => {
 	test('pulled: .7', () => {
 		expect(mobileDim('pulled', 'none')).toBe(0.7);
 	});
-	test('menu, join and server: .55, whatever the sheet snap', () => {
-		for (const o of ['menu', 'join', 'server'] as const) {
+	test('menu, join, server and weather: .55, whatever the sheet snap', () => {
+		for (const o of ['menu', 'join', 'server', 'weather'] as const) {
 			expect(mobileDim('peek', o)).toBe(0.55);
 			expect(mobileDim('pulled', o)).toBe(0.55);
 		}

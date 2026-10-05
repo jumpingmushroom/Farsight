@@ -3,8 +3,10 @@
 declare const process: { env: Record<string, string | undefined> };
 process.env.TZ = 'UTC';
 
+import './testing/leaflet-node';
+
 import { describe, expect, test } from 'vitest';
-import type { Clock, Weather } from './types';
+import type { Card, Clock, Weather } from './types';
 import {
 	clockFraction,
 	clockText,
@@ -14,6 +16,8 @@ import {
 	nextText,
 	periodIndex,
 	phase,
+	timeView,
+	type TimeView,
 	tintOf
 } from './worldtime';
 
@@ -146,5 +150,101 @@ describe('tintOf', () => {
 		expect(tintOf('evening')).toBe('evening');
 		expect(tintOf('morning')).toBeUndefined();
 		expect(tintOf('day')).toBeUndefined();
+	});
+});
+
+describe('timeView', () => {
+	const at = '2026-10-06T18:00:00Z';
+	// Period 741 starts at 493506 (= 741 * 666); 493506 mod 1800 = 306 (raw 0.17, morning).
+	const weather: Weather = {
+		periodSec: 666,
+		periods: [
+			{ start: 741 * 666, byBiome: { Meadows: 'Light rain', 'Black Forest': 'Forest mist', Swamp: 'Rain' } },
+			{ start: 742 * 666, byBiome: { Meadows: 'Clear', 'Black Forest': 'Clear', Swamp: 'Rain' } },
+			{ start: 743 * 666, byBiome: { Meadows: 'Fog', 'Black Forest': 'Fog', Swamp: 'Fog' } }
+		],
+		biomes: ['Meadows', 'Black Forest', 'Swamp'],
+		home: 'Meadows'
+	};
+	// 100 s into period 741.
+	const clock = (partial: Partial<Clock> = {}) => makeClock({ netTime: 741 * 666 + 100, at, ...partial });
+	const now = new Date(at);
+	const tv = (card: Pick<Card, 'clock' | 'weather'>, n: Date): TimeView => {
+		const v = timeView(card, n);
+		if (!v) throw new Error('no view');
+		return v;
+	};
+
+	test('no clock, no pill', () => {
+		expect(timeView({ weather }, now)).toBeUndefined();
+	});
+
+	test('title, line and chip from the home biome', () => {
+		const v = tv({ clock: clock(), weather }, now);
+		expect(v.label).toBe('Morning');
+		expect(v.clock).toBe(clockText(741 * 666 + 100));
+		expect(v.line).toBe('Meadows: light rain');
+		expect(v.chip).toBe(`${v.clock} · Light rain`);
+		expect(v.night).toBe(false);
+		expect(v.day).toBe(dayOf(741 * 666 + 100));
+		expect(v.pct).toBeCloseTo(dayFraction(741 * 666 + 100) * 100);
+	});
+
+	test('rows are the explored biomes with legend swatches and the three periods', () => {
+		const v = tv({ clock: clock(), weather }, now);
+		expect(v.rows).toEqual([
+			{ name: 'Meadows', hex: '#A3B25C', now: 'Light rain', next: 'Clear', then: 'Fog' },
+			{ name: 'Black Forest', hex: '#3E5834', now: 'Forest mist', next: 'Clear', then: 'Fog' },
+			{ name: 'Swamp', hex: '#786246', now: 'Rain', next: 'Rain', then: 'Fog' }
+		]);
+	});
+
+	test('running: Next and Then headed with their start in local wall time', () => {
+		// Next starts in 566 s (18:09:26), Then in 1232 s (18:20:32); TZ is UTC.
+		const v = tv({ clock: clock(), weather }, now);
+		expect(v.heads).toEqual({ next: 'from 18:09', then: 'from 18:20' });
+		expect(v.pausedText).toBeUndefined();
+	});
+
+	test('the clock ticks forward while running', () => {
+		const v = tv({ clock: clock(), weather }, new Date(Date.parse(at) + 600_000));
+		// 700 s into the period: now is the second period.
+		expect(v.rows[0]).toMatchObject({ now: 'Clear', next: 'Fog', then: '—' });
+		expect(v.line).toBe('Meadows: clear');
+	});
+
+	test('paused: frozen clock, " · paused" line, "after" headers and the paused text', () => {
+		const v = tv({ clock: clock({ running: false }), weather }, new Date(Date.parse(at) + 3_600_000));
+		expect(v.clock).toBe(clockText(741 * 666 + 100));
+		expect(v.line).toBe('Meadows: light rain · paused');
+		expect(v.heads).toEqual({ next: 'after Now', then: 'after Next' });
+		expect(v.pausedText).toBe('Time is paused while nobody is online.');
+	});
+
+	test('past the three periods every cell shows a dash', () => {
+		const v = tv({ clock: clock(), weather }, new Date(Date.parse(at) + 3 * 666_000));
+		expect(v.rows[0]).toMatchObject({ now: '—', next: '—', then: '—' });
+		expect(v.line).toBe('Meadows: —');
+	});
+
+	test('night uses the moon disc', () => {
+		const v = tv({ clock: clock({ netTime: 742 * 1800 + 60 }), weather }, now);
+		expect(v.label).toBe('Night');
+		expect(v.night).toBe(true);
+	});
+
+	test('footer mentions the last sleep only when the anchor is a sleep', () => {
+		const tail =
+			' The world clock only runs while someone is online. Weather follows the game’s own schedule; raids, dungeons and the Dark Meadows have their own.';
+		expect(tv({ clock: clock(), weather }, now).footer).toBe(`Estimated from the world clock in the last save.${tail}`);
+		expect(tv({ clock: clock({ source: 'sleep' }), weather }, now).footer).toBe(
+			`Estimated from the world clock in the last save and the last sleep.${tail}`
+		);
+	});
+
+	test('without weather: no rows and a dash line', () => {
+		const v = tv({ clock: clock(), weather: undefined }, now);
+		expect(v.rows).toEqual([]);
+		expect(v.line).toBe('—');
 	});
 });

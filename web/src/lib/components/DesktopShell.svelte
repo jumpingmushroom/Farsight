@@ -3,12 +3,15 @@
   the marker popover (§5.9), the side panel or its collapsed pill (§3.2–
   §3.10, §3.4), the map-updated pill (§3.11) or a state overlay (§3.22:
   waiting pill, charting card, offline/stale/can't-draw banner), the
-  top-right search and layers cluster (§3.12, §3.13), the scale readout and
+  time-and-weather pill under it (Plan 9; hidden while waiting/charting),
+  the top-right search and layers cluster (§3.12, §3.13), the scale readout and
   zoom controls, and the join dialog (§3.19). The toast lives in the layout.
 
   Owns the UI flags: panelOpen, tab, selectedId, joinOpen, layersOpen,
-  layers and portalLinks. `mapView` (derive.ts) decides the state overlay,
-  the tile filter and the pin-opacity class on the marker pane. The map stays mounted across server switches (AtlasMap swaps
+  weatherOpen, layers and portalLinks. `mapView` (derive.ts) decides the
+  state overlay, the tile filter (with the world clock's night/evening
+  tint) and the pin-opacity class on the marker pane. While the world
+  clock runs, a 1 s ticker drives the time pill and the tint. The map stays mounted across server switches (AtlasMap swaps
   its tiles by key); a switch clears the selection and resets the view. The
   panel floats over the map, so map container points are page points and
   `padLeft` (376 open, 0 collapsed) keeps programmatic centring in the area
@@ -19,6 +22,7 @@
 	import { onDestroy, tick, untrack } from 'svelte';
 	import { toLatLng } from '$lib/geo';
 	import { mapView } from '$lib/derive';
+	import { timeView, tintOf } from '$lib/worldtime';
 	import {
 		buildMarkers,
 		defaultLayers,
@@ -48,6 +52,7 @@
 	import SidePanel from './SidePanel.svelte';
 	import StateBanner from './StateBanner.svelte';
 	import WaitingPill from './WaitingPill.svelte';
+	import WeatherPill from './WeatherPill.svelte';
 	import ZoomControls from './ZoomControls.svelte';
 
 	const PANEL_W = 376; // 16 + 344 + 16
@@ -61,6 +66,7 @@
 	let selectedId = $state<string>();
 	let joinOpen = $state(false);
 	let layersOpen = $state(false);
+	let weatherOpen = $state(false);
 	let layers = $state(defaultLayers());
 	let portalLinks = $state(true);
 
@@ -70,6 +76,8 @@
 	let shellW = $state(0);
 	let clusterW = $state(0);
 	let pillW = $state(0);
+	/** The map-updated pill's or banner's height, to put the time pill under it. */
+	let slotH = $state(0);
 
 	let atlas = $state<ReturnType<typeof AtlasMap>>();
 	let map = $state.raw<L.Map>();
@@ -95,7 +103,20 @@
 	// The state treatment (§3.22): overlay, tile filter and pin opacity.
 	// `app.tileSamples` is replaced together with `app.card`, so reading it
 	// here stays current.
-	const view = $derived(card ? mapView(card, app.now, app.tileSamples, layers.biomes) : undefined);
+	// The world clock (Plan 9): ticks every second while it runs (app.now
+	// only ticks every 30 s); paused, netTimeNow ignores the time.
+	let clockNow = $state(new Date());
+	const clockRunning = $derived(!!card?.clock?.running);
+	$effect(() => {
+		if (!clockRunning) return;
+		clockNow = new Date();
+		const id = setInterval(() => (clockNow = new Date()), 1000);
+		return () => clearInterval(id);
+	});
+	const time = $derived(card ? timeView(card, clockNow) : undefined);
+	/** A primitive, so mapView only re-runs when the phase's tint changes. */
+	const tint = $derived(time ? tintOf(time.phase) : undefined);
+	const view = $derived(card ? mapView(card, app.now, app.tileSamples, layers.biomes, tint) : undefined);
 	const pillL = $derived(padLeft > 0 ? padLeft : 190);
 
 	// Markers are hidden while waiting for a save and while charting.
@@ -127,6 +148,14 @@
 		gap >= BANNER_MIN_W ? { right: clearRight, top: 16 } : { right: 16, top: BELOW_CLUSTER }
 	);
 	const pillTop = $derived(gap >= Math.max(pillW, 360) ? 16 : BELOW_CLUSTER);
+	/** The time pill: 12 px under the map-updated pill or banner (design: 106 under a 16 + 78 px pill). */
+	const slotTop = $derived(view?.overlay.kind === 'banner' ? bannerBox.top : pillTop);
+	const weatherTop = $derived(slotH > 0 ? slotTop + slotH + 12 : 106);
+	/** Hidden, like the map-updated pill, while waiting for a save or charting. */
+	const weatherShown = $derived(!!card?.clock && (view?.overlay.kind === 'banner' || view?.overlay.kind === 'pill'));
+	$effect(() => {
+		if (!weatherShown) weatherOpen = false;
+	});
 
 	// Pin opacity for offline / stale lives on the marker pane (app.css).
 	$effect(() => {
@@ -151,9 +180,18 @@
 		if (inside) layersButton?.focus();
 	}
 
-	/** Closes the search results and the layers panel (§5.3). */
+	/** Closes the time-and-weather dropdown; focus inside it goes back to the pill. */
+	function closeWeather(): void {
+		if (!weatherOpen) return;
+		const pill = document.activeElement?.closest('[data-testid="weather-pill"]');
+		weatherOpen = false;
+		if (pill) pill.querySelector<HTMLElement>('button')?.focus();
+	}
+
+	/** Closes the search results, the layers panel and the time-and-weather dropdown (§5.3). */
 	function closeMenus(): void {
 		closeLayers();
+		closeWeather();
 		searchBox?.close();
 	}
 
@@ -342,6 +380,10 @@
 			closeLayers();
 			return;
 		}
+		if (weatherOpen) {
+			closeWeather();
+			return;
+		}
 		if (selectedId !== undefined) {
 			select(undefined);
 			return;
@@ -388,9 +430,29 @@
 		<ChartingCard pct={o.pct} done={o.done} total={o.total} etaMin={o.etaMin} {padLeft} />
 	{:else if view?.overlay.kind === 'banner'}
 		{@const o = view.overlay}
-		<StateBanner tone={o.tone} title={o.title} body={o.body} left={pillL} right={bannerBox.right} top={bannerBox.top} />
+		<StateBanner
+			tone={o.tone}
+			title={o.title}
+			body={o.body}
+			left={pillL}
+			right={bannerBox.right}
+			top={bannerBox.top}
+			bind:height={slotH}
+		/>
 	{:else if view?.overlay.kind === 'pill' && card?.world}
-		<MapUpdatedPill world={card.world} now={app.now} left={pillL} top={pillTop} bind:width={pillW} />
+		<MapUpdatedPill world={card.world} now={app.now} left={pillL} top={pillTop} bind:width={pillW} bind:height={slotH} />
+	{/if}
+	{#if time && weatherShown}
+		<WeatherPill
+			view={time}
+			left={pillL}
+			top={weatherTop}
+			bind:open={weatherOpen}
+			onopen={() => {
+				closeLayers();
+				searchBox?.close();
+			}}
+		/>
 	{/if}
 
 	<div class="cluster" bind:clientWidth={clusterW}>
@@ -401,7 +463,10 @@
 			disabled={!markersOn}
 			disabledPlaceholder={view?.overlay.kind === 'charting' ? 'Charting the map…' : 'Waiting for the first save…'}
 			onpick={pickResult}
-			onopen={() => (layersOpen = false)}
+			onopen={() => {
+				layersOpen = false;
+				weatherOpen = false;
+			}}
 		/>
 		<div class="layers">
 			<LayersButton
@@ -409,7 +474,11 @@
 				count={enabledLayerCount(layers)}
 				open={layersOpen}
 				controls="layers-panel"
-				onclick={() => (layersOpen ? closeLayers() : (layersOpen = true))}
+				onclick={() => {
+					if (layersOpen) return closeLayers();
+					weatherOpen = false;
+					layersOpen = true;
+				}}
 			/>
 			{#if layersOpen}
 				<LayersPanel

@@ -14,7 +14,8 @@
 		now,
 		left,
 		top = 16,
-		width = $bindable(0)
+		width = $bindable(0),
+		height = $bindable(0)
 	}: {
 		world: WorldCard;
 		now: Date;
@@ -23,6 +24,8 @@
 		top?: number;
 		/** The rendered width, for the shell's slot logic. */
 		width?: number;
+		/** The rendered height, for the time pill under it. */
+		height?: number;
 	} = $props();
 
 	const pill = $derived(mapPill(world, now));
@@ -31,7 +34,7 @@
 	);
 </script>
 
-<div class="pill" style:left="{left}px" style:top="{top}px" bind:clientWidth={width}>
+<div class="pill" style:left="{left}px" style:top="{top}px" bind:clientWidth={width} bind:clientHeight={height}>
 	<div class="row">
 		<span class="icon" aria-hidden="true"><MapIcon size={17} strokeWidth={2.75} /></span>
 		<span class="text"><b>Map updated {pill.age}</b>{#if next}<span class="muted">{next}</span>{/if}</span>

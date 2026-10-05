@@ -4,7 +4,9 @@
 // map tint from it. Built against docs/superpowers/specs/2026-10-05-time-and-weather-design.md
 // and the plan's global constraints (exact formulas, thresholds, copy).
 
-import type { Clock, Weather } from './types';
+import { fmtClock } from './format';
+import { BIOME_LEGEND } from './markers';
+import type { Card, Clock, Weather } from './types';
 
 /** A game day is 1800 s. */
 const DAY_SEC = 1800;
@@ -97,4 +99,107 @@ export function tintOf(ph: Phase): 'night' | 'evening' | undefined {
 	if (ph === 'night') return 'night';
 	if (ph === 'evening') return 'evening';
 	return undefined;
+}
+
+// --- The pill, dropdown and mobile chip (Task 5) ----------------------------
+
+const LABEL: Record<Phase, string> = { morning: 'Morning', day: 'Day', evening: 'Evening', night: 'Night' };
+const DASH = '—';
+const PAUSED_TEXT = 'Time is paused while nobody is online.';
+const FOOTER_TAIL =
+	' The world clock only runs while someone is online. Weather follows the game’s own schedule; raids, dungeons and the Dark Meadows have their own.';
+
+/** One explored biome in the dropdown's table: its legend swatch and the weather now, next and then. */
+export interface WeatherRow {
+	name: string;
+	hex: string;
+	now: string;
+	next: string;
+	then: string;
+}
+
+/** Everything the time-and-weather pill, its dropdown and the mobile chip show. */
+export interface TimeView {
+	phase: Phase;
+	/** Morning | Day | Evening | Night. */
+	label: string;
+	/** HH:MM on the game's rescaled clock. */
+	clock: string;
+	/** The moon disc (Night) rather than the sun. */
+	night: boolean;
+	/** "{home}: {weather lower-case}", plus " · paused" while the clock is paused. */
+	line: string;
+	/** The mobile chip: "{clock} · {home weather}" (plus " · paused"). */
+	chip: string;
+	day: number;
+	/** "Dawn in ~N min" etc. */
+	next: string;
+	/** The progress marker: the raw day fraction × 100. */
+	pct: number;
+	/** The Next and Then column headers: "from HH:MM" (local wall time) running, "after …" paused. */
+	heads: { next: string; then: string };
+	rows: WeatherRow[];
+	/** The dropdown's paused notice, only while paused. */
+	pausedText?: string;
+	footer: string;
+}
+
+/** The weather at `offset` periods after the one covering `t` for `biome`, or "—" outside the card's three. */
+function weatherAt(weather: Weather, idx: number, offset: number, biome: string): string {
+	const p = idx < 0 ? undefined : weather.periods[idx + offset];
+	return p?.byBiome[biome] ?? DASH;
+}
+
+/**
+ * The pill/dropdown/chip view of the card's clock and weather at `now` (the
+ * clock is frozen while paused); undefined when the card has no clock, so
+ * there is no pill.
+ */
+export function timeView(card: Pick<Card, 'clock' | 'weather'>, now: Date): TimeView | undefined {
+	const { clock, weather } = card;
+	if (!clock) return undefined;
+	const t = netTimeNow(clock, now);
+	const ph = phase(t);
+	const clk = clockText(t);
+	const paused = !clock.running;
+	const suffix = paused ? ' · paused' : '';
+	const idx = weather ? periodIndex(weather, t) : -1;
+
+	let homeWx: string | undefined;
+	let rows: WeatherRow[] = [];
+	let heads = paused ? { next: 'after Now', then: 'after Next' } : { next: DASH, then: DASH };
+	if (weather) {
+		homeWx = weatherAt(weather, idx, 0, weather.home);
+		rows = weather.biomes.map((name) => ({
+			name,
+			hex: BIOME_LEGEND.find((b) => b.name === name)?.hex ?? '#888',
+			now: weatherAt(weather, idx, 0, name),
+			next: weatherAt(weather, idx, 1, name),
+			then: weatherAt(weather, idx, 2, name)
+		}));
+		if (!paused) {
+			const from = (offset: number): string => {
+				const p = idx < 0 ? undefined : weather.periods[idx + offset];
+				if (!p) return DASH;
+				return `from ${fmtClock(new Date(now.getTime() + (p.start - t) * 1000).toISOString())}`;
+			};
+			heads = { next: from(1), then: from(2) };
+		}
+	}
+
+	return {
+		phase: ph,
+		label: LABEL[ph],
+		clock: clk,
+		night: ph === 'night',
+		line: (weather ? `${weather.home}: ${(homeWx ?? DASH).toLowerCase()}` : DASH) + suffix,
+		chip: `${clk} · ${homeWx ?? DASH}${suffix}`,
+		day: dayOf(t),
+		next: nextText(t),
+		pct: dayFraction(t) * 100,
+		heads,
+		rows,
+		pausedText: paused ? PAUSED_TEXT : undefined,
+		footer: `Estimated from the world clock in the last save${clock.source === 'sleep' ? ' and the last sleep' : ''}.${FOOTER_TAIL}`
+	};
 }

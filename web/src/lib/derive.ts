@@ -238,8 +238,16 @@ const REFUSED_BODY =
  * charting, refused/none banner, offline banner, stale banner, else the
  * map-updated pill. Offline beats stale for the banner, filter and pins;
  * the refused banner keeps the offline treatment when the server is down.
+ * `tint` (the world clock's night/evening, worldtime.ts `tintOf`) is
+ * appended to the tile filter once there is a map to tint.
  */
-export function mapView(card: Card, now: Date, samples: TileSample[], biomes: boolean): MapView {
+export function mapView(
+	card: Card,
+	now: Date,
+	samples: TileSample[],
+	biomes: boolean,
+	tint?: 'night' | 'evening'
+): MapView {
 	const st = mapState(card, now, samples);
 	if (st.kind === 'waiting' || st.kind === 'charting') {
 		return { overlay: st, markersOn: false, filter: '', pinClass: '' };
@@ -249,7 +257,7 @@ export function mapView(card: Card, now: Date, samples: TileSample[], biomes: bo
 	const tone = offline ? 'offline' : stale ? 'stale' : undefined;
 	const base = {
 		markersOn: true,
-		filter: mapFilter(biomes, tone),
+		filter: mapFilter(biomes, tone, tint),
 		pinClass: tone ? (`fs-pins-${tone}` as const) : ('' as const)
 	};
 	if (st.kind === 'refused') {
