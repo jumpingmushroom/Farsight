@@ -43,28 +43,37 @@ func TestClassifyLocations(t *testing.T) {
 }
 
 func TestLocationTableComplete(t *testing.T) {
-	// Every prefab in the spec's table, with its group.
-	want := map[string]string{
-		"Eikthyrnir": "landmarks", "GDKing": "landmarks", "Bonemass": "landmarks", "Dragonqueen": "landmarks",
-		"GoblinKing": "landmarks", "Mistlands_DvergrBossEntrance1": "landmarks", "FaderLocation": "landmarks", "DN_Bossroom": "landmarks",
-		"Vendor_BlackForest": "landmarks", "Hildir_camp": "landmarks", "BogWitch_Camp": "landmarks",
-		"AncientUpgradeStation": "landmarks", "StartTemple": "landmarks",
-		"PlaceofMystery1": "landmarks", "PlaceofMystery2": "landmarks", "PlaceofMystery3": "landmarks",
-		"Hildir_cave": "landmarks", "Hildir_crypt": "landmarks", "Hildir_plainsfortress": "landmarks",
-		"CharredFortress": "landmarks", "NorthMemorialPlace": "landmarks",
-		"Crypt2": "dungeons", "Crypt3": "dungeons", "Crypt4": "dungeons", "SunkenCrypt4": "dungeons",
-		"TrollCave02": "dungeons", "MountainCave02": "dungeons",
-		"Mistlands_DvergrTownEntrance1": "dungeons", "Mistlands_DvergrTownEntrance2": "dungeons",
-		"MorkBorg": "dungeons", "TheHole01": "dungeons",
-		"GoblinCamp2": "minor", "BearCave": "minor", "NorthVillage": "minor",
-		"MorgenHole1": "minor", "MorgenHole2": "minor", "MorgenHole3": "minor",
+	// Every prefab in the spec's table, with its kind and group. Only
+	// Hildir's three caves/crypt/fortress and the dungeons group are kind
+	// "dungeon" — everything else, including BearCave, is "landmark" (or
+	// "boss_altar"/"trader").
+	want := map[string]struct{ kind, group string }{
+		"Eikthyrnir": {"boss_altar", "landmarks"}, "GDKing": {"boss_altar", "landmarks"},
+		"Bonemass": {"boss_altar", "landmarks"}, "Dragonqueen": {"boss_altar", "landmarks"},
+		"GoblinKing": {"boss_altar", "landmarks"}, "Mistlands_DvergrBossEntrance1": {"boss_altar", "landmarks"},
+		"FaderLocation": {"boss_altar", "landmarks"}, "DN_Bossroom": {"boss_altar", "landmarks"},
+		"Vendor_BlackForest": {"trader", "landmarks"}, "Hildir_camp": {"trader", "landmarks"},
+		"BogWitch_Camp":         {"trader", "landmarks"},
+		"AncientUpgradeStation": {"landmark", "landmarks"}, "StartTemple": {"landmark", "landmarks"},
+		"PlaceofMystery1": {"landmark", "landmarks"}, "PlaceofMystery2": {"landmark", "landmarks"},
+		"PlaceofMystery3": {"landmark", "landmarks"},
+		"Hildir_cave":     {"dungeon", "landmarks"}, "Hildir_crypt": {"dungeon", "landmarks"},
+		"Hildir_plainsfortress": {"dungeon", "landmarks"},
+		"CharredFortress":       {"landmark", "landmarks"}, "NorthMemorialPlace": {"landmark", "landmarks"},
+		"Crypt2": {"dungeon", "dungeons"}, "Crypt3": {"dungeon", "dungeons"}, "Crypt4": {"dungeon", "dungeons"},
+		"SunkenCrypt4": {"dungeon", "dungeons"},
+		"TrollCave02":  {"dungeon", "dungeons"}, "MountainCave02": {"dungeon", "dungeons"},
+		"Mistlands_DvergrTownEntrance1": {"dungeon", "dungeons"}, "Mistlands_DvergrTownEntrance2": {"dungeon", "dungeons"},
+		"MorkBorg": {"dungeon", "dungeons"}, "TheHole01": {"dungeon", "dungeons"},
+		"GoblinCamp2": {"landmark", "minor"}, "BearCave": {"landmark", "minor"}, "NorthVillage": {"landmark", "minor"},
+		"MorgenHole1": {"landmark", "minor"}, "MorgenHole2": {"landmark", "minor"}, "MorgenHole3": {"landmark", "minor"},
 	}
 	if len(locationTable) != len(want) {
 		t.Errorf("table has %d entries, want %d", len(locationTable), len(want))
 	}
-	for prefab, group := range want {
-		if e, ok := locationTable[prefab]; !ok || e.Group != group {
-			t.Errorf("%s = %+v, want group %s", prefab, e, group)
+	for prefab, w := range want {
+		if e, ok := locationTable[prefab]; !ok || e.Kind != w.kind || e.Group != w.group {
+			t.Errorf("%s = %+v, want kind %s group %s", prefab, e, w.kind, w.group)
 		}
 	}
 }

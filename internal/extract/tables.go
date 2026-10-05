@@ -47,7 +47,7 @@ var locationTable = map[string]locationEntry{
 	"TheHole01":                     {"dungeon", "Winding tunnels", "dungeons", false},
 
 	"GoblinCamp2":  {"landmark", "Fuling village", "minor", false},
-	"BearCave":     {"dungeon", "Bear cave", "minor", false},
+	"BearCave":     {"landmark", "Bear cave", "minor", false},
 	"NorthVillage": {"landmark", "Abandoned village", "minor", false},
 	"MorgenHole1":  {"landmark", "Putrid hole", "minor", false},
 	"MorgenHole2":  {"landmark", "Putrid hole", "minor", false},
