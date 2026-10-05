@@ -132,6 +132,7 @@
       "y": 34.0,
       "z": -70.25,
       "label": "home",
+      "owner": "Astrid",
       "pair": "portal-2"
     },
     {
@@ -150,6 +151,7 @@
       "y": 34.0,
       "z": -95.75,
       "label": "mountain",
+      "owner": "Astrid",
       "pair": "portal-4"
     },
     {
@@ -167,7 +169,8 @@
       "x": 900.0,
       "y": 34.0,
       "z": -1200.5,
-      "label": "copper"
+      "label": "copper",
+      "owner": "Bjorn"
     },
     {
       "id": "bed-1",
@@ -200,7 +203,8 @@
       "y": 34.0,
       "z": -40.0,
       "species": "Lox",
-      "label": "Big Mama"
+      "label": "Big Mama",
+      "namer": "Steam_76561190000000001"
     },
     {
       "id": "tame-2",
