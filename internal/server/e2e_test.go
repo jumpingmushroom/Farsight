@@ -233,9 +233,8 @@ func TestEndToEnd(t *testing.T) {
 		Markers []struct {
 			ID, Kind, Label, Owner, Species, Pair string
 		} `json:"markers"`
-		ExploredZones [][2]int16 `json:"exploredZones"`
-		FogKey        string     `json:"fogKey"`
-		Explored      struct {
+		FogKey   string `json:"fogKey"`
+		Explored struct {
 			Source string `json:"source"`
 		} `json:"explored"`
 	}
@@ -261,8 +260,8 @@ func TestEndToEnd(t *testing.T) {
 			}
 		}
 	}
-	if kinds["bed"] != 1 || kinds["portal"] != 2 || kinds["tame"] != 1 || len(snap.ExploredZones) != 2 {
-		t.Errorf("markers = %+v, zones = %v", snap.Markers, snap.ExploredZones)
+	if kinds["bed"] != 1 || kinds["portal"] != 2 || kinds["tame"] != 1 {
+		t.Errorf("markers = %+v", snap.Markers)
 	}
 
 	// --- Heartbeats stop: 4 min later the sweep closes Bjorn's session.

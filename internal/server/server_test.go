@@ -579,14 +579,13 @@ func TestSnapshotAPIFiltersToTheExploredMask(t *testing.T) {
 		t.Fatalf("snapshot: %d %s", r.code, r.body)
 	}
 	var s struct {
-		SavedAt       string           `json:"savedAt"`
-		FogKey        string           `json:"fogKey"`
-		Explored      explored.Encoded `json:"explored"`
-		ExploredZones [][2]int         `json:"exploredZones"`
-		Markers       []map[string]any `json:"markers"`
-		Locations     []map[string]any `json:"locations"`
-		Bases         []map[string]any `json:"bases"`
-		Players       []map[string]any `json:"players"`
+		SavedAt   string           `json:"savedAt"`
+		FogKey    string           `json:"fogKey"`
+		Explored  explored.Encoded `json:"explored"`
+		Markers   []map[string]any `json:"markers"`
+		Locations []map[string]any `json:"locations"`
+		Bases     []map[string]any `json:"bases"`
+		Players   []map[string]any `json:"players"`
 	}
 	r.json(t, &s)
 	ids := func(items []map[string]any) string {
@@ -599,8 +598,14 @@ func TestSnapshotAPIFiltersToTheExploredMask(t *testing.T) {
 	if ids(s.Locations) != "loc-kept" || ids(s.Markers) != "m1" || ids(s.Bases) != "b1" {
 		t.Errorf("kept locations=%s markers=%s bases=%s", ids(s.Locations), ids(s.Markers), ids(s.Bases))
 	}
-	if s.SavedAt != rfc(at(-3*time.Minute)) || len(s.ExploredZones) != 901 || len(s.Players) != 1 {
-		t.Errorf("snapshot body: savedAt=%s zones=%d players=%d", s.SavedAt, len(s.ExploredZones), len(s.Players))
+	if s.SavedAt != rfc(at(-3*time.Minute)) || len(s.Players) != 1 {
+		t.Errorf("snapshot body: savedAt=%s players=%d", s.SavedAt, len(s.Players))
+	}
+	// exploredZones is ingest-only now: the browser reads explored.
+	var raw map[string]json.RawMessage
+	r.json(t, &raw)
+	if _, ok := raw["exploredZones"]; ok {
+		t.Error("snapshot response still carries exploredZones")
 	}
 	if !regexp.MustCompile(`^[0-9a-f]{16}$`).MatchString(s.FogKey) || s.Explored.Source != explored.SourceZones {
 		t.Errorf("fogKey=%q explored.source=%q", s.FogKey, s.Explored.Source)
