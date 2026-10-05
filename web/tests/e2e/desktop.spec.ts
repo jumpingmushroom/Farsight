@@ -535,6 +535,22 @@ test('carried · at 1280×800 with the panel open the map-updated pill clears th
 		.toBe(false);
 });
 
+test('favicon · /favicon.svg and /favicon.ico are served, and the page links the SVG', async ({ page, request }) => {
+	// Browsers fetch /favicon.ico on their own when a page has no icon
+	// link, so both must be 200 from the Go server, not its 404.
+	for (const [path, type] of [
+		['/favicon.svg', 'image/svg+xml'],
+		['/favicon.ico', 'image/'] // x-icon or vnd.microsoft.icon, per the host's MIME table
+	]) {
+		const res = await request.get(path);
+		expect(res.status(), path).toBe(200);
+		expect(res.headers()['content-type'], path).toContain(type);
+	}
+	await page.goto('/');
+	await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', /\/favicon\.svg$/);
+	await expect(page.locator('link[rel="icon"]')).toHaveAttribute('type', 'image/svg+xml');
+});
+
 // --- The shared guard fixture (helpers.ts) ------------------------------------
 // These call watchGuard/checkGuard directly and assert on the specific
 // message, instead of a bare `test.fail()`. A bare test.fail() only asserts

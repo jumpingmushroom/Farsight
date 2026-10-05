@@ -131,9 +131,11 @@ export interface SnapshotView {
 	/** Names the fog tiles drawn from this snapshot's mask. */
 	fogKey: string;
 	explored: Explored;
-	/** Kept by the server until every client has moved to `explored`; unused. */
-	exploredZones?: [number, number][];
-	/** `explored`, decoded by getSnapshot (client-side only; absent if it can't be). */
+	/**
+	 * `explored`, decoded by getSnapshot (client-side only; absent if it
+	 * can't be). Only the cursor readout uses it: the server has already
+	 * filtered markers, locations and bases to it.
+	 */
 	mask?: Uint8Array;
 	markers: Marker[];
 	locations: Marker[];

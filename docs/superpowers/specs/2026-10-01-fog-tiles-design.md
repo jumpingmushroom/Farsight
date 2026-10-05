@@ -63,8 +63,9 @@ cell size scores as well.
   discs.
 - Snapshot field: `explored: {source: "tables"|"zones", cell: 12,
   size: 2048, bits}` where `bits` is the row-major bitset (LSB-first per
-  byte), gzip'd and base64'd. `exploredZones` stays in the snapshot so
-  an older central app keeps working.
+  byte), gzip'd and base64'd. `exploredZones` stays in the snapshot the
+  agent posts, so an older central app keeps working; the central app
+  only reads it at ingest and no longer sends it to the browser.
 
 ### 2. Fog tiles (central app)
 
@@ -116,8 +117,9 @@ the hatching stays crisp at max zoom.
 **Pins and stats.** The snapshot API filters markers, locations and
 bases to the explored mask (by the mask cell under each point; the
 players list has no positions and is unchanged). It returns `fogKey` and the mask itself
-(`explored`, the same encoding) for the browser's search and cursor
-readout. `exploredPct` = explored cells inside the 10.5 km disc ÷ all
+(`explored`, the same encoding) for the browser's cursor readout. Since
+the rollout cleanup (step 3) it no longer returns `exploredZones`:
+`{savedAt, fogKey, explored, markers, locations, bases, players}`. `exploredPct` = explored cells inside the 10.5 km disc ÷ all
 cells inside it, × 100, one decimal.
 
 ### 3. Browser
@@ -127,8 +129,10 @@ cells inside it, × 100, one decimal.
 - Tile URL from `fogKey`; `maxNativeZoom: 6`.
 - The world disc under the tiles is filled `#cfbe9c`, so tiles still
   loading look fogged, not empty.
-- `isExplored` and marker filtering use the 12 m mask (decoded once per
-  snapshot); the charting overlay is unchanged.
+- The 12 m mask is decoded once per snapshot and used only by the cursor
+  readout's "Unexplored" (`isExplored`). Markers, layer counts and search
+  take the snapshot as the server filtered it; the browser does no fog
+  filtering of its own. The charting overlay is unchanged.
 
 ## Testing
 
@@ -163,8 +167,11 @@ Web (Vitest and Playwright):
    only the Farsight app.
 2. **Agent** sends the table mask. The sidecar image changes, which
    restarts all three Valheim servers: needs the owner's go.
-3. **Cleanup:** drop `exploredZones` from the snapshot API once both are
-   live.
+3. **Cleanup (done):** `exploredZones` is dropped from the snapshot API
+   now that both are live, and the browser's own fog filtering of
+   markers, layer counts and search is gone (the server already filters).
+   The agent still sends `exploredZones` and the central app still
+   accepts it, as the mask source for old-format snapshots.
 
 The runbook gains a note: Farsight shows what has been recorded at a
 cartography table (plus 100 m around anything built), so players should
@@ -216,8 +223,9 @@ Decisions the plan made where this spec left room:
   premultiplied alpha.
 - **API:** `fogKey` and `explored` are in the snapshot API only; the card
   keeps `exploredPct`. The browser decodes `explored` with
-  `DecompressionStream`. Where that is missing, the mask is absent and only
-  the server's pin filtering applies. A tile request with a stale but
+  `DecompressionStream`. Where that is missing, the mask is absent and the
+  cursor readout never says "Unexplored"; pins are unaffected, since the
+  server filters them. A tile request with a stale but
   well-formed fog key 302s (`Cache-Control: no-store`) to the current key
   instead of 404ing, since the id and key have already passed the same
   checks any other request needs; a malformed key or a locked server still

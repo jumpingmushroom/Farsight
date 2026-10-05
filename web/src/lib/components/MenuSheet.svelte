@@ -26,8 +26,6 @@
 
 	let {
 		all,
-		mask,
-		fog,
 		disabled,
 		disabledPlaceholder,
 		layers,
@@ -39,8 +37,6 @@
 		onclose
 	}: {
 		all: MapMarker[];
-		mask: Uint8Array | undefined;
-		fog: boolean;
 		disabled: boolean;
 		disabledPlaceholder: string;
 		layers: Record<LayerKey, boolean>;
@@ -60,7 +56,7 @@
 	let root: HTMLDivElement;
 
 	const query = $derived(disabled ? '' : q.trim());
-	const results = $derived(query ? search(all, q, mask, fog) : []);
+	const results = $derived(query ? search(all, q) : []);
 	const hints = $derived(disabled ? [] : hintsFor(all));
 
 	function pick(id: string): void {

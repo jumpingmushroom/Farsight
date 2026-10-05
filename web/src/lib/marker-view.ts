@@ -2,9 +2,8 @@
 // (perf: zoom/pan stutter on large servers). MarkerLayer used to re-filter,
 // re-pair and project every marker on every moveend; now:
 //
-//  - createVisibleCache() filters (layers, fog mask, minZoom) and pairs the
-//    portals only when an input changes: the marker list, the mask, fog,
-//    a layer switch, or the zoom crossing some marker's minZoom. A plain
+//  - createVisibleCache() filters (layers, minZoom) and pairs the portals
+//    only when an input changes: the marker list, a layer switch, or the zoom crossing some marker's minZoom. A plain
 //    pan, or a zoom inside the same band, reuses the cached set.
 //  - The cached set carries a MarkerGrid, a coarse spatial grid in world
 //    metres, so viewPoints() projects only the markers in the view (plus the
@@ -170,35 +169,28 @@ export interface VisibleSet {
 }
 
 export interface VisibleCache {
-	(
-		all: MapMarker[],
-		layers: Record<LayerKey, boolean>,
-		mask: Uint8Array | undefined,
-		fog: boolean,
-		zoom: number
-	): VisibleSet;
+	(all: MapMarker[], layers: Record<LayerKey, boolean>, zoom: number): VisibleSet;
 	/**
 	 * Computes one not-yet-cached zoom band's set for these inputs (for idle
 	 * time, so a zoom crossing a minZoom later finds it ready); true while
 	 * more bands remain.
 	 */
-	warm(all: MapMarker[], layers: Record<LayerKey, boolean>, mask: Uint8Array | undefined, fog: boolean): boolean;
+	warm(all: MapMarker[], layers: Record<LayerKey, boolean>): boolean;
 }
 
 /**
  * A memoised visibleMarkers (plus its pairs and grid). The zoom only matters
  * through the markers' minZoom thresholds, so sets are cached per band (how
- * many of them the zoom has reached) for the current marker list, mask, fog
- * and layers; layers are compared by value (the object may be mutated in
+ * many of them the zoom has reached) for the current marker list and layers; layers are compared by value (the object may be mutated in
  * place or replaced by an equal copy). Any other change drops every band.
  */
 export function createVisibleCache(): VisibleCache {
 	let lastAll: MapMarker[] | undefined;
 	let thresholds: number[] = [];
-	let key: { mask: Uint8Array | undefined; fog: boolean; layers: string } | undefined;
+	let key: string | undefined;
 	const bands = new Map<number, VisibleSet>();
 
-	function sync(all: MapMarker[], layers: Record<LayerKey, boolean>, mask: Uint8Array | undefined, fog: boolean): void {
+	function sync(all: MapMarker[], layers: Record<LayerKey, boolean>): void {
 		if (all !== lastAll) {
 			lastAll = all;
 			key = undefined;
@@ -210,13 +202,13 @@ export function createVisibleCache(): VisibleCache {
 			.sort()
 			.map((k) => `${k}:${layers[k] ? 1 : 0}`)
 			.join(',');
-		if (key && key.mask === mask && key.fog === fog && key.layers === layerKey) return;
-		key = { mask, fog, layers: layerKey };
+		if (key === layerKey) return;
+		key = layerKey;
 		bands.clear();
 	}
 
-	function compute(all: MapMarker[], layers: Record<LayerKey, boolean>, mask: Uint8Array | undefined, fog: boolean, zoom: number): VisibleSet {
-		const visible = visibleMarkers(all, layers, mask, fog, zoom);
+	function compute(all: MapMarker[], layers: Record<LayerKey, boolean>, zoom: number): VisibleSet {
+		const visible = visibleMarkers(all, layers, zoom);
 		return {
 			visible,
 			byId: new Map(visible.map((m) => [m.id, m])),
@@ -226,25 +218,25 @@ export function createVisibleCache(): VisibleCache {
 		};
 	}
 
-	const get = ((all, layers, mask, fog, zoom) => {
-		sync(all, layers, mask, fog);
+	const get = ((all, layers, zoom) => {
+		sync(all, layers);
 		let band = 0;
 		while (band < thresholds.length && zoom >= thresholds[band]) band++;
 		let value = bands.get(band);
 		if (!value) {
-			value = compute(all, layers, mask, fog, zoom);
+			value = compute(all, layers, zoom);
 			bands.set(band, value);
 		}
 		return value;
 	}) as VisibleCache;
 
-	get.warm = (all, layers, mask, fog) => {
-		sync(all, layers, mask, fog);
+	get.warm = (all, layers) => {
+		sync(all, layers);
 		for (let band = 0; band <= thresholds.length; band++) {
 			if (bands.has(band)) continue;
 			// Band b covers zooms from thresholds[b - 1] up to thresholds[b].
 			const zoom = band === 0 ? -Infinity : thresholds[band - 1];
-			bands.set(band, compute(all, layers, mask, fog, zoom));
+			bands.set(band, compute(all, layers, zoom));
 			return bands.size <= thresholds.length;
 		}
 		return false;

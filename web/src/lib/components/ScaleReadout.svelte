@@ -2,7 +2,7 @@
   Scale and cursor readout (DESIGN-NOTES §3.14, §5.7, §5.8): the scale-bar
   bracket and label for the map's zoom, then the world coordinates under the
   pointer (rAF-throttled), then a status slot: "World edge" outside the disc,
-  "Unexplored" when the fog is on and the 12 m cell isn't explored, otherwise
+  "Unexplored" when the 12 m cell isn't in the explored mask, otherwise
   empty (the client has no biome data, [GAP]). Hidden on coarse pointers.
 -->
 <script lang="ts">
@@ -14,9 +14,8 @@
 	let {
 		map,
 		mask,
-		fog,
 		left = 16
-	}: { map: L.Map | undefined; mask?: Uint8Array; fog: boolean; left?: number } = $props();
+	}: { map: L.Map | undefined; mask?: Uint8Array; left?: number } = $props();
 
 	let zoom = $state(1.75);
 	let cursor = $state<{ x: number; z: number } | undefined>(undefined);
@@ -25,7 +24,7 @@
 	const place = $derived.by(() => {
 		if (!cursor) return 'Hover the map';
 		if (!insideWorld(cursor.x, cursor.z)) return 'World edge';
-		if (fog && mask && !isExplored(mask, cursor.x, cursor.z)) return 'Unexplored';
+		if (mask && !isExplored(mask, cursor.x, cursor.z)) return 'Unexplored';
 		return '';
 	});
 

@@ -49,7 +49,6 @@
 	import WaitingPill from './WaitingPill.svelte';
 	import ZoomControls from './ZoomControls.svelte';
 
-	const fog = true;
 	const DEFAULT_ZOOM = 1.5;
 	const SEARCH_ZOOM = 4.25;
 
@@ -72,7 +71,6 @@
 
 	const card = $derived(app.card?.id === app.currentId ? app.card : undefined);
 	const summary = $derived(app.servers.find((s) => s.id === app.currentId));
-	const mask = $derived(app.snapshot?.mask);
 	const view = $derived(card ? mapView(card, app.now, app.tileSamples, layers.biomes) : undefined);
 	const markersOn = $derived(!!view?.markersOn);
 
@@ -85,10 +83,10 @@
 		if (built.key !== key) built = { key, all: buildMarkers(snapView, card.world) };
 		return built.all;
 	});
-	const counts = $derived(layerCounts(all, mask, fog));
+	const counts = $derived(layerCounts(all));
 
 	const selected = $derived(selectedId === undefined ? undefined : all.find((m) => m.id === selectedId));
-	const cardShown = $derived(!!selected && visibleMarkers([selected], layers, mask, fog, zoom).length === 1);
+	const cardShown = $derived(!!selected && visibleMarkers([selected], layers, zoom).length === 1);
 
 	const sub = $derived(topBarSub(view, card?.world, app.now, overlay === 'server'));
 	const dim = $derived(mobileDim(snap, overlay));
@@ -247,7 +245,7 @@
 		{onmove}
 	/>
 	{#if map}
-		<MarkerLayer {map} {all} {layers} {mask} {fog} {portalLinks} {selectedId} onselect={onmarker} />
+		<MarkerLayer {map} {all} {layers} {portalLinks} {selectedId} onselect={onmarker} />
 	{/if}
 
 	{#if view?.overlay.kind === 'waiting' || view?.overlay.kind === 'charting'}
@@ -316,8 +314,6 @@
 		     full-height join sheet covers the top bar and is modal. -->
 		<MenuSheet
 			{all}
-			{mask}
-			{fog}
 			disabled={!markersOn}
 			disabledPlaceholder={view?.overlay.kind === 'charting' ? 'Charting the map…' : 'Waiting for the first save…'}
 			{layers}

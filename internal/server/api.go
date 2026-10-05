@@ -375,17 +375,17 @@ func (s *server) buildCard(r *http.Request, srv *config.Server) (*cardJSONOut, e
 // snapshotJSON is GET /api/servers/{id}/snapshot. Markers, locations and
 // bases are filtered to the explored mask (the cell under each point);
 // players carry no positions. explored is the mask itself, for the
-// browser's search and cursor readout, and fogKey names its fog tiles.
-// exploredZones stays until every client has moved to explored.
+// browser's cursor readout, and fogKey names its fog tiles. The
+// snapshot's exploredZones is ingest-only: it feeds the mask for agents
+// that predate explored, and never reaches the browser.
 type snapshotJSON struct {
-	SavedAt       string           `json:"savedAt"`
-	FogKey        string           `json:"fogKey"`
-	Explored      explored.Encoded `json:"explored"`
-	ExploredZones [][2]int16       `json:"exploredZones"`
-	Markers       []extract.Marker `json:"markers"`
-	Locations     []extract.Marker `json:"locations"`
-	Bases         []extract.Base   `json:"bases"`
-	Players       []extract.Player `json:"players"`
+	SavedAt   string           `json:"savedAt"`
+	FogKey    string           `json:"fogKey"`
+	Explored  explored.Encoded `json:"explored"`
+	Markers   []extract.Marker `json:"markers"`
+	Locations []extract.Marker `json:"locations"`
+	Bases     []extract.Base   `json:"bases"`
+	Players   []extract.Player `json:"players"`
 }
 
 func (s *server) snapshot(w http.ResponseWriter, r *http.Request) {
@@ -409,14 +409,13 @@ func (s *server) snapshot(w http.ResponseWriter, r *http.Request) {
 	markers := keep(snap.Markers, inMarker)
 	unpair(markers)
 	writeJSON(w, http.StatusOK, snapshotJSON{
-		SavedAt:       rfc3339(snap.SavedAt),
-		FogKey:        ws.fogKey,
-		Explored:      ws.enc,
-		ExploredZones: orEmpty(snap.ExploredZones),
-		Markers:       markers,
-		Locations:     keep(snap.Locations, inMarker),
-		Bases:         keep(snap.Bases, func(b extract.Base) bool { return in(b.X, b.Z) }),
-		Players:       orEmpty(snap.Players),
+		SavedAt:   rfc3339(snap.SavedAt),
+		FogKey:    ws.fogKey,
+		Explored:  ws.enc,
+		Markers:   markers,
+		Locations: keep(snap.Locations, inMarker),
+		Bases:     keep(snap.Bases, func(b extract.Base) bool { return in(b.X, b.Z) }),
+		Players:   orEmpty(snap.Players),
 	})
 }
 

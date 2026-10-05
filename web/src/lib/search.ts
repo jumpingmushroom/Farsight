@@ -2,9 +2,9 @@
 // substring match on each searchable marker's terms, ranked exact, then
 // prefix, then substring; within a rank by kind (portal, base, tame, sign,
 // altar, trader), then marker order. Beds, tombstones and dungeons are never
-// returned; fogged-out markers are skipped while fog is on.
+// returned. Unexplored markers never get here: the server filters the
+// snapshot to the explored mask.
 
-import { isExplored } from './explored';
 import type { IconName, MapMarker, Pin, PinType } from './markers';
 
 export interface SearchResult {
@@ -54,19 +54,12 @@ function subLine(m: MapMarker): string {
 	}
 }
 
-export function search(
-	all: MapMarker[],
-	q: string,
-	mask: Uint8Array | undefined,
-	fog: boolean,
-	limit = 8
-): SearchResult[] {
+export function search(all: MapMarker[], q: string, limit = 8): SearchResult[] {
 	const query = normalise(q);
 	if (!query) return [];
 	const hits: { m: MapMarker; r: number; i: number }[] = [];
 	all.forEach((m, i) => {
 		if (!SEARCHABLE.has(m.type)) return;
-		if (fog && mask && !isExplored(mask, m.x, m.z)) return;
 		const r = rank(m.terms, query);
 		if (r !== undefined) hits.push({ m, r, i });
 	});

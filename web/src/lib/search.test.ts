@@ -2,12 +2,11 @@ import './testing/leaflet-node';
 import { describe, expect, test } from 'vitest';
 import { buildMarkers } from './markers';
 import { hints, search } from './search';
-import { fixtureMask, fixtureSnapshot, fixtureWorld } from './testing/markers-fixture';
+import { fixtureSnapshot, fixtureWorld } from './testing/markers-fixture';
 import type { SnapshotView } from './types';
 
 const snap = fixtureSnapshot();
 const all = buildMarkers(snap, fixtureWorld());
-const mask = fixtureMask();
 
 function mini(markers: SnapshotView['markers'], extra: Partial<SnapshotView> = {}): SnapshotView {
 	return {
@@ -24,7 +23,7 @@ function mini(markers: SnapshotView['markers'], extra: Partial<SnapshotView> = {
 
 describe('search', () => {
 	test('"hom" → the home portals first (prefix), then the substring sign', () => {
-		const r = search(all, 'hom', mask, true);
+		const r = search(all, 'hom');
 		expect(r.map((x) => x.id)).toEqual(['portal-1', 'portal-2', 'sign-2']);
 		expect(r[0]).toMatchObject({ title: 'home', sub: 'Portal · paired', icon: 'portal' });
 		expect(r[0].pin.bg).toBe('#3d7eab');
@@ -32,8 +31,8 @@ describe('search', () => {
 	});
 
 	test('query is trimmed and case-insensitive; empty gives nothing', () => {
-		expect(search(all, '  HOME ', mask, true).map((x) => x.id)).toEqual(['portal-1', 'portal-2', 'sign-2']);
-		expect(search(all, '   ', mask, true)).toEqual([]);
+		expect(search(all, '  HOME ').map((x) => x.id)).toEqual(['portal-1', 'portal-2', 'sign-2']);
+		expect(search(all, '   ')).toEqual([]);
 	});
 
 	test('capped at 8 by default, or at the given limit', () => {
@@ -49,8 +48,8 @@ describe('search', () => {
 				}))
 			)
 		);
-		expect(search(many, 'hom', undefined, false).length).toBe(8);
-		expect(search(many, 'hom', undefined, false, 3).length).toBe(3);
+		expect(search(many, 'hom').length).toBe(8);
+		expect(search(many, 'hom', 3).length).toBe(3);
 	});
 
 	test('rank: exact, then prefix, then substring, regardless of kind order', () => {
@@ -61,7 +60,7 @@ describe('search', () => {
 				{ id: 'tame-1', kind: 'tame', x: 200, y: 0, z: 0, label: 'Lox', species: 'Lox' }
 			])
 		);
-		expect(search(ms, 'lox', undefined, false).map((r) => r.id)).toEqual(['tame-1', 'portal-1', 'sign-1']);
+		expect(search(ms, 'lox').map((r) => r.id)).toEqual(['tame-1', 'portal-1', 'sign-1']);
 	});
 
 	test('within a rank, kinds come portal, base, tame, sign, altar, trader', () => {
@@ -78,7 +77,7 @@ describe('search', () => {
 				}
 			)
 		);
-		expect(search(ms, 'ulf', undefined, false).map((r) => r.id)).toEqual([
+		expect(search(ms, 'ulf').map((r) => r.id)).toEqual([
 			'portal-1',
 			'base-1',
 			'tame-1',
@@ -88,38 +87,37 @@ describe('search', () => {
 	});
 
 	test('an exact tame name ranks above prefix and substring matches', () => {
-		const r = search(all, 'big mama', mask, true);
+		const r = search(all, 'big mama');
 		expect(r.map((x) => x.id)).toEqual(['tame-1']);
 		expect(r[0].sub).toBe("Lox · near Halvor's base");
-		expect(search(all, 'hen', mask, true)[0]).toMatchObject({ id: 'tame-2', title: 'Hen', sub: 'Hen' });
+		expect(search(all, 'hen')[0]).toMatchObject({ id: 'tame-2', title: 'Hen', sub: 'Hen' });
 	});
 
 	test('a builder’s full name and the base title match; words match too', () => {
-		const r = search(all, "halvor's", mask, true);
+		const r = search(all, "halvor's");
 		expect(r.map((x) => x.id)).toEqual(['base-1']);
 		expect(r[0]).toMatchObject({ title: "Halvor's base", sub: 'Base by Halvor · 2,184 pieces', icon: 'home' });
-		expect(search(all, 'frøya', mask, true).map((x) => x.id)).toEqual(['base-1']);
+		expect(search(all, 'frøya').map((x) => x.id)).toEqual(['base-1']);
 		// A typographic apostrophe matches too.
-		expect(search(all, 'halvor’s', mask, true).map((x) => x.id)).toEqual(['base-1']);
+		expect(search(all, 'halvor’s').map((x) => x.id)).toEqual(['base-1']);
 	});
 
 	test('altar and portal sub-lines', () => {
-		expect(search(all, 'eikthyr', mask, true)[0]).toMatchObject({ sub: 'Boss altar · Defeated', icon: 'flame' });
-		expect(search(all, 'yagluth', mask, true)[0]).toMatchObject({ sub: 'Boss altar · Not yet defeated' });
-		expect(search(all, 'copper', mask, true)[0]).toMatchObject({ sub: 'Portal · unpaired' });
+		expect(search(all, 'eikthyr')[0]).toMatchObject({ sub: 'Boss altar · Defeated', icon: 'flame' });
+		expect(search(all, 'yagluth')[0]).toMatchObject({ sub: 'Boss altar · Not yet defeated' });
+		expect(search(all, 'copper')[0]).toMatchObject({ sub: 'Portal · unpaired' });
 	});
 
 	test('beds, tombstones and dungeons are never returned', () => {
 		for (const q of ['bjorn', 'bed', 'unknown', 'tombstone', 'crypt', 'troll', 'dungeon']) {
-			const ids = search(all, q, mask, false).map((r) => r.id);
+			const ids = search(all, q).map((r) => r.id);
 			expect(ids.filter((id) => /^(bed|tombstone)/.test(id) || id === 'loc-4' || id === 'loc-5'), q).toEqual([]);
 		}
 	});
 
-	test('fogged markers are excluded when fog is on', () => {
-		expect(search(all, 'haldor', mask, true)).toEqual([]);
-		expect(search(all, 'haldor', mask, false)[0]).toMatchObject({ id: 'loc-3', sub: 'Trader', icon: 'coins' });
-		expect(search(all, 'trader', mask, false).map((r) => r.id)).toEqual(['loc-3']);
+	test('every searchable marker is a candidate (the server already dropped unexplored ones)', () => {
+		expect(search(all, 'haldor')[0]).toMatchObject({ id: 'loc-3', sub: 'Trader', icon: 'coins' });
+		expect(search(all, 'trader').map((r) => r.id)).toEqual(['loc-3']);
 	});
 });
 
