@@ -1,5 +1,18 @@
 import { describe, expect, test } from 'vitest';
-import { chipCounts, collapseAutosaves, eventIcon, eventText, eventTone, groupByDay, leftAfter, passes, place, sourceText, todayRows } from './timeline';
+import {
+	chipCounts,
+	collapseAutosaves,
+	eventIcon,
+	eventText,
+	eventTone,
+	groupByDay,
+	leftAfter,
+	passes,
+	place,
+	sourceText,
+	todayRowLabel,
+	todayRows
+} from './timeline';
 import type { Activity, TodaySessions } from './types';
 
 const CATEGORY: Record<string, Activity['category']> = {
@@ -155,5 +168,31 @@ describe('todayRows', () => {
 	});
 	test('the people filter applies', () => {
 		expect(todayRows(t, new Date('2026-09-29T12:44:00Z'), ['2']).rows.map((r) => r.name)).toEqual(['Alina']);
+	});
+});
+
+describe('todayRowLabel (review: a real text equivalent for "who was on today")', () => {
+	test('a closed session, and an open one naming the current clock rather than the bare word "now"', () => {
+		const t: TodaySessions = {
+			timeZone: 'Europe/Oslo',
+			dayStart: '2026-09-28T22:00:00Z',
+			dayEnd: '2026-09-29T22:00:00Z',
+			now: '2026-09-29T12:44:00Z',
+			players: [
+				{ id: '1', name: 'Ragnar', online: false, spans: [{ since: '2026-09-29T11:05:00Z', until: '2026-09-29T12:40:00Z' }] },
+				{
+					id: '2',
+					name: 'Alina',
+					online: true,
+					spans: [
+						{ since: '2026-09-28T23:00:00Z', until: '2026-09-29T01:30:00Z' },
+						{ since: '2026-09-29T11:32:00Z' }
+					]
+				}
+			]
+		};
+		const { rows } = todayRows(t, new Date('2026-09-29T12:44:00Z'));
+		expect(todayRowLabel(rows[0])).toBe('Ragnar: 13:05–14:40');
+		expect(todayRowLabel(rows[1])).toBe('Alina: 01:00–03:30, 13:32–14:44 (online now)');
 	});
 });

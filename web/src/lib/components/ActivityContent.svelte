@@ -7,6 +7,14 @@
   days) until tracking began; and the "where each entry comes from"
   footnote. `days` reports how many days are loaded, for the header.
 
+  Fix round 1: fetching and refreshing live in AppState (state.svelte.ts's
+  syncActivity), on the same poll cadence as the card — not here — so a
+  session ending, a new event or "today" rolling over at local midnight
+  land without reopening, the same pattern as the profile (ProfileContent).
+  `app.activityPages`/`app.today`/`app.activityFailed` are only ever for
+  the one open view, so this just renders them (a retry button when the
+  initial fetch failed) and asks AppState to load an earlier page or retry.
+
   Server review: the server only collapses a run of adjacent autosaves
   within one page, so a page loaded by "Show earlier" can still have its
   newest autosave sit right next to the previous page's oldest one;
@@ -14,11 +22,21 @@
   flattened, the same rule the server applies inside a page.
 -->
 <script lang="ts">
-	import { getActivity, getSessionsToday } from '$lib/api';
 	import { filters } from '$lib/filters.svelte';
 	import { app } from '$lib/state.svelte';
-	import { CATEGORIES, chipCounts, collapseAutosaves, eventIcon, eventText, eventTone, groupByDay, passes, sourceText, todayRows } from '$lib/timeline';
-	import type { ActivityPage, TodaySessions } from '$lib/types';
+	import {
+		CATEGORIES,
+		chipCounts,
+		collapseAutosaves,
+		eventIcon,
+		eventText,
+		eventTone,
+		groupByDay,
+		passes,
+		sourceText,
+		todayRowLabel,
+		todayRows
+	} from '$lib/timeline';
 	import { zClock, zDayMonth } from '$lib/zoned';
 	import ActivityIcon from './ActivityIcon.svelte';
 
@@ -37,30 +55,16 @@
 	} = $props();
 
 	const uid = $props.id();
-	let pages = $state<ActivityPage[]>([]);
-	let today = $state<TodaySessions>();
-	let failed = $state(false);
-	let loadingMore = $state(false);
 
-	$effect(() => {
-		const id = serverId;
-		let live = true;
-		pages = [];
-		today = undefined;
-		failed = false;
-		Promise.all([getActivity(id), getSessionsToday(id)])
-			.then(([p, t]) => {
-				if (!live) return;
-				pages = [p];
-				today = t;
-			})
-			.catch(() => {
-				if (live) failed = true;
-			});
-		return () => {
-			live = false;
-		};
-	});
+	// A defensive check (as ProfileContent's serverId/player): the shown
+	// data really is for this instance's server, not a stale one from a
+	// fetch that resolved after a switch (AppState already guards this
+	// itself, but a component re-render could still land one tick late).
+	const matches = $derived(app.currentId === serverId && app.view?.kind === 'activity');
+	const pages = $derived(matches ? app.activityPages : []);
+	const today = $derived(matches ? app.today : undefined);
+	const failed = $derived(matches && app.activityFailed);
+	const loadingMore = $derived(matches && app.activityLoadingMore);
 
 	const events = $derived(collapseAutosaves(pages.flatMap((p) => p.events)));
 	const tz = $derived(pages[0]?.timeZone ?? 'UTC');
@@ -74,31 +78,18 @@
 	$effect(() => {
 		days = Math.max(1, pages.length) * 3;
 	});
-
-	async function earlier(): Promise<void> {
-		if (!oldest || loadingMore) return;
-		loadingMore = true;
-		try {
-			const p = await getActivity(serverId, oldest.from);
-			if (p.timeZone && pages.at(-1) === oldest) pages = [...pages, p];
-		} catch {
-			app.showToast('Couldn’t load earlier activity', 'Try again in a moment.');
-		} finally {
-			loadingMore = false;
-		}
-	}
 </script>
 
 <div class="activity" class:mobile>
 	<div class="filters">
 		<h3 class="label" id="{uid}-today">Who was on today</h3>
-		<div class="today" aria-labelledby="{uid}-today">
+		<div class="today" role="group" aria-labelledby="{uid}-today">
 			{#if whoToday && whoToday.rows.length}
 				<ul class="today-rows">
 					{#each whoToday.rows as r (r.id + r.name)}
-						<li class="today-row">
-							<span class="today-name">{r.name}</span>
-							<span class="track">
+						<li class="today-row" aria-label={todayRowLabel(r)}>
+							<span class="today-name" aria-hidden="true">{r.name}</span>
+							<span class="track" aria-hidden="true">
 								{#each r.bars as b, i (i)}
 									<span class="span" class:live={b.live} title={b.title} style:left="{b.left}%" style:width="{b.width}%"></span>
 								{/each}
@@ -143,6 +134,7 @@
 	<div class="list">
 		{#if failed}
 			<p class="end">Couldn’t load the activity. Try again in a moment.</p>
+			<button class="btn btn-secondary retry" type="button" onclick={() => app.retryActivity()}>Retry</button>
 		{:else if pages.length === 0}
 			<p class="end" aria-busy="true">Loading…</p>
 		{:else}
@@ -176,7 +168,7 @@
 				<p class="end">Nothing happened in these days.</p>
 			{/if}
 			{#if more}
-				<button class="btn btn-secondary earlier" type="button" disabled={loadingMore} onclick={earlier}>Show earlier</button>
+				<button class="btn btn-secondary earlier" type="button" disabled={loadingMore} onclick={() => app.loadEarlierActivity()}>Show earlier</button>
 			{:else if oldest?.earliest}
 				<p class="end">Tracking began {zDayMonth(oldest.earliest, tz)}</p>
 			{/if}
@@ -216,6 +208,20 @@
 		letter-spacing: 0.08em;
 		text-transform: uppercase;
 		color: var(--muted);
+	}
+	/* Fidelity (design `:850-875`): the mobile sheet has no section labels.
+	   Kept in the DOM (visually hidden, not display:none) since each is
+	   still the accessible name for its group via aria-labelledby. */
+	.mobile .label {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		margin: -1px;
+		padding: 0;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		white-space: nowrap;
+		border: 0;
 	}
 	.muted {
 		margin: 0;
@@ -509,6 +515,7 @@
 		background: var(--cold);
 	}
 	.on-map {
+		position: relative;
 		border: 0;
 		background: transparent;
 		padding: 0;
@@ -518,8 +525,13 @@
 		color: var(--cold-ink);
 		cursor: pointer;
 	}
-	.mobile .on-map {
-		min-height: 44px;
+	/* A ≥44 px touch target (fix round 1) without stretching the source
+	   line's own box — the sibling text/dot stay at their natural height,
+	   an invisible overlay just enlarges the hit area. */
+	.mobile .on-map::after {
+		content: '';
+		position: absolute;
+		inset: -14px -8px;
 	}
 	.end {
 		margin: 0;
@@ -528,7 +540,8 @@
 		color: var(--muted);
 		text-align: center;
 	}
-	.earlier {
+	.earlier,
+	.retry {
 		display: block;
 		margin: 16px auto;
 		font-family: var(--font-body);

@@ -193,6 +193,8 @@ export interface TodayBar {
 	width: number;
 	live: boolean;
 	title: string;
+	/** "08:10–09:40", or "13:32–14:44" (the current clock) for a live bar: the accessible range, without the player's name. */
+	range: string;
 }
 
 export interface TodayRow {
@@ -207,6 +209,7 @@ export function todayRows(t: TodaySessions, now: Date, people: readonly string[]
 	const span = new Date(t.dayEnd).getTime() - d0;
 	const pct = (ms: number) => Math.max(0, Math.min(100, ((ms - d0) / span) * 100));
 	const nowMs = Math.min(now.getTime(), new Date(t.dayEnd).getTime());
+	const nowClock = zClock(new Date(nowMs), t.timeZone);
 	const rows = t.players
 		.filter((p) => people.length === 0 || people.includes(p.id))
 		.map((p) => ({
@@ -215,13 +218,21 @@ export function todayRows(t: TodaySessions, now: Date, people: readonly string[]
 			bars: p.spans.map((s) => {
 				const a = new Date(s.since).getTime();
 				const b = s.until ? new Date(s.until).getTime() : nowMs;
+				const sinceClock = zClock(s.since, t.timeZone);
+				const untilClock = s.until ? zClock(s.until, t.timeZone) : nowClock;
 				return {
 					left: pct(a),
 					width: Math.max(0, pct(b) - pct(a)),
 					live: !s.until,
-					title: `${p.name} · ${zClock(s.since, t.timeZone)}–${s.until ? zClock(s.until, t.timeZone) : 'now'}`
+					title: `${p.name} · ${sinceClock}–${s.until ? untilClock : 'now'}`,
+					range: `${sinceClock}–${untilClock}`
 				};
 			})
 		}));
-	return { rows, nowPct: pct(nowMs), nowClock: zClock(new Date(nowMs), t.timeZone) };
+	return { rows, nowPct: pct(nowMs), nowClock };
+}
+
+/** An accessible summary of one "who was on today" row: "Ragnar: 13:05–14:40 (online now)". */
+export function todayRowLabel(r: TodayRow): string {
+	return `${r.name}: ${r.bars.map((b) => (b.live ? `${b.range} (online now)` : b.range)).join(', ')}`;
 }

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { AppState, unlockMessage, type Visibility } from './state.svelte';
-import type { Card, Profile, ServerSummary, SnapshotView, WorldCard } from './types';
+import { filters } from './filters.svelte';
+import { AppState, CARD_EVERY_MS, unlockMessage, type Visibility } from './state.svelte';
+import type { Activity, ActivityPage, Card, Profile, ServerSummary, SnapshotView, TodaySessions, WorldCard } from './types';
 
 // --- fixtures (invented names only) ----------------------------------------
 
@@ -63,6 +64,32 @@ function makeProfile(over: Partial<Profile> = {}): Profile {
 	};
 }
 
+function act(type: string, at: string, extra: Partial<Activity> = {}): Activity {
+	return { id: `${type}@${at}`, type, category: 'session', source: 'log', at, who: [], ...extra };
+}
+
+function makeActivityPage(events: Activity[] = [], over: Partial<ActivityPage> = {}): ActivityPage {
+	return {
+		timeZone: 'UTC',
+		from: '2026-09-27T00:00:00Z',
+		until: '2026-09-30T00:00:00Z',
+		events,
+		counts: { session: 0, death: 0, boss: 0, build: 0, portal: 0, tame: 0, event: 0, server: 0 },
+		people: [],
+		...over
+	};
+}
+
+function makeToday(players: TodaySessions['players'] = []): TodaySessions {
+	return {
+		timeZone: 'UTC',
+		dayStart: '2026-09-30T00:00:00Z',
+		dayEnd: '2026-10-01T00:00:00Z',
+		now: '2026-09-30T10:05:00Z',
+		players
+	};
+}
+
 const SNAPSHOT: SnapshotView = {
 	savedAt: '2026-09-30T10:00:00Z',
 	fogKey: '0123456789abcdef',
@@ -93,6 +120,9 @@ class FakeServer {
 	cards: Record<string, Card | number> = { a: makeCard('a'), b: makeCard('b') };
 	/** Keyed "server/player"; a number is a status to fail with, undefined -> 404. */
 	profiles: Record<string, Profile | number> = {};
+	/** Keyed by server id; a number is a status to fail with, undefined -> 404. */
+	activity: Record<string, ActivityPage | number> = {};
+	today: Record<string, TodaySessions | number> = {};
 	unlockStatus = 204;
 	unlockAdds: ServerSummary | undefined = undefined;
 	fail = false;
@@ -125,6 +155,20 @@ class FakeServer {
 			if (p === undefined) return new Response('not found', { status: 404 });
 			if (typeof p === 'number') return new Response('err', { status: p });
 			return json(p);
+		}
+		const today = path.match(/^\/api\/servers\/([^/]+)\/sessions\/today$/);
+		if (today) {
+			const t = this.today[decodeURIComponent(today[1])];
+			if (t === undefined) return new Response('not found', { status: 404 });
+			if (typeof t === 'number') return new Response('err', { status: t });
+			return json(t);
+		}
+		const activity = path.match(/^\/api\/servers\/([^/]+)\/activity(\?.*)?$/);
+		if (activity) {
+			const a = this.activity[decodeURIComponent(activity[1])];
+			if (a === undefined) return new Response('not found', { status: 404 });
+			if (typeof a === 'number') return new Response('err', { status: a });
+			return json(a);
 		}
 		const card = path.match(/^\/api\/servers\/([^/]+)$/);
 		if (card) {
@@ -1030,5 +1074,129 @@ describe('profile refresh (fix round 1)', () => {
 		await flush();
 		expect(app.profileFailed).toBe(false);
 		expect(app.profile).toMatchObject({ id: '1' });
+	});
+});
+
+describe('activity refresh (fix round 1)', () => {
+	test('opening the Activity view fetches the newest page and today at once', async () => {
+		const { app, server } = setup('#s=a');
+		server.activity['a'] = makeActivityPage([act('player_join', '2026-09-30T09:50:00Z', { name: 'Bjorn' })]);
+		server.today['a'] = makeToday([{ id: '1', name: 'Ragnar', online: true, spans: [{ since: '2026-09-30T09:00:00Z' }] }]);
+		app.start();
+		await flush();
+		app.openView({ kind: 'activity' });
+		await flush();
+		expect(app.activityPages[0]?.events.map((e) => e.name)).toEqual(['Bjorn']);
+		expect(app.today?.players[0]).toMatchObject({ name: 'Ragnar', online: true });
+		expect(app.activityFailed).toBe(false);
+	});
+
+	test('a card poll quietly merges a new event at the top and ends a left player’s bar, keeping pages loaded via "Show earlier"', async () => {
+		const { app, server } = setup('#s=a');
+		server.activity['a'] = makeActivityPage([act('player_join', '2026-09-30T09:50:00Z', { name: 'Bjorn' })], {
+			from: '2026-09-27T00:00:00Z',
+			earliest: '2026-09-20T00:00:00Z'
+		});
+		server.today['a'] = makeToday([{ id: '1', name: 'Ragnar', online: true, spans: [{ since: '2026-09-30T09:00:00Z' }] }]);
+		app.start();
+		await flush();
+		app.openView({ kind: 'activity' });
+		await flush();
+		// "Show earlier" loads a second (older) page.
+		const before = server.calls.length;
+		await app.loadEarlierActivity();
+		expect(server.calls.length).toBeGreaterThan(before);
+		expect(app.activityPages.length).toBe(2);
+		const earlierPage = app.activityPages[1];
+
+		// Ragnar leaves (his span gets an `until`), and a new join appears in
+		// the server's newest page; the next card poll picks both up.
+		server.today['a'] = makeToday([
+			{ id: '1', name: 'Ragnar', online: false, spans: [{ since: '2026-09-30T09:00:00Z', until: '2026-09-30T09:45:00Z' }] }
+		]);
+		server.activity['a'] = makeActivityPage(
+			[
+				act('player_join', '2026-09-30T10:00:00Z', { name: 'Astrid' }),
+				act('player_join', '2026-09-30T09:50:00Z', { name: 'Bjorn' })
+			],
+			{ from: '2026-09-27T00:00:00Z', earliest: '2026-09-20T00:00:00Z' }
+		);
+		await vi.advanceTimersByTimeAsync(CARD_EVERY_MS);
+		await flush();
+
+		expect(app.activityPages[0]?.events.map((e) => e.name)).toEqual(['Astrid', 'Bjorn']);
+		expect(app.today?.players[0]).toMatchObject({ online: false });
+		expect(app.today?.players[0]?.spans[0]?.until).toBe('2026-09-30T09:45:00Z');
+		// The page loaded by "Show earlier" is untouched by the poll refresh.
+		expect(app.activityPages.length).toBe(2);
+		expect(app.activityPages[1]).toBe(earlierPage);
+	});
+
+	test('does not refetch the activity while the tab is hidden', async () => {
+		const { app, server, visibility } = setup('#s=a');
+		server.activity['a'] = makeActivityPage();
+		server.today['a'] = makeToday();
+		app.start();
+		await flush();
+		app.openView({ kind: 'activity' });
+		await flush();
+		visibility.isVisible = false;
+		const before = server.count('/api/servers/a/activity');
+		await vi.advanceTimersByTimeAsync(CARD_EVERY_MS);
+		expect(server.count('/api/servers/a/activity')).toBe(before);
+		visibility.show();
+		await flush();
+		expect(server.count('/api/servers/a/activity')).toBe(before + 1);
+	});
+
+	test('closing the Activity view discards a slow fetch still in flight', async () => {
+		const { app, server } = setup('#s=a');
+		let release!: () => void;
+		const gate = new Promise<void>((r) => (release = r));
+		server.override = async (call) => {
+			if (call.path === '/api/servers/a/activity') await gate;
+			return server.route(call);
+		};
+		server.activity['a'] = makeActivityPage();
+		server.today['a'] = makeToday();
+		app.start();
+		await flush();
+		app.openView({ kind: 'activity' });
+		app.closeView();
+		release();
+		await flush();
+		expect(app.activityPages).toEqual([]);
+	});
+
+	test('a failed fetch sets activityFailed; retryActivity() tries again at once', async () => {
+		const { app, server } = setup('#s=a');
+		server.activity['a'] = 500;
+		server.today['a'] = makeToday();
+		app.start();
+		await flush();
+		app.openView({ kind: 'activity' });
+		await flush();
+		expect(app.activityFailed).toBe(true);
+		server.activity['a'] = makeActivityPage();
+		app.retryActivity();
+		await flush();
+		expect(app.activityFailed).toBe(false);
+		expect(app.activityPages.length).toBe(1);
+	});
+});
+
+describe('shared filters reset on server switch (fix round 1)', () => {
+	test('old-server people IDs and category toggles never carry over to the new one', async () => {
+		const { app } = setup('#s=a');
+		app.start();
+		await flush();
+		filters.togglePerson('111');
+		filters.toggle('death');
+		expect(filters.active).toBe(true);
+		app.select('b');
+		await flush();
+		expect(filters.people).toEqual([]);
+		expect(filters.off).toEqual([]);
+		expect(filters.active).toBe(false);
 	});
 });

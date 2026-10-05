@@ -73,22 +73,17 @@
 	/** Focus to restore when an overlay sheet closes. */
 	let opener: HTMLElement | null = null;
 	/**
-	 * Adaptation (Plan 7, brief predates it): the Activity view's only
-	 * mobile entry point is "Full timeline" inside the menu sheet, which
-	 * unmounts as the sheet closes to open ActivitySheet — unlike a
-	 * profile, always opened from a row that stays mounted underneath,
-	 * there is nothing left for ActivitySheet's own focusTrap to capture
-	 * as its opener. This carries the menu's own opener (the top bar's
-	 * menu button, which does stay mounted) across that gap.
+	 * Adaptation (Plan 7, brief predates it; fix round 1: via focusTrap's
+	 * own `returnTo` rather than a shell-level effect): the Activity
+	 * view's only mobile entry point is "Full timeline" inside the menu
+	 * sheet, which unmounts as the sheet closes to open ActivitySheet —
+	 * unlike a profile, always opened from a row that stays mounted
+	 * underneath, there is nothing left for ActivitySheet's own focusTrap
+	 * to capture as its opener. This carries the menu's own opener (the
+	 * top bar's menu button, which does stay mounted) across that gap;
+	 * ActivitySheet passes it straight through to focusTrap as `returnTo`.
 	 */
 	let activityOpener: HTMLElement | null = null;
-	$effect(() => {
-		if (app.view?.kind === 'activity') return;
-		const el = activityOpener;
-		if (!el) return;
-		activityOpener = null;
-		if (el.isConnected) requestAnimationFrame(() => el.focus({ preventScroll: true }));
-	});
 
 	const card = $derived(app.card?.id === app.currentId ? app.card : undefined);
 	const summary = $derived(app.servers.find((s) => s.id === app.currentId));
@@ -228,7 +223,11 @@
 		});
 	}
 
-	/** The timeline's "Show on map →": close the sheet, centre there, selecting the marker if any. */
+	/**
+	 * The timeline's "Show on map →" (fix round 1: focus lands on the
+	 * docked marker card's Close button when one opens, matching the
+	 * profile's own `mapTo` — not on the menu's carried-over opener).
+	 */
 	function showOnMap(x: number, z: number): void {
 		app.closeView();
 		snap = 'peek';
@@ -238,6 +237,10 @@
 		} else if (map) {
 			atlas?.centerOn(x, z, 4, centerDy(map.getSize().y));
 		}
+		void tick().then(() => {
+			const close = document.querySelector<HTMLElement>('[data-testid="mobile-marker-card"] [aria-label="Close"]');
+			(close ?? map?.getContainer())?.focus();
+		});
 	}
 
 	/** Search pick (§5.2, Mobile ruling): close the menu, select the marker at zoom 4.25. */
@@ -399,7 +402,13 @@
 	{#if profilePlayer !== undefined && app.currentId}
 		<ProfileSheet serverId={app.currentId} player={profilePlayer} onclose={() => app.closeView()} onmap={mapTo} />
 	{:else if app.view?.kind === 'activity' && app.currentId}
-		<ActivitySheet serverId={app.currentId} gameDay={card?.world?.day} onclose={() => app.closeView()} onmap={showOnMap} />
+		<ActivitySheet
+			serverId={app.currentId}
+			gameDay={card?.world?.day}
+			returnTo={() => activityOpener}
+			onclose={() => app.closeView()}
+			onmap={showOnMap}
+		/>
 	{/if}
 </main>
 

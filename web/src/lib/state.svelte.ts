@@ -7,10 +7,11 @@
 // immediately on becoming visible; servers every 60 s; the snapshot whenever
 // `card.world.savedAt` changes. `now` ticks every 30 s.
 
-import { ApiError, getCard, getProfile, getSnapshot, listServers, unlock } from './api';
+import { ApiError, getActivity, getCard, getProfile, getSessionsToday, getSnapshot, listServers, unlock } from './api';
 import type { TileSample } from './derive';
+import { filters } from './filters.svelte';
 import { hashFor, parseHash, sameView, type View } from './share';
-import type { Card, Profile, ServerSummary, SnapshotView } from './types';
+import type { ActivityPage, Card, Profile, ServerSummary, SnapshotView, TodaySessions } from './types';
 
 export type Theme = 'dark' | 'light';
 export type UnlockResult = 'ok' | 'wrong' | 'limited';
@@ -112,6 +113,18 @@ export class AppState {
 	/** The last profile fetch failed; retryProfile() tries again at once. */
 	profileFailed = $state(false);
 	/**
+	 * The open Activity view's pages (newest first, loaded page 0 then
+	 * earlier ones via loadEarlierActivity()) and today's sessions (fix
+	 * round 1). Only ever replaced wholesale, never mutated in place, so
+	 * `$state.raw` fits: no need to deep-proxy every event of every page.
+	 */
+	activityPages = $state.raw<ActivityPage[]>([]);
+	today = $state<TodaySessions | undefined>(undefined);
+	/** The last *initial* activity/today fetch failed; retryActivity() tries again at once. */
+	activityFailed = $state(false);
+	/** A loadEarlierActivity() call is in flight. */
+	activityLoadingMore = $state(false);
+	/**
 	 * The name shown on the row that opened the current view (fix round
 	 * 1), set only on the first open (not when one view replaces
 	 * another). DesktopShell reads and clears this to refocus that row —
@@ -139,6 +152,12 @@ export class AppState {
 	private profileFor: { id: string; player: string } | undefined;
 	/** Bumped on every (re)fetch, close or switch: a stale fetch's result is dropped, which is as close to "abort" as a plain fetch gets. */
 	private profileGen = 0;
+	/** The server id the shown activityPages/today are for, or the one just requested. */
+	private activityFor: string | undefined;
+	/** Bumped only on a real context change (open for a new id, close, switch): discards a fetch that resolves after it, same purpose as profileGen. */
+	private activityGen = 0;
+	/** A quiet (poll-driven) activity refresh is in flight: single-flight, so an overlap just skips (the next poll tries again). */
+	private activityRefreshing = false;
 	private vis: Visibility;
 	private root: AppDeps['root'];
 	private log: (message: string, err: unknown) => void;
@@ -233,6 +252,7 @@ export class AppState {
 			this.view = link.view;
 			this.replaceHash(pick);
 			this.syncProfile();
+			this.syncActivity();
 		}
 	}
 
@@ -247,7 +267,12 @@ export class AppState {
 		this.snapshot = undefined;
 		this.savedAt = undefined;
 		this.tileSamples = [];
+		// The timeline's shared filters (fix round 1): people are platform
+		// IDs from the old server, which mean nothing on the new one (and
+		// could silently hide every event there), so a switch clears both.
+		filters.reset();
 		this.syncProfile();
+		this.syncActivity();
 		if (popView) {
 			// The open view had pushed a history entry. Replacing it outright
 			// would leave the entry beneath it (the pre-view hash for the OLD
@@ -302,10 +327,13 @@ export class AppState {
 			const card = await getCard(id, this.f);
 			if (stale()) return;
 			this.card = card;
-			// A quiet refresh of the open profile, on the same cadence as the
-			// card: it never clears what's shown (no skeleton), so a status
-			// change (e.g. the player going offline) lands without reopening.
+			// A quiet refresh of the open profile or Activity view, on the
+			// same cadence as the card: neither clears what's shown (no
+			// skeleton), so a status change (e.g. the player going offline,
+			// a new event, "today" rolling over at midnight) lands without
+			// reopening.
 			this.syncProfile(true);
+			this.syncActivity(true);
 			this.sampleTiles(card);
 			this.ok();
 			const savedAt = card.world?.savedAt;
@@ -402,6 +430,7 @@ export class AppState {
 			this.loc.hash = hashFor(id, v);
 		}
 		this.syncProfile();
+		this.syncActivity();
 	}
 
 	/** Closes the open view: back through its history entry, or by replacing the hash. */
@@ -415,11 +444,46 @@ export class AppState {
 			this.replaceHash(this.currentId);
 		}
 		this.syncProfile();
+		this.syncActivity();
 	}
 
 	/** Retries a failed profile fetch at once, instead of waiting for the next poll. */
 	retryProfile(): void {
 		this.syncProfile(true);
+	}
+
+	/** Retries a failed initial activity/today fetch at once, instead of waiting for the next poll. */
+	retryActivity(): void {
+		this.syncActivity(true);
+	}
+
+	/**
+	 * "Show earlier": fetches the three local days before the oldest loaded
+	 * page's `from`, and appends it — the pages already loaded (including
+	 * page 0, which a quiet poll refresh may replace concurrently) are
+	 * never discarded. Guarded by identity against exactly that race: if
+	 * the oldest page is no longer the one this call started with (a poll
+	 * refresh replaced page 0, the only page, while this was in flight, or
+	 * the view closed/switched), the result is dropped.
+	 */
+	async loadEarlierActivity(): Promise<void> {
+		if (this.currentId === undefined || this.view?.kind !== 'activity' || this.activityLoadingMore) return;
+		const id = this.currentId;
+		const oldest = this.activityPages.at(-1);
+		if (!oldest) return;
+		this.activityLoadingMore = true;
+		const g = this.activityGen;
+		try {
+			const p = await getActivity(id, oldest.from, this.f);
+			if (g !== this.activityGen) return;
+			if (this.activityPages.at(-1) === oldest) this.activityPages = [...this.activityPages, p];
+		} catch (err) {
+			if (g !== this.activityGen) return;
+			this.showToast('Couldn’t load earlier activity', 'Try again in a moment.');
+			this.log('farsight: earlier activity failed', err);
+		} finally {
+			if (g === this.activityGen) this.activityLoadingMore = false;
+		}
 	}
 
 	/** Follows the hash after browser back or forward. */
@@ -438,6 +502,7 @@ export class AppState {
 		// entry of its own, so closing it again must go back through it too.
 		this.pushed = !!link.view;
 		this.syncProfile();
+		this.syncActivity();
 	}
 
 	/**
@@ -482,6 +547,63 @@ export class AppState {
 				if (g !== this.profileGen) return;
 				this.profileFailed = true;
 				this.log('farsight: profile refresh failed', err);
+			}
+		})();
+	}
+
+	/**
+	 * Fetches or refreshes the open Activity view's data (fix round 1, the
+	 * same pattern as syncProfile): a fresh load (clearing activityPages/
+	 * today/activityFailed) when the view just opened or now names a
+	 * different server; otherwise, when `poll` is true, a quiet background
+	 * refresh of page 0 and today's sessions — never clearing what's shown
+	 * — so new events, a session ending and "today" rolling over at local
+	 * midnight land without reopening. Pages loaded by loadEarlierActivity()
+	 * beyond page 0 are kept. With no Activity view open, this discards
+	 * whatever the last fetch was doing and clears everything — covering
+	 * close and switching server, which call it with `this.view` already
+	 * cleared.
+	 */
+	private syncActivity(poll = false): void {
+		const id = this.currentId;
+		const view = this.view;
+		if (id === undefined || view?.kind !== 'activity') {
+			if (this.activityFor !== undefined) {
+				this.activityGen++;
+				this.activityFor = undefined;
+				this.activityPages = [];
+				this.today = undefined;
+				this.activityFailed = false;
+				this.activityLoadingMore = false;
+				this.activityRefreshing = false;
+			}
+			return;
+		}
+		const fresh = this.activityFor !== id;
+		if (!fresh && !poll) return;
+		if (!fresh && this.activityRefreshing) return; // a quiet refresh is already in flight; the next poll tries again
+		if (fresh) {
+			this.activityPages = [];
+			this.today = undefined;
+			this.activityFailed = false;
+			this.activityGen++;
+		}
+		this.activityFor = id;
+		this.activityRefreshing = true;
+		const g = this.activityGen;
+		void (async () => {
+			try {
+				const [p, t] = await Promise.all([getActivity(id, undefined, this.f), getSessionsToday(id, this.f)]);
+				if (g !== this.activityGen) return;
+				this.today = t;
+				this.activityPages = this.activityPages.length === 0 ? [p] : [p, ...this.activityPages.slice(1)];
+				this.activityFailed = false;
+			} catch (err) {
+				if (g !== this.activityGen) return;
+				if (fresh) this.activityFailed = true;
+				this.log('farsight: activity refresh failed', err);
+			} finally {
+				if (g === this.activityGen) this.activityRefreshing = false;
 			}
 		})();
 	}
@@ -542,7 +664,9 @@ export class AppState {
 		this.snapshot = undefined;
 		this.savedAt = undefined;
 		this.tileSamples = [];
+		filters.reset();
 		this.syncProfile();
+		this.syncActivity();
 	}
 
 	private ok(): void {
