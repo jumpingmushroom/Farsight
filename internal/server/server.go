@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jumpingmushroom/farsight/internal/auth"
+	"github.com/jumpingmushroom/farsight/internal/biomegrid"
 	"github.com/jumpingmushroom/farsight/internal/config"
 	"github.com/jumpingmushroom/farsight/internal/live"
 	"github.com/jumpingmushroom/farsight/internal/store"
@@ -52,9 +53,10 @@ const maxCookieLen = 4096
 
 type server struct {
 	Deps
-	tokens   *tokenCache
-	worlds   *worldCache
-	fogTiles *tileCache
+	tokens     *tokenCache
+	worlds     *worldCache
+	fogTiles   *tileCache
+	biomeGrids *biomegrid.Cache
 	// dummyHash is compared against for unlock attempts on an unknown
 	// server, so the response time doesn't reveal which ids exist. It is
 	// generated once, on first use, at the configured hashes' cost.
@@ -83,6 +85,7 @@ func newServer(d Deps) *server {
 		tokens:         newTokenCache(),
 		worlds:         newWorldCache(d.Store, d.Log),
 		fogTiles:       newTileCache(fogTileCacheBytes, runtime.GOMAXPROCS(0)),
+		biomeGrids:     biomegrid.NewCache(4),
 		dummyHash:      newDummyHash(dummyCost(d.Config)),
 		dummyTokenHash: newDummyHash(dummyTokenCost(d.Config)),
 	}
@@ -128,6 +131,7 @@ func NewHandlers(d Deps) (public, ingest http.Handler) {
 	mux.Handle("GET /api/servers/{id}/sessions/today", gzipJSON(s.Log, http.HandlerFunc(s.sessionsToday)))
 
 	mux.HandleFunc("GET /tiles/{id}/{key}/{fog}/{z}/{x}/{y}", s.fogTile)
+	mux.HandleFunc("GET /tiles/{id}/{key}/biomes", s.biomes)
 
 	// Anything else under the API prefixes is a JSON 404, never the UI.
 	// "/ingest/" is already registered above when SplitIngest is true.
