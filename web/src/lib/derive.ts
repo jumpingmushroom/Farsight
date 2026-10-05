@@ -408,8 +408,7 @@ export const BOSS_BIOME: Record<string, string> = {
 	Moder: 'Mountains',
 	Yagluth: 'Plains',
 	'The Queen': 'Mistlands',
-	Fader: 'Ashlands',
-	Writhan: 'Deep North'
+	Fader: 'Ashlands'
 };
 
 export function nextBoss(world: WorldCard): { name: string; biome: string } | undefined {

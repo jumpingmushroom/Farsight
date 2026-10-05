@@ -305,7 +305,7 @@ func TestFixtures(t *testing.T) {
 			defeated++
 		}
 	}
-	if len(snap.Bosses) != 8 || defeated != 4 {
+	if len(snap.Bosses) != 7 || defeated != 4 {
 		t.Fatalf("bosses = %d, defeated %d", len(snap.Bosses), defeated)
 	}
 

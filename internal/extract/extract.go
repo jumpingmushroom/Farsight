@@ -152,13 +152,7 @@ func (e *Extractor) Finish(w *save.World, serverID string, readAt time.Time) *Sn
 			X: l.Pos[0], Y: l.Pos[1], Z: l.Pos[2],
 		})
 	}
-	keys := map[string]bool{}
-	for _, k := range w.GlobalKeys {
-		keys[k] = true
-	}
-	for _, b := range bossKeys {
-		s.Bosses = append(s.Bosses, Boss{Key: b.Key, Name: b.Name, Defeated: keys[b.Key]})
-	}
+	s.Bosses = BossesFromKeys(w.GlobalKeys)
 	for id, name := range e.players {
 		s.Players = append(s.Players, Player{ID: id, Name: name})
 	}

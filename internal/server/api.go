@@ -345,7 +345,7 @@ func (s *server) buildCard(r *http.Request, srv *config.Server) (*cardJSONOut, e
 	snap := ws.snap
 	wj := &worldJSON{
 		Name: snap.World.Name, SeedName: snap.World.SeedName, Day: snap.World.Day,
-		Bosses: snap.Bosses, Modifiers: snap.World.Modifiers, Flags: snap.World.Flags,
+		Bosses: cardBosses(snap), Modifiers: snap.World.Modifiers, Flags: snap.World.Flags,
 		ExploredPct: ws.pct,
 		SavedAt:     rfc3339(snap.SavedAt), ReadAt: rfc3339(snap.ReadAt),
 	}
