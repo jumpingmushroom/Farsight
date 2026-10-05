@@ -9,7 +9,7 @@
 
 import { ApiError, getCard, getSnapshot, listServers, unlock } from './api';
 import type { TileSample } from './derive';
-import { hashFor, parseHash } from './share';
+import { hashFor, parseHash, sameView, type View } from './share';
 import type { Card, ServerSummary, SnapshotView } from './types';
 
 export type Theme = 'dark' | 'light';
@@ -32,7 +32,9 @@ export interface AppDeps {
 	fetch?: typeof fetch;
 	storage?: Storage | null;
 	location?: Pick<Location, 'hash'>;
-	history?: Pick<History, 'replaceState' | 'state'>;
+	history?: Pick<History, 'replaceState' | 'state' | 'back'>;
+	/** Calls `cb` on every `hashchange` (browser back and forward); returns an unsubscribe. */
+	onHashChange?: (cb: () => void) => () => void;
 	visibility?: Visibility;
 	/** Element that carries `data-theme` (the `<html>` element in the browser). */
 	root?: { dataset: DOMStringMap | Record<string, string | undefined> } | null;
@@ -98,11 +100,16 @@ export class AppState {
 	toast = $state<{ title: string; sub?: string } | undefined>(undefined);
 	/** Set when the unlock dialog should be shown (share link failed, "Add a server…"). */
 	unlockPrompt = $state<UnlockPrompt | undefined>(undefined);
+	/** The open view (a profile or the activity timeline), mirrored in the URL hash. */
+	view = $state<View | undefined>(undefined);
 
 	private f: typeof fetch;
 	private storage: Storage | null;
 	private loc: Pick<Location, 'hash'> | undefined;
-	private hist: Pick<History, 'replaceState' | 'state'> | undefined;
+	private hist: Pick<History, 'replaceState' | 'state' | 'back'> | undefined;
+	private onHashChange: (cb: () => void) => () => void;
+	/** The open view added a history entry (openView), so closing it goes back. */
+	private pushed = false;
 	private vis: Visibility;
 	private root: AppDeps['root'];
 	private log: (message: string, err: unknown) => void;
@@ -124,6 +131,13 @@ export class AppState {
 		this.vis = deps.visibility ?? documentVisibility();
 		this.root = deps.root !== undefined ? deps.root : hasDocument() ? document.documentElement : null;
 		this.log = deps.log ?? ((m, e) => console.warn(m, e));
+		this.onHashChange =
+			deps.onHashChange ??
+			((cb) => {
+				if (typeof window === 'undefined') return () => {};
+				window.addEventListener('hashchange', cb);
+				return () => window.removeEventListener('hashchange', cb);
+			});
 	}
 
 	/** Reads the theme and hash, unlocks a share link, loads servers and starts timers. Returns stop(). */
@@ -147,12 +161,14 @@ export class AppState {
 			this.now = new Date();
 			void this.refresh();
 		});
+		const offHash = this.onHashChange(() => this.syncView());
 
 		const stop = () => {
 			if (stopped) return;
 			stopped = true;
 			for (const t of timers) clearInterval(t);
 			offVisible();
+			offHash();
 			clearTimeout(this.toastTimer);
 			if (this.stopFn === stop) this.stopFn = undefined;
 		};
@@ -180,13 +196,22 @@ export class AppState {
 		if (!this.loaded) await this.refreshServers();
 		if (stopped() || this.currentId !== undefined) return;
 		const pick = this.servers.find((s) => s.id === link.server)?.id ?? this.servers[0]?.id;
-		if (pick !== undefined) this.select(pick);
+		if (pick === undefined) return;
+		this.select(pick);
+		// A linked profile or timeline opens over its server. It added no
+		// history entry, so closing it replaces the hash instead of going back.
+		if (pick === link.server && link.view) {
+			this.view = link.view;
+			this.replaceHash(pick);
+		}
 	}
 
 	/** Switches server: updates the hash (replaceState), clears the old data and loads at once. */
 	select(id: string): void {
 		this.gen++;
 		this.currentId = id;
+		this.view = undefined;
+		this.pushed = false;
 		this.card = undefined;
 		this.snapshot = undefined;
 		this.savedAt = undefined;
@@ -311,6 +336,44 @@ export class AppState {
 		this.unlockPrompt = undefined;
 	}
 
+	/**
+	 * Opens a profile or the activity timeline. The first view opened adds a
+	 * history entry (so browser back closes it); opening another over it
+	 * replaces that entry.
+	 */
+	openView(v: View): void {
+		const id = this.currentId;
+		if (id === undefined || sameView(v, this.view)) return;
+		const replace = this.view !== undefined;
+		this.view = v;
+		if (replace || !this.loc) {
+			this.replaceHash(id);
+			return;
+		}
+		this.pushed = true;
+		this.loc.hash = hashFor(id, v);
+	}
+
+	/** Closes the open view: back through its history entry, or by replacing the hash. */
+	closeView(): void {
+		if (this.view === undefined) return;
+		this.view = undefined;
+		if (this.pushed && this.hist) {
+			this.pushed = false;
+			this.hist.back();
+			return;
+		}
+		if (this.currentId !== undefined) this.replaceHash(this.currentId);
+	}
+
+	/** Follows the hash after browser back or forward. */
+	private syncView(): void {
+		const link = parseHash(this.loc?.hash ?? '');
+		if (link.server !== this.currentId) return;
+		if (!sameView(link.view, this.view)) this.view = link.view;
+		if (!link.view) this.pushed = false;
+	}
+
 	// --- internals ------------------------------------------------------------
 
 	private readTheme(): Theme {
@@ -329,7 +392,7 @@ export class AppState {
 	private replaceHash(id: string): void {
 		try {
 			// Keep history.state: SvelteKit stores its navigation index there.
-			this.hist?.replaceState(this.hist.state, '', hashFor(id));
+			this.hist?.replaceState(this.hist.state, '', hashFor(id, this.view));
 		} catch (err) {
 			this.log('farsight: could not update the URL', err);
 		}

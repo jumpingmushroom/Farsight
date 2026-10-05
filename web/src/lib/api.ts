@@ -3,7 +3,7 @@
 // UI always sees the latest state.
 
 import { decodeExplored } from './explored';
-import type { Card, ServerSummary, SnapshotView } from './types';
+import type { Card, Profile, ServerSummary, SnapshotView } from './types';
 
 export class ApiError extends Error {
 	status: number;
@@ -24,6 +24,7 @@ const SERVERS_TIMEOUT_MS = 20_000;
 const CARD_TIMEOUT_MS = 20_000;
 const SNAPSHOT_TIMEOUT_MS = 60_000;
 const UNLOCK_TIMEOUT_MS = 15_000;
+const PROFILE_TIMEOUT_MS = 20_000;
 
 // `run` covers the whole request — fetch() resolving is not enough, since a
 // server can send headers promptly and then stall the body — so the caller
@@ -77,6 +78,21 @@ export async function getSnapshot(
 		const snap = (await res.json()) as SnapshotView;
 		const mask = await decodeExplored(snap.explored);
 		return mask ? { ...snap, mask } : snap;
+	});
+}
+
+/** A player's profile; null when the server doesn't know them (404). */
+export async function getProfile(
+	id: string,
+	player: string,
+	f: typeof fetch = fetch,
+	timeoutMs = PROFILE_TIMEOUT_MS
+): Promise<Profile | null> {
+	return withTimeout(timeoutMs, async (signal) => {
+		const res = await f(`/api/servers/${encodeURIComponent(id)}/players/${encodeURIComponent(player)}`, jsonInit(signal));
+		if (res.status === 404) return null;
+		if (!res.ok) throw new ApiError(res.status, await res.text());
+		return (await res.json()) as Profile;
 	});
 }
 

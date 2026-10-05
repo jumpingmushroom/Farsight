@@ -44,6 +44,7 @@
 	import MobileMarkerCard from './MobileMarkerCard.svelte';
 	import MobileTopBar from './MobileTopBar.svelte';
 	import PeekSheet from './PeekSheet.svelte';
+	import ProfileSheet from './ProfileSheet.svelte';
 	import ServerSheet from './ServerSheet.svelte';
 	import StateBanner from './StateBanner.svelte';
 	import WaitingPill from './WaitingPill.svelte';
@@ -89,10 +90,12 @@
 	const cardShown = $derived(!!selected && visibleMarkers([selected], layers, zoom).length === 1);
 
 	const sub = $derived(topBarSub(view, card?.world, app.now, overlay === 'server'));
-	const dim = $derived(mobileDim(snap, overlay));
+	/** A profile (Plan 7) opens as a full-height sheet over everything. */
+	const profilePlayer = $derived(app.view?.kind === 'profile' ? app.view.player : undefined);
+	const dim = $derived(app.view ? 0.55 : mobileDim(snap, overlay));
 	// Hidden while there is nothing to zoom (waiting, charting) and whenever
 	// a raised sheet or the docked card would cover them.
-	const zoomShown = $derived(markersOn && snap === 'peek' && overlay === 'none' && !cardShown);
+	const zoomShown = $derived(markersOn && snap === 'peek' && overlay === 'none' && !cardShown && !app.view);
 
 	// Pin opacity for offline / stale lives on the marker pane (app.css).
 	$effect(() => {
@@ -182,6 +185,18 @@
 		focusMarker(partner, Math.max(3.5, map.getZoom()));
 	}
 
+	/** A profile's "Map →": close the sheet, then centre on the item (selecting its marker when on the map). */
+	function mapTo(x: number, z: number, id: string): void {
+		app.closeView();
+		snap = 'peek';
+		const m = all.find((mm) => mm.id === id);
+		if (m) {
+			focusMarker(m, 4);
+		} else if (map) {
+			atlas?.centerOn(x, z, 4, centerDy(map.getSize().y));
+		}
+	}
+
 	/** Search pick (§5.2, Mobile ruling): close the menu, select the marker at zoom 4.25. */
 	function pickResult(m: MapMarker): void {
 		closeOverlay();
@@ -203,7 +218,10 @@
 
 	function onkeydown(e: KeyboardEvent): void {
 		if (e.key !== 'Escape' || e.defaultPrevented || app.unlockPrompt) return;
-		if (overlay !== 'none') {
+		if (app.view) {
+			e.preventDefault();
+			app.closeView();
+		} else if (overlay !== 'none') {
 			e.preventDefault();
 			closeOverlay();
 		} else if (selectedId !== undefined) {
@@ -328,6 +346,10 @@
 		<ServerSheet onclose={closeOverlay} />
 	{:else if overlay === 'join' && card}
 		<JoinSheet {card} onclose={() => closeOverlay()} oncopy={toast} />
+	{/if}
+
+	{#if profilePlayer !== undefined && app.currentId}
+		<ProfileSheet serverId={app.currentId} player={profilePlayer} onclose={() => app.closeView()} onmap={mapTo} />
 	{/if}
 </main>
 

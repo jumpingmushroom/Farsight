@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { ApiError, getCard, getSnapshot, listServers, tileUrl, unlock } from './api';
+import { ApiError, getCard, getProfile, getSnapshot, listServers, tileUrl, unlock } from './api';
 import type { ServerSummary } from './types';
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -227,5 +227,19 @@ describe('timeouts', () => {
 		const assertion = expect(p).rejects.toMatchObject({ status: 0, message: 'timeout' });
 		await vi.advanceTimersByTimeAsync(15_000);
 		await assertion;
+	});
+});
+
+describe('getProfile (Plan 7)', () => {
+	test('escapes the ids; 404 -> null', async () => {
+		const fake = vi.fn().mockResolvedValue(textResponse('not found', 404));
+		expect(await getProfile('a b', 'Xbox/2', fake as unknown as typeof fetch)).toBeNull();
+		expect(fake.mock.calls[0][0]).toBe('/api/servers/a%20b/players/Xbox%2F2');
+	});
+	test('200 -> the profile; 500 -> ApiError', async () => {
+		const ok = vi.fn().mockResolvedValue(jsonResponse({ id: '1', name: 'A' }));
+		expect(await getProfile('a', '1', ok as unknown as typeof fetch)).toMatchObject({ id: '1', name: 'A' });
+		const bad = vi.fn().mockResolvedValue(textResponse('boom', 500));
+		await expect(getProfile('a', '1', bad as unknown as typeof fetch)).rejects.toMatchObject({ status: 500 });
 	});
 });

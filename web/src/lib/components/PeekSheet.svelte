@@ -7,7 +7,7 @@
   - Pulled (surface, from top 176): "Online now" with the pill, the
     "{server} · live · positions aren’t tracked" line, then a scrolling body:
     the online rows (44 px avatars), "Recently online" (ruling), and three
-    recent-activity rows. No "Full timeline →" (§1.5) and no per-player
+    recent-activity rows. Rows have "Profile →" (Plan 7). No per-player
     base counts ([GAP] §3.18 item 4: needs name matching; omitted).
   - Offline or nobody online: the §3.22 empty state replaces the online
     list (peek shows its title in place of the chips).
@@ -17,6 +17,7 @@
 	import { countText, playersEmpty, recentList, sessionSeconds } from '$lib/derive';
 	import { fmtLastSeen, fmtSession } from '$lib/format';
 	import type { Snap } from '$lib/mobile';
+	import { app } from '$lib/state.svelte';
 	import type { Card } from '$lib/types';
 	import ActivityList from './ActivityList.svelte';
 	import Avatar from './Avatar.svelte';
@@ -92,6 +93,9 @@
 										<div class="name">{p.name}</div>
 										<div class="row-sub">online {fmtSession(sessionSeconds(p.since, now))}</div>
 									</div>
+									{#if p.platformId}
+										<button class="profile" type="button" aria-label="Profile of {p.name}" onclick={() => app.openView({ kind: 'profile', player: p.platformId })}>Profile →</button>
+									{/if}
 								</li>
 							{/each}
 						</ul>
@@ -106,6 +110,9 @@
 										<div class="name">{r.name}</div>
 										<div class="row-sub">{fmtLastSeen(r.until, now)}</div>
 									</div>
+									{#if r.platformId}
+										<button class="profile" type="button" aria-label="Profile of {r.name}" onclick={() => app.openView({ kind: 'profile', player: r.platformId })}>Profile →</button>
+									{/if}
 								</li>
 							{/each}
 						</ul>
@@ -118,6 +125,20 @@
 </BottomSheet>
 
 <style>
+	.profile {
+		flex: none;
+		min-height: 44px;
+		padding: 0 8px;
+		border: 0;
+		border-radius: 999px;
+		background: transparent;
+		font: inherit;
+		font-size: 13px;
+		font-weight: 700;
+		color: var(--cold-ink);
+		white-space: nowrap;
+		cursor: pointer;
+	}
 	.players {
 		display: flex;
 		flex-direction: column;

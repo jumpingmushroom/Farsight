@@ -81,6 +81,8 @@ export interface Card {
 	players: number;
 	joinCode?: string;
 	joinCodeAt?: string;
+	/** The server's log time zone (IANA): local days and clock times in profiles and the timeline. */
+	timeZone?: string;
 	online: OnlinePlayer[];
 	recent: RecentSession[];
 	activity: Activity[];
@@ -99,6 +101,8 @@ export interface Marker {
 	species?: string;
 	type?: string;
 	pair?: string;
+	/** A tame's namer: their platform user ID ("Steam_…"). */
+	namer?: string;
 }
 
 export interface Builder {
@@ -141,4 +145,34 @@ export interface SnapshotView {
 	locations: Marker[];
 	bases: Base[];
 	players: { id: number; name: string }[];
+}
+
+/** GET /api/servers/{id}/players/{player} (Plan 7). Times are RFC 3339 UTC. */
+export interface Profile {
+	/** The platform ID (the sessions' platformId). */
+	id: string;
+	name: string;
+	platform: string;
+	timeZone: string;
+	online: boolean;
+	/** The open session's start, when online. */
+	since?: string;
+	/** The latest session's end, when offline. */
+	lastSeen?: string;
+	firstSeen: string;
+	trackedSince: string;
+	weekSeconds: number;
+	allSeconds: number;
+	sessions: number;
+	/** Seven local days, oldest first, today last. */
+	days: { date: string; seconds: number }[];
+	beds: { count: number; near: string[] };
+	bases: { id: string; name: string; pieces: number; biome: string; x: number; z: number }[];
+	portals: { id: string; tag: string; paired: boolean; x: number; z: number }[];
+	tames: { id: string; name: string; species: string; x: number; z: number }[];
+	deaths: {
+		spotted: number;
+		week: number;
+		tombstones: { id: string; biome: string; firstSeen: string; x: number; z: number }[];
+	};
 }

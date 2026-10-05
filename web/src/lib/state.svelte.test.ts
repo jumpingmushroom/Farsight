@@ -169,13 +169,19 @@ function setup(hash = '', opts: { storage?: Storage | null } = {}) {
 		if (typeof url === 'string' && url.startsWith('#')) location.hash = url;
 	});
 	// SvelteKit keeps its navigation index in history.state; hash updates keep it.
-	const history = { replaceState, state: KIT_STATE };
+	const back = vi.fn();
+	const history = { replaceState, state: KIT_STATE, back };
+	let hashChanged: () => void = () => {};
+	const onHashChange = (cb: () => void) => {
+		hashChanged = cb;
+		return () => (hashChanged = () => {});
+	};
 	const storage = opts.storage === undefined ? new MemStorage() : opts.storage;
 	const visibility = new FakeVisibility();
 	const root = { dataset: {} as Record<string, string | undefined> };
 	const log = vi.fn();
-	const app = new AppState({ fetch: server.fetch, storage, location, history, visibility, root, log });
-	return { app, server, location, replaceState, replaced, storage, visibility, root, log };
+	const app = new AppState({ fetch: server.fetch, storage, location, history, visibility, root, log, onHashChange });
+	return { app, server, location, replaceState, replaced, storage, visibility, root, log, back, hashChanged: () => hashChanged() };
 }
 
 // Flush pending promise chains (fake fetch resolves on microtasks).
@@ -775,5 +781,70 @@ describe('showToast()', () => {
 		expect(app.toast?.title).toBe('Two');
 		vi.advanceTimersByTime(600);
 		expect(app.toast).toBeUndefined();
+	});
+});
+
+describe('views (Plan 7)', () => {
+	test('openView adds a history entry; closeView goes back', async () => {
+		const { app, location, back, hashChanged } = setup('#s=a');
+		app.start();
+		await flush();
+		app.openView({ kind: 'profile', player: '111' });
+		expect(app.view).toEqual({ kind: 'profile', player: '111' });
+		expect(location.hash).toBe('#s=a&p=111');
+		app.closeView();
+		expect(app.view).toBeUndefined();
+		expect(back).toHaveBeenCalledTimes(1);
+		// The browser then lands back on #s=a.
+		location.hash = '#s=a';
+		hashChanged();
+		expect(app.view).toBeUndefined();
+	});
+
+	test('browser back from an open view closes it; forward reopens it', async () => {
+		const { app, location, hashChanged } = setup('#s=a');
+		app.start();
+		await flush();
+		app.openView({ kind: 'activity' });
+		location.hash = '#s=a';
+		hashChanged();
+		expect(app.view).toBeUndefined();
+		location.hash = '#s=a&activity';
+		hashChanged();
+		expect(app.view).toEqual({ kind: 'activity' });
+	});
+
+	test('a linked profile opens on load and closes by replacing the hash', async () => {
+		const { app, replaceState, back } = setup('#s=b&p=222');
+		app.start();
+		await flush();
+		expect(app.currentId).toBe('b');
+		expect(app.view).toEqual({ kind: 'profile', player: '222' });
+		expect(replaceState).toHaveBeenLastCalledWith(KIT_STATE, '', '#s=b&p=222');
+		app.closeView();
+		expect(back).not.toHaveBeenCalled();
+		expect(replaceState).toHaveBeenLastCalledWith(KIT_STATE, '', '#s=b');
+	});
+
+	test('opening a view over another replaces it; switching server closes it', async () => {
+		const { app, location, replaceState } = setup('#s=a');
+		app.start();
+		await flush();
+		app.openView({ kind: 'activity' });
+		app.openView({ kind: 'profile', player: '1' });
+		expect(replaceState).toHaveBeenLastCalledWith(KIT_STATE, '', '#s=a&p=1');
+		expect(location.hash).toBe('#s=a&p=1');
+		app.select('b');
+		expect(app.view).toBeUndefined();
+		expect(location.hash).toBe('#s=b');
+	});
+
+	test('a hash for another server is ignored', async () => {
+		const { app, location, hashChanged } = setup('#s=a');
+		app.start();
+		await flush();
+		location.hash = '#s=b&activity';
+		hashChanged();
+		expect(app.view).toBeUndefined();
 	});
 });

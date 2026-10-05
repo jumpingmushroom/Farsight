@@ -48,17 +48,17 @@ export function isOfflineLike(s: Status): boolean {
 
 // --- Players (§3.7) --------------------------------------------------------
 
-export function recentList(card: Card): { name: string; until: string }[] {
+export function recentList(card: Card): { name: string; until: string; platformId: string }[] {
 	const onlineNames = new Set(card.online.map((p) => p.name));
-	const newestByName = new Map<string, string>();
+	const newestByName = new Map<string, { until: string; platformId: string }>();
 	for (const r of card.recent) {
 		if (onlineNames.has(r.name)) continue;
 		const prev = newestByName.get(r.name);
-		if (!prev || new Date(r.until).getTime() > new Date(prev).getTime()) {
-			newestByName.set(r.name, r.until);
+		if (!prev || new Date(r.until).getTime() > new Date(prev.until).getTime()) {
+			newestByName.set(r.name, { until: r.until, platformId: r.platformId });
 		}
 	}
-	return Array.from(newestByName, ([name, until]) => ({ name, until }))
+	return Array.from(newestByName, ([name, r]) => ({ name, ...r }))
 		.sort((a, b) => new Date(b.until).getTime() - new Date(a.until).getTime())
 		.slice(0, 5);
 }

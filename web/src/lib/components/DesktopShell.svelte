@@ -40,6 +40,7 @@
 	import MapUpdatedPill from './MapUpdatedPill.svelte';
 	import MarkerCard from './MarkerCard.svelte';
 	import MarkerLayer from './MarkerLayer.svelte';
+	import ProfilePanel from './ProfilePanel.svelte';
 	import ScaleReadout from './ScaleReadout.svelte';
 	import SearchBox from './SearchBox.svelte';
 	import SidePanel from './SidePanel.svelte';
@@ -78,13 +79,15 @@
 	const card = $derived(app.card?.id === app.currentId ? app.card : undefined);
 	/** The decoded 12 m explored mask, for the cursor readout's "Unexplored". */
 	const mask = $derived(app.snapshot?.mask);
-	const padLeft = $derived(panelOpen ? PANEL_W : 0);
+	/** A profile (Plan 7) takes the panel's place, open or collapsed. */
+	const profilePlayer = $derived(app.view?.kind === 'profile' ? app.view.player : undefined);
+	const padLeft = $derived(panelOpen || profilePlayer !== undefined ? PANEL_W : 0);
 
 	// The state treatment (§3.22): overlay, tile filter and pin opacity.
 	// `app.tileSamples` is replaced together with `app.card`, so reading it
 	// here stays current.
 	const view = $derived(card ? mapView(card, app.now, app.tileSamples, layers.biomes) : undefined);
-	const pillL = $derived(panelOpen ? PANEL_W : 190);
+	const pillL = $derived(padLeft > 0 ? padLeft : 190);
 
 	// Markers are hidden while waiting for a save and while charting.
 	const markersOn = $derived(!!view?.markersOn);
@@ -250,6 +253,12 @@
 		select(altar.id);
 	}
 
+	/** A profile's "Map →": centre on the item at zoom 4, selecting its marker when it's on the map. */
+	function mapTo(x: number, z: number, id: string): void {
+		atlas?.centerOn(x, z, 4);
+		if (all.some((m) => m.id === id)) select(id);
+	}
+
 	/** Search pick (§5.2): centre on the marker at zoom 4.25 and select it. */
 	function pickResult(m: MapMarker): void {
 		atlas?.centerOn(m.x, m.z, 4.25);
@@ -275,7 +284,11 @@
 			closeLayers();
 			return;
 		}
-		if (selectedId !== undefined) select(undefined);
+		if (selectedId !== undefined) {
+			select(undefined);
+			return;
+		}
+		if (app.view) app.closeView();
 	}
 </script>
 
@@ -300,7 +313,9 @@
 		<MarkerLayer {map} {all} {layers} {portalLinks} {selectedId} onselect={select} />
 	{/if}
 
-	{#if panelOpen}
+	{#if profilePlayer !== undefined && app.currentId}
+		<ProfilePanel serverId={app.currentId} player={profilePlayer} onback={() => app.closeView()} onmap={mapTo} />
+	{:else if panelOpen}
 		<SidePanel bind:tab oncollapse={() => (panelOpen = false)} onjoin={openJoin} onshowaltar={showAltar} />
 	{:else}
 		<CollapsedPill onopen={() => (panelOpen = true)} />
@@ -356,7 +371,7 @@
 		</div>
 	{/if}
 
-	<ScaleReadout {map} {mask} left={panelOpen ? PANEL_W : 16} />
+	<ScaleReadout {map} {mask} left={padLeft > 0 ? padLeft : 16} />
 	<ZoomControls
 		onzoomin={() => atlas?.zoomBy(0.75)}
 		onzoomout={() => atlas?.zoomBy(-0.75)}

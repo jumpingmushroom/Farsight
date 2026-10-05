@@ -120,6 +120,7 @@ describe('recentList', () => {
 		expect(list.find((r) => r.name === 'Halvor')).toBeUndefined();
 		const alina = list.find((r) => r.name === 'Alina');
 		expect(alina?.until).toBe(iso(-500));
+		expect(alina?.platformId).toBe('2');
 		for (let i = 1; i < list.length; i++) {
 			expect(new Date(list[i - 1].until).getTime()).toBeGreaterThanOrEqual(new Date(list[i].until).getTime());
 		}
