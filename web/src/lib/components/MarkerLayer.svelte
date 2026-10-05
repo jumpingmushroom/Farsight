@@ -9,21 +9,27 @@
   - One L.marker per group with an L.divIcon, diffed by group key (the sorted
     ids), so unchanged pins keep their DOM: a pin is only moved, and its icon
     only replaced, when its HTML changes.
-  - Portal lines are L.polylines in the `portalLines` pane, styled by class
-    (.pl, .pl-sel, .pl-dim in app.css).
+  - The visible set (layers, fog, minZoom) and its portal pairs are cached
+    and only recomputed when an input changes or the zoom crosses a minZoom
+    (createVisibleCache); a spatial grid over it means a render projects only
+    the markers near the view (viewPoints), not every marker — on a large
+    server a pan used to project and cull thousands (marker-view.ts).
+  - Portal lines are at most one multi-line L.polyline per style class
+    (.pl, .pl-sel, .pl-dim in app.css) in the `portalLines` pane, updated in
+    place with setLatLngs — not one polyline per pair, all re-added on any
+    change and all reprojected by the SVG renderer on every moveend.
 -->
 <script lang="ts">
 	import L from 'leaflet';
 	import { untrack } from 'svelte';
 	import { cluster } from '$lib/cluster';
-	import { toLatLng } from '$lib/geo';
+	import { fromLatLng, toLatLng } from '$lib/geo';
+	import { createVisibleCache, viewPoints, type Projector } from '$lib/marker-view';
 	import {
 		clusterHtml,
 		clusterSize,
 		clusterTooltip,
 		pinHtml,
-		portalPairs,
-		visibleMarkers,
 		type LayerKey,
 		type MapMarker
 	} from '$lib/markers';
@@ -69,22 +75,19 @@
 	}
 
 	const entries = new Map<string, Entry>();
-	let lines: L.Polyline[] = [];
-	let linesSig = '';
+	const getVisible = createVisibleCache();
 	let frame = 0;
+
+	const projector: Projector = {
+		project: (x, z) => map.latLngToContainerPoint(toLatLng(x, z)),
+		unproject: (px, py) => fromLatLng(map.containerPointToLatLng([px, py]))
+	};
 
 	function render(): void {
 		frame = 0;
 		const zoom = map.getZoom();
-		const visible = visibleMarkers(all, layers, mask, fog, zoom);
-		const byId = new Map(visible.map((m) => [m.id, m]));
-		const size = map.getSize();
-		const pts: { id: string; x: number; y: number }[] = [];
-		for (const m of visible) {
-			const p = map.latLngToContainerPoint(toLatLng(m.x, m.z));
-			if (p.x < -CULL || p.y < -CULL || p.x > size.x + CULL || p.y > size.y + CULL) continue;
-			pts.push({ id: m.id, x: p.x, y: p.y });
-		}
+		const { byId, pairs, grid } = getVisible(all, layers, mask, fog, zoom);
+		const pts = viewPoints(grid, projector, map.getSize(), CULL);
 		// At max zoom a cluster click can't zoom further, so markers closer
 		// than the radius there (a portal inside a base) would be unreachable:
 		// show them unclustered instead.
@@ -162,7 +165,7 @@
 			entries.delete(key);
 		}
 
-		renderLines(visible);
+		renderLines(pairs);
 	}
 
 	function divIcon(html: string, size: number, pin: boolean): L.DivIcon {
@@ -174,22 +177,56 @@
 		});
 	}
 
-	function renderLines(visible: MapMarker[]): void {
-		const pairs = layers.portals && portalLinks ? portalPairs(visible) : [];
-		const cls = (a: MapMarker, b: MapMarker) =>
+	// Portal lines: one polyline per class, drawn bottom to top in this order
+	// (the selected pair's line above the rest).
+	const LINE_CLASSES = ['pl', 'pl pl-dim', 'pl pl-sel'] as const;
+	type LineClass = (typeof LINE_CLASSES)[number];
+	const lines = new Map<LineClass, { line: L.Polyline; sig: string }>();
+	let linesKey: { pairs: [MapMarker, MapMarker][]; selectedId: string | undefined; on: boolean } | undefined;
+
+	function renderLines(allPairs: [MapMarker, MapMarker][]): void {
+		const on = layers.portals && portalLinks;
+		if (linesKey && linesKey.pairs === allPairs && linesKey.selectedId === selectedId && linesKey.on === on) return;
+		linesKey = { pairs: allPairs, selectedId, on };
+		const cls = (a: MapMarker, b: MapMarker): LineClass =>
 			selectedId === a.id || selectedId === b.id ? 'pl pl-sel' : selectedId ? 'pl pl-dim' : 'pl';
-		const sig = pairs.map(([a, b]) => `${a.id}:${a.x},${a.z}-${b.id}:${b.x},${b.z}:${cls(a, b)}`).join(';');
-		if (sig === linesSig) return;
-		linesSig = sig;
-		for (const l of lines) l.remove();
-		lines = pairs.map(([a, b]) =>
-			L.polyline([toLatLng(a.x, a.z), toLatLng(b.x, b.z)], {
+		const groups = new Map<LineClass, [MapMarker, MapMarker][]>();
+		if (on) {
+			for (const p of allPairs) {
+				const c = cls(p[0], p[1]);
+				const g = groups.get(c);
+				if (g) g.push(p);
+				else groups.set(c, [p]);
+			}
+		}
+		let added = false;
+		for (const c of LINE_CLASSES) {
+			const g = groups.get(c);
+			const cur = lines.get(c);
+			if (!g) {
+				cur?.line.remove();
+				lines.delete(c);
+				continue;
+			}
+			const sig = g.map(([a, b]) => `${a.id}:${a.x},${a.z}-${b.id}:${b.x},${b.z}`).join(';');
+			if (cur?.sig === sig) continue;
+			const latlngs = g.map(([a, b]) => [toLatLng(a.x, a.z), toLatLng(b.x, b.z)]);
+			if (cur) {
+				cur.line.setLatLngs(latlngs);
+				cur.sig = sig;
+				continue;
+			}
+			const line = L.polyline(latlngs, {
 				pane: 'portalLines',
-				className: cls(a, b),
+				className: c,
 				interactive: false,
 				color: '#9cc4e0'
-			}).addTo(map)
-		);
+			}).addTo(map);
+			lines.set(c, { line, sig });
+			added = true;
+		}
+		// A new path is appended last in the SVG: restore the class order.
+		if (added) for (const c of LINE_CLASSES) lines.get(c)?.line.bringToFront();
 	}
 
 	function schedule(): void {
@@ -225,9 +262,9 @@
 			frame = 0;
 			for (const e of entries.values()) e.marker.remove();
 			entries.clear();
-			for (const l of lines) l.remove();
-			lines = [];
-			linesSig = '';
+			for (const l of lines.values()) l.line.remove();
+			lines.clear();
+			linesKey = undefined;
 		};
 	});
 </script>

@@ -318,8 +318,11 @@ test('7 · layers: beds on adds beds, portals off removes portal pins and lines'
 	const mentions = (kind: string) => page.locator(`.leaflet-marker-icon[title*="${kind}"]`);
 	// Only one line: portal-3's partner (portal-4, the "mountain" tag) is
 	// unexplored and filtered out (fix round 1, item 6), so only the "home"
-	// pair (portal-1/portal-2) still draws one.
+	// pair (portal-1/portal-2) still draws one. Lines are one path per
+	// style class, one subpath (an M command) per pair.
 	await expect(lines).toHaveCount(1);
+	await expect(lines).toHaveClass('pl');
+	expect((await lines.getAttribute('d'))!.match(/M/g)).toHaveLength(1);
 	await expect(mentions('Bed')).toHaveCount(0);
 
 	await page.getByRole('button', { name: /^Layers ·/ }).click();
@@ -345,6 +348,10 @@ test('8 · jump to partner selects the other portal', async ({ page }) => {
 	await options.first().click();
 	const card = markerCard(page);
 	await expect(card).toContainText('Paired');
+	// The selected pair's line takes the selected style (its own path).
+	const lines = page.locator('.leaflet-portalLines-pane path');
+	await expect(lines).toHaveCount(1);
+	await expect(lines).toHaveClass('pl pl-sel');
 	const ends = ['X 131 · Z −70', 'X 3,210 · Z 71'];
 	const where = card.locator('.where');
 	await expect(where).toHaveText(new RegExp(`^(${ends.join('|')})$`));
