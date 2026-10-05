@@ -184,8 +184,11 @@ var migrations = [][]string{
 	},
 	// 2: world-save events (Plan 7). world_diff records, per server, the
 	// last snapshot whose differences went into events (its presence means
-	// the backfill has run); tombstones holds every distinct tombstone ever
-	// seen in a save, with the save time it first appeared.
+	// at least one snapshot has been diffed, not that the backfill has
+	// completed: an interrupted backfill leaves the row at whatever
+	// snapshot it reached, and CatchUp resumes from there); tombstones
+	// holds every distinct tombstone ever seen in a save, with the save
+	// time it first appeared.
 	{
 		`CREATE TABLE IF NOT EXISTS world_diff (
 			server_id TEXT PRIMARY KEY,

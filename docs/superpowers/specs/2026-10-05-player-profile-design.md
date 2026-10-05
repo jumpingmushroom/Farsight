@@ -50,8 +50,9 @@ estimated.
 
 `GET /api/servers/{id}/players/{playerId}` (behind the same unlock check as
 the other server routes; 404 for an unknown player or locked server). The
-tombstone history is computed by scanning stored snapshots once per new save
-and cached per server.
+tombstone history comes from the `tombstones` table, kept incrementally by
+the world-save diff (see Implementation notes), not from scanning
+snapshots.
 
 ## Agent
 
@@ -113,7 +114,9 @@ Decisions the plan made where this spec left room:
 - **Tombstone history** is kept incrementally: the world-save diff that
   writes timeline events also records every distinct tombstone, with the
   save it first appeared in, in a `tombstones` table. Stored snapshots are
-  pruned after 14 days; the table isn't.
+  pruned after 14 days only once the world diff has passed them; a server
+  with no `world_diff` row yet has nothing pruned. The table itself is never
+  pruned.
 - **Beds:** the nearest explored base within 300 m names a bed, otherwise
   its biome.
 - **Tracked since** is the server's earliest stored event (the first session

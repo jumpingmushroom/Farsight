@@ -1,6 +1,6 @@
 # Activity timeline
 
-Status: design for review, 2026-10-05. Implements design section 05
+Status: approved design, 2026-10-05. Implements design section 05
 (`design/World Atlas.dc.html` `:837-908`), which the MVP left out
 (DESIGN-NOTES §1.8, §3.8).
 
@@ -28,8 +28,12 @@ tracking began (30 Sep 2026).
 - Server-log events carry their exact time and the source line "Server log".
 - World-save events carry the save's time ("World save · 14:20"), never the
   exact moment, plus "Show on map →" when the place is in explored ground.
+- A world event whose place lies in unexplored ground under the *current*
+  explored map is hidden from the activity API entirely, including the
+  category counts, until that ground is explored.
 - Place wording: the nearest known location within 300 m ("near a sunken
-  crypt") and the biome; otherwise the biome alone.
+  crypt") and the biome, but only when both the event's point and that
+  location are explored; otherwise the biome alone.
 - Each event records the players it concerns (joiner, tombstone owner, portal
   creator, tame namer, base builders) for the people filter.
 
@@ -40,10 +44,12 @@ tracking began (30 Sep 2026).
   (types `world_tombstone`, `world_portal`, `world_portal_paired`,
   `world_tame`, `world_base_new`, `world_base_grew`, `world_boss`), with ids
   derived from the save and the object so re-runs are idempotent.
-- Backfill: on start, if world events have not been derived yet for a
-  server, replay all stored snapshots since 30 Sep in order once.
-- Bases are matched across saves by their id; growth below 25 pieces is not
-  reported.
+- Backfill: derivation runs in the background (`CatchUpAsync`), both after
+  ingest and once per server at startup, replaying every stored snapshot
+  since 30 Sep in order, one at a time, resumable across a restart; see
+  "Derivation" below for shutdown behaviour.
+- Bases are matched one to one across saves, by nearest centre; growth
+  below 25 pieces is not reported.
 
 ## Raids (agent)
 
@@ -103,12 +109,18 @@ Decisions the plan made where this spec left room:
   previous base whose centre is nearest (within its radius plus 32 m), and
   tames by counting (species, name): tames walk about. Unnamed tames (bred
   or freshly tamed animals) aren't reported. Owners and namers aren't part
-  of any match, so the agent update that adds them reports nothing.
+  of any match, so the agent update that adds them reports nothing. Bases
+  match one to one; when saves merge, a base's growth is measured against
+  the sum of every base it absorbed.
 - **Baseline:** the first stored save of a server yields no events; what is
   in it predates tracking.
-- **Portals:** a new portal's event says whether it is paired already;
-  "now paired" is only for two existing portals that pair, so one new pair
-  is reported once.
+- **Portals:** a new portal's event says whether it is paired already, and
+  a pair that forms between two old portals gets its own "now paired"
+  event. Either way, a portal counts as paired only when both ends —
+  including, for a new portal's own event, the new portal itself — are
+  explored; a pairing with an unexplored end is reported as unpaired (or
+  not at all) until that end is explored. One pairing gives exactly one
+  `world_portal_paired` event.
 - **Retention:** only heartbeat and players_now events are pruned after 14
   days now; everything else stays, so the timeline reaches back to when
   tracking began.
@@ -123,8 +135,11 @@ Decisions the plan made where this spec left room:
 - **Raids:** the event names mapped to messages are the ones known from the
   game; anything else shows as its raw name ("Raid: army_gjall"). A raid's
   event id leaves the name out, so no other event's id changed.
-- **Derivation** runs inside snapshot ingest (a failure is logged, not
-  returned to the agent) and once per server at startup.
+- **Derivation** runs in the background, not inside the request: ingest
+  starts it (`CatchUpAsync`, a failure is logged, not returned to the
+  agent) and there's a second pass per server at startup, both serialised
+  per server. Shutdown cancels the background context and waits, bounded,
+  for in-flight derivation to actually return before the store closes.
 - **The card's activity** uses the timeline's entry shape, so the side
   panel's short list follows the same filters; its world-save rows show
   "save HH:MM".
