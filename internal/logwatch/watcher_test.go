@@ -376,3 +376,13 @@ func TestWatcherWarnsWhenLogTZLooksWrong(t *testing.T) {
 		})
 	}
 }
+
+func TestWatcherEmitsRaids(t *testing.T) {
+	dir := t.TempDir()
+	srv := filepath.Join(dir, "valheim-server-stdout---supervisor-aaaa.log")
+	appendLine(t, srv, "10/03/2026 21:14:05: Random event set:army_theelder\n")
+	c, _ := startWatcher(t, dir)
+	waitFor(t, func() bool { return c.count(EvRaid) == 1 })
+	appendLine(t, srv, "10/03/2026 21:40:00: Random event set:foresttrolls\n")
+	waitFor(t, func() bool { return c.count(EvRaid) == 2 })
+}
