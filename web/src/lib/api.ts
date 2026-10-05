@@ -97,14 +97,25 @@ export async function getProfile(
 	});
 }
 
-/** Three local days of activity ending at `before` (the start of an earlier page), or at the end of today. */
+/**
+ * `days` (1-14) local days of activity ending at `before` (the start of an
+ * earlier page), or at the end of today; `days` defaults to the server's
+ * own default (3) when omitted. A quiet refresh (fix round 2) passes an
+ * enlarged `days` to keep an already-loaded page's `from` pinned across a
+ * local-midnight rollover, instead of the server's default window sliding
+ * forward and opening a gap before any page loaded via "Show earlier".
+ */
 export async function getActivity(
 	id: string,
 	before?: string,
 	f: typeof fetch = fetch,
-	timeoutMs = ACTIVITY_TIMEOUT_MS
+	timeoutMs = ACTIVITY_TIMEOUT_MS,
+	days?: number
 ): Promise<ActivityPage> {
-	const q = before ? `?before=${encodeURIComponent(before)}` : '';
+	const params: string[] = [];
+	if (before) params.push(`before=${encodeURIComponent(before)}`);
+	if (days !== undefined) params.push(`days=${days}`);
+	const q = params.length ? `?${params.join('&')}` : '';
 	return withTimeout(timeoutMs, async (signal) => {
 		const res = await f(`/api/servers/${encodeURIComponent(id)}/activity${q}`, jsonInit(signal));
 		if (!res.ok) throw new ApiError(res.status, await res.text());

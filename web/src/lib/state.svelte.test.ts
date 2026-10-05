@@ -165,7 +165,13 @@ class FakeServer {
 		}
 		const activity = path.match(/^\/api\/servers\/([^/]+)\/activity(\?.*)?$/);
 		if (activity) {
-			const a = this.activity[decodeURIComponent(activity[1])];
+			const id = decodeURIComponent(activity[1]);
+			// A test can key by the exact request (e.g. "a/activity?days=4", to
+			// stand in for what a real server would answer that query with);
+			// falling back to the bare id keeps every existing id-keyed test
+			// working unchanged (same canned page for any query).
+			const key = path.slice('/api/servers/'.length);
+			const a = key in this.activity ? this.activity[key] : this.activity[id];
 			if (a === undefined) return new Response('not found', { status: 404 });
 			if (typeof a === 'number') return new Response('err', { status: a });
 			return json(a);
@@ -1182,6 +1188,71 @@ describe('activity refresh (fix round 1)', () => {
 		await flush();
 		expect(app.activityFailed).toBe(false);
 		expect(app.activityPages.length).toBe(1);
+	});
+});
+
+describe('activity refresh across local midnight (fix round 2)', () => {
+	test('a poll refresh after local midnight keeps the loaded range contiguous: no gap, no duplicate', async () => {
+		// 10 s before UTC midnight; the server's timeZone here is UTC, so
+		// "local midnight" is UTC midnight — the exact same day-boundary
+		// code path as any other zone, without extra offset arithmetic.
+		vi.setSystemTime(new Date('2026-09-29T23:59:50Z'));
+		const { app, server } = setup('#s=a');
+
+		// Page 0: today's default 3-day window, from 2026-09-27.
+		server.activity['a/activity'] = makeActivityPage(
+			[act('player_join', '2026-09-29T10:00:00Z', { name: 'Bjorn' })],
+			{ from: '2026-09-27T00:00:00Z', until: '2026-09-30T00:00:00Z', earliest: '2026-09-20T00:00:00Z' }
+		);
+		server.today['a'] = makeToday();
+		app.start();
+		await flush();
+		app.openView({ kind: 'activity' });
+		await flush();
+		expect(app.activityPages[0]?.from).toBe('2026-09-27T00:00:00Z');
+
+		// "Show earlier": the three days before page 0's `from`.
+		server.activity['a/activity?before=2026-09-27T00%3A00%3A00Z'] = makeActivityPage(
+			[act('player_join', '2026-09-25T10:00:00Z', { name: 'Astrid' })],
+			{ from: '2026-09-24T00:00:00Z', until: '2026-09-27T00:00:00Z', earliest: '2026-09-20T00:00:00Z' }
+		);
+		await app.loadEarlierActivity();
+		expect(app.activityPages.length).toBe(2);
+		expect(app.activityPages[1]?.from).toBe('2026-09-24T00:00:00Z');
+
+		// Midnight rolls over (now 2026-09-30) and a new join lands. What a
+		// *plain* "give me the default window" request would now get back
+		// from a real server — `from` shifted forward to 2026-09-28, the
+		// same as the server's `activityWindow` always computing from
+		// "today" — leaving 2026-09-27's Halvor (and the whole day) out of
+		// every loaded page: present in neither the shifted page 0 nor the
+		// (unrefreshed) earlier page, which still ends at 2026-09-27.
+		server.activity['a/activity'] = makeActivityPage(
+			[act('player_join', '2026-09-30T00:00:10Z', { name: 'Sigrun' }), act('player_join', '2026-09-29T10:00:00Z', { name: 'Bjorn' })],
+			{ from: '2026-09-28T00:00:00Z', until: '2026-10-01T00:00:00Z', earliest: '2026-09-20T00:00:00Z' }
+		);
+		// What asking for the *correct*, pinned window (`from` kept at
+		// 2026-09-27, one more day than the default 3) gets back instead —
+		// contiguous with the earlier page, Halvor included.
+		server.activity['a/activity?days=4'] = makeActivityPage(
+			[
+				act('player_join', '2026-09-30T00:00:10Z', { name: 'Sigrun' }),
+				act('player_join', '2026-09-29T10:00:00Z', { name: 'Bjorn' }),
+				act('player_join', '2026-09-27T12:00:00Z', { name: 'Halvor' })
+			],
+			{ from: '2026-09-27T00:00:00Z', until: '2026-10-01T00:00:00Z', earliest: '2026-09-20T00:00:00Z' }
+		);
+		await vi.advanceTimersByTimeAsync(CARD_EVERY_MS); // one poll tick, crossing into 2026-09-30
+		await flush();
+
+		expect(app.activityPages.length).toBe(2);
+		const [top, earlier] = app.activityPages;
+		// Contiguous: the top page's `from` meets the earlier page's `until` exactly — no gap.
+		expect(top?.from).toBe(earlier?.until);
+		// No missing day (Halvor, on the boundary day) and no duplicate.
+		const names = [...(top?.events ?? []), ...(earlier?.events ?? [])].map((e) => e.name);
+		expect(names).toEqual(['Sigrun', 'Bjorn', 'Halvor', 'Astrid']);
+		expect(new Set(names).size).toBe(names.length);
 	});
 });
 

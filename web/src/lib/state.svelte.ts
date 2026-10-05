@@ -12,6 +12,7 @@ import type { TileSample } from './derive';
 import { filters } from './filters.svelte';
 import { hashFor, parseHash, sameView, type View } from './share';
 import type { ActivityPage, Card, Profile, ServerSummary, SnapshotView, TodaySessions } from './types';
+import { dayKey, daysBetween } from './zoned';
 
 export type Theme = 'dark' | 'light';
 export type UnlockResult = 'ok' | 'wrong' | 'limited';
@@ -22,6 +23,12 @@ export const SERVERS_EVERY_MS = 60_000;
 export const NOW_EVERY_MS = 30_000;
 export const TOAST_MS = 2600;
 const MAX_TILE_SAMPLES = 5;
+// Mirrors internal/server/activity.go's maxActivityDays: the cap on how far
+// a quiet refresh can grow `days` while keeping the loaded page's `from`
+// pinned (fix round 2). A view left open and visible, without ever being
+// closed or reopened, for longer than this many days past that `from`
+// would fall back to the server's sliding default window again.
+const MAX_ACTIVITY_DAYS = 14;
 
 export interface Visibility {
 	visible(): boolean;
@@ -588,12 +595,27 @@ export class AppState {
 			this.activityFailed = false;
 			this.activityGen++;
 		}
+		// Fix round 2: once an earlier page is loaded (via
+		// loadEarlierActivity(), "Show earlier"), a quiet refresh must keep
+		// the top page's `from` exactly where it was — the server's default
+		// window always ends "today", so a bare refresh after local
+		// midnight would otherwise shift `from` forward by a day too,
+		// opening a gap before that earlier page (whose `until` is fixed at
+		// the old `from`). `days` grows instead, by however many calendar
+		// days have passed since the anchor, so `from` lands on the exact
+		// same date again; capped at the server's own maximum. With only
+		// page 0 loaded there is nothing to stay contiguous with, so it is
+		// left free to track "today" as it always did.
+		const anchor = !fresh && this.activityPages.length > 1 ? this.activityPages[0] : undefined;
+		const days = anchor
+			? Math.max(1, Math.min(MAX_ACTIVITY_DAYS, daysBetween(dayKey(anchor.from, anchor.timeZone), dayKey(new Date(), anchor.timeZone)) + 1))
+			: undefined;
 		this.activityFor = id;
 		this.activityRefreshing = true;
 		const g = this.activityGen;
 		void (async () => {
 			try {
-				const [p, t] = await Promise.all([getActivity(id, undefined, this.f), getSessionsToday(id, this.f)]);
+				const [p, t] = await Promise.all([getActivity(id, undefined, this.f, undefined, days), getSessionsToday(id, this.f)]);
 				if (g !== this.activityGen) return;
 				this.today = t;
 				this.activityPages = this.activityPages.length === 0 ? [p] : [p, ...this.activityPages.slice(1)];

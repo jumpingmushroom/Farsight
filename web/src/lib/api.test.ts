@@ -252,6 +252,13 @@ describe('getActivity / getSessionsToday (Plan 7)', () => {
 		expect(fake.mock.calls[0][0]).toBe('/api/servers/a/activity');
 		expect(fake.mock.calls[1][0]).toBe('/api/servers/a/activity?before=2026-09-26T22%3A00%3A00Z');
 	});
+	test('an explicit days (fix round 2: a quiet refresh pins `from` across midnight) is passed through, with or without before', async () => {
+		const fake = vi.fn(async (_url: string) => jsonResponse({ events: [] }));
+		await getActivity('a', undefined, fake as unknown as typeof fetch, undefined, 4);
+		await getActivity('a', '2026-09-26T22:00:00Z', fake as unknown as typeof fetch, undefined, 5);
+		expect(fake.mock.calls[0][0]).toBe('/api/servers/a/activity?days=4');
+		expect(fake.mock.calls[1][0]).toBe('/api/servers/a/activity?before=2026-09-26T22%3A00%3A00Z&days=5');
+	});
 	test('sessions today; errors throw', async () => {
 		const fake = vi.fn().mockResolvedValue(jsonResponse({ players: [] }));
 		await getSessionsToday('a', fake as unknown as typeof fetch);

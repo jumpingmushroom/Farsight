@@ -66,6 +66,18 @@ export function prevDayKey(key: string): string {
 	return d.toISOString().slice(0, 10);
 }
 
+/**
+ * The number of calendar days from `aKey` to `bKey` ("2026-09-27" to
+ * "2026-09-30" → 3). Pure calendar arithmetic on the date keys (noon UTC
+ * anchors, as prevDayKey uses) rather than real elapsed time, so it stays
+ * exact across a DST transition in between.
+ */
+export function daysBetween(aKey: string, bKey: string): number {
+	const a = new Date(`${aKey}T12:00:00Z`).getTime();
+	const b = new Date(`${bKey}T12:00:00Z`).getTime();
+	return Math.round((b - a) / 86_400_000);
+}
+
 /** "14:20" */
 export function zClock(at: string | Date, tz: string): string {
 	const z = zoned(at, tz);

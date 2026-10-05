@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { dayKey, fullDayLabel, prevDayKey, weekdayInitial, zClock, zDate, zDayRef, zWeekday, zoned } from './zoned';
+import { dayKey, daysBetween, fullDayLabel, prevDayKey, weekdayInitial, zClock, zDate, zDayRef, zWeekday, zoned } from './zoned';
 
 describe('zoned', () => {
 	test('wall clock in the server zone, not the viewer’s', () => {
@@ -25,5 +25,13 @@ describe('zoned', () => {
 		expect(zDayRef('2026-10-04T23:50:00Z', 'UTC', now)).toBe('yesterday 23:50');
 		expect(zDayRef('2026-10-04T23:50:00Z', 'Europe/Oslo', now)).toBe('today 01:50');
 		expect(zDayRef('2026-09-28T03:12:00Z', 'UTC', now)).toBe('28 Sep 03:12');
+	});
+	test('daysBetween (fix round 2): pure calendar arithmetic, including across a DST transition', () => {
+		expect(daysBetween('2026-09-27', '2026-09-30')).toBe(3);
+		expect(daysBetween('2026-09-30', '2026-09-27')).toBe(-3);
+		expect(daysBetween('2026-09-27', '2026-09-27')).toBe(0);
+		// Europe/Oslo's autumn DST transition (25 Oct 2026) sits in between;
+		// the calendar-day count is still exact.
+		expect(daysBetween('2026-10-20', '2026-10-27')).toBe(7);
 	});
 });
