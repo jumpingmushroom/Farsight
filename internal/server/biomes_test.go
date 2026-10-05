@@ -98,3 +98,25 @@ func TestBiomesGenVersionTooHighIs404(t *testing.T) {
 		t.Errorf("gen %d: %d, want 404", badGen, r.code)
 	}
 }
+
+// Fix round 1: a negative GenVersion is as out-of-range for worldgen as one
+// past MaxGenVersion (tileset.Refused, which the handler now reuses rather
+// than re-deriving the bound, refuses both); nothing validates GenVersion
+// at ingest, so this can reach the handler on a crafted or corrupted
+// snapshot and must still 404 rather than hand worldgen.NewBase a
+// negative generator version.
+func TestBiomesGenVersionNegativeIs404(t *testing.T) {
+	e := newEnv(t)
+	cookie := e.mustUnlock("alpha")
+	badGen := int32(-1)
+	snap := testSnapshot("s1", at(-time.Minute))
+	snap.World.GenVersion = badGen
+	if err := e.post("alpha", "alpha-token", "snapshot", snap); err != nil {
+		t.Fatal(err)
+	}
+	e.waitWorld()
+	key := e.tiles.Key(snap.World.Seed, badGen)
+	if r := e.get("/tiles/alpha/"+key+"/biomes", cookie); r.code != 404 {
+		t.Errorf("gen %d: %d, want 404", badGen, r.code)
+	}
+}

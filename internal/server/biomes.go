@@ -3,7 +3,7 @@ package server
 import (
 	"net/http"
 
-	"github.com/jumpingmushroom/farsight/internal/worldgen"
+	"github.com/jumpingmushroom/farsight/internal/tileset"
 )
 
 // biomes serves GET /tiles/{id}/{key}/biomes: the world's base-biome grid
@@ -26,7 +26,7 @@ func (s *server) biomes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	seed, gen := ws.snap.World.Seed, ws.snap.World.GenVersion
-	if r.PathValue("key") != s.Tiles.Key(seed, gen) || gen > worldgen.MaxGenVersion {
+	if r.PathValue("key") != s.Tiles.Key(seed, gen) || tileset.Refused(gen) {
 		notFound(w)
 		return
 	}
