@@ -176,6 +176,31 @@ func TestActivityHidesUnexploredWorldEvents(t *testing.T) {
 	}
 }
 
+func TestActivityAndCardHideTimeSkip(t *testing.T) {
+	// time_skip has no category: it must never reach either the activity
+	// timeline or the card's activity list, though it is stored.
+	e := newEnv(t)
+	ev := logwatch.Event{ID: "ts1", Type: logwatch.EvTimeSkip, At: at(-5 * time.Minute), To: 488070.000010729}
+	if err := e.post("alpha", "alpha-token", "events", map[string]any{"events": []logwatch.Event{ev}}); err != nil {
+		t.Fatal(err)
+	}
+	cookie := e.mustUnlock("alpha")
+
+	var a activityJSONOut
+	e.get("/api/servers/alpha/activity", cookie).json(t, &a)
+	if len(a.Events) != 0 {
+		t.Errorf("activity events = %+v, want time_skip hidden", a.Events)
+	}
+
+	var c cardJSON
+	e.get("/api/servers/alpha", cookie).json(t, &c)
+	for _, got := range c.Activity {
+		if got["type"] == logwatch.EvTimeSkip {
+			t.Errorf("time_skip in card activity: %v", got)
+		}
+	}
+}
+
 func TestActivityRejectsBadParamsAndLockedServers(t *testing.T) {
 	e := newEnv(t)
 	cookie := e.mustUnlock("alpha")

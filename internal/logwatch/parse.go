@@ -28,6 +28,7 @@ const (
 	RawSpawn        RawKind = "spawn"
 	RawDestroy      RawKind = "destroy"
 	RawRaid         RawKind = "raid"
+	RawTimeSkip     RawKind = "time_skip"
 )
 
 // Raw is one fact read from one log line, before session pairing.
@@ -43,7 +44,8 @@ type Raw struct {
 	UID        int64
 	Platform   string
 	PlatformID string
-	Raid       string // RawRaid: the game's event name, e.g. "army_theelder"
+	Raid       string  // RawRaid: the game's event name, e.g. "army_theelder"
+	To         float64 // RawTimeSkip: nextm, the netTime the server will wake up at
 }
 
 var (
@@ -60,6 +62,7 @@ var (
 	reSpawn      = regexp.MustCompile(`^Got character ZDOID from (.+?) : (-?\d+):\d+`)
 	reDestroy    = regexp.MustCompile(`^Destroying abandoned non persistent zdo -?\d+:\d+ owner (-?\d+)`)
 	reRaid       = regexp.MustCompile(`^Random event set:\s*(\S+)`)
+	reTimeSkip   = regexp.MustCompile(`^Time ([0-9.]+), day:(\d+)\s+nextm:([0-9.]+)`)
 
 	superTS    = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+ INFO (.*)$`)
 	reStopped  = regexp.MustCompile(`^(?:stopped|exited): valheim-server \(`)
@@ -182,6 +185,13 @@ func (c *clock) serverLine(line string) []Raw {
 		return []Raw{{Kind: RawDestroy, At: at, UID: uid}}
 	case reRaid.MatchString(msg):
 		return []Raw{{Kind: RawRaid, At: at, Raid: reRaid.FindStringSubmatch(msg)[1]}}
+	case reTimeSkip.MatchString(msg):
+		v := reTimeSkip.FindStringSubmatch(msg)
+		to, err := strconv.ParseFloat(v[3], 64)
+		if err != nil {
+			return nil
+		}
+		return []Raw{{Kind: RawTimeSkip, At: at, To: to}}
 	}
 	return nil
 }

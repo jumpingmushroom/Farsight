@@ -74,6 +74,7 @@ var knownEventTypes = map[string]bool{
 	logwatch.EvWorldSaved:     true,
 	logwatch.EvHeartbeat:      true,
 	logwatch.EvRaid:           true,
+	logwatch.EvTimeSkip:       true,
 }
 
 // validEvent reports whether e is well-formed enough to apply: it has an
@@ -209,7 +210,7 @@ func (a *Applier) Apply(ctx context.Context, serverID string, evs []logwatch.Eve
 					}
 				}
 
-			case logwatch.EvWorldSaved, logwatch.EvRaid:
+			case logwatch.EvWorldSaved, logwatch.EvRaid, logwatch.EvTimeSkip:
 				// No live-state change; the row already inserted into
 				// events is enough.
 			}
