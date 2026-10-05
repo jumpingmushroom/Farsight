@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -377,6 +378,67 @@ func TestBackfillWorldEventsOnStartup(t *testing.T) {
 	}
 	if _, ok, err := st.WorldDiffState(ctx, nil, "beta"); err != nil || ok {
 		t.Fatalf("beta has no snapshots, so no state: ok=%v err=%v", ok, err)
+	}
+}
+
+// M5: a panic while deriving one server's world events, during the
+// startup catch-up, must not crash the process or stop other servers from
+// being backfilled. AfterApply (test-only) injects the panic on alpha's
+// very first snapshot; beta, backfilled afterwards, must still get its
+// events, and the panic must be logged with the server id and a stack.
+func TestBackfillWorldEventsRecoversPanicAndContinues(t *testing.T) {
+	st, err := store.Open("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	cfg := &config.Config{Servers: []config.Server{{ID: "alpha"}, {ID: "beta"}}}
+	t0 := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+
+	// alpha: a single, baseline-only snapshot.
+	blob := fmt.Sprintf(`{"serverId":"alpha","saveId":"s0","savedAt":%q,"world":{"seed":7,"genVersion":2}}`, t0.Format(time.RFC3339))
+	if _, err := st.PutSnapshot(ctx, "alpha", "s0", t0, t0, []byte(blob)); err != nil {
+		t.Fatal(err)
+	}
+	// beta: two saves, Eikthyr defeated in between.
+	for i, keys := range []string{`[]`, `["defeated_eikthyr"]`} {
+		at := t0.Add(time.Duration(i) * 20 * time.Minute)
+		blob := fmt.Sprintf(`{"serverId":"beta","saveId":"s%d","savedAt":%q,"world":{"seed":9,"genVersion":2},"globalKeys":%s}`, i, at.Format(time.RFC3339), keys)
+		if _, err := st.PutSnapshot(ctx, "beta", fmt.Sprintf("s%d", i), at, at, []byte(blob)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var logs bytes.Buffer
+	world := worldevents.NewDeriver(st, slog.New(slog.NewTextHandler(&logs, nil)))
+	calls := 0
+	world.AfterApply = func() {
+		calls++
+		if calls == 1 {
+			panic("kaboom") // fires on alpha's only (baseline) snapshot
+		}
+	}
+
+	backfillWorldEvents(ctx, cfg, world, slog.New(slog.DiscardHandler))
+
+	// alpha: the baseline still committed before the panic, so its
+	// world_diff row is there, pointing at that one snapshot (a backfill
+	// interrupted partway leaves the row where it stopped).
+	if k, ok, err := st.WorldDiffState(ctx, nil, "alpha"); err != nil || !ok || k.SaveID != "s0" {
+		t.Fatalf("alpha state = %+v ok=%v err=%v, want s0", k, ok, err)
+	}
+	// beta: backfilled normally despite alpha's panic.
+	evs, err := st.EventsBetween(ctx, "beta", t0, t0.Add(time.Hour))
+	if err != nil || len(evs) != 1 || evs[0].Type != worldevents.TypeBoss {
+		t.Fatalf("beta events = %+v err=%v", evs, err)
+	}
+
+	out := logs.String()
+	for _, want := range []string{"alpha", "kaboom", "goroutine"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log output missing %q:\n%s", want, out)
+		}
 	}
 }
 

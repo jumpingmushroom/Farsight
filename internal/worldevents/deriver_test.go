@@ -1,12 +1,15 @@
 package worldevents
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -263,5 +266,80 @@ func TestCatchUpLockWaitRespectsContext(t *testing.T) {
 	close(release)
 	if n != 0 || !errors.Is(gotErr, context.Canceled) {
 		t.Fatalf("n=%d err=%v, want 0, context.Canceled", n, gotErr)
+	}
+}
+
+// M5: a panic anywhere in the diff path must not take the process down.
+// AfterApply (test-only) is the seam used to inject one. CatchUp recovers
+// it, logs the server id and a stack trace, and returns an error instead
+// of letting the panic propagate.
+func TestCatchUpRecoversPanicAndLogsStack(t *testing.T) {
+	st := newStore(t)
+	put(t, st, world("chunked:1", t0))
+
+	var logs bytes.Buffer
+	d := NewDeriver(st, slog.New(slog.NewTextHandler(&logs, nil)))
+	d.AfterApply = func() { panic("kaboom") }
+
+	n, err := d.CatchUp(context.Background(), "srv")
+	if err == nil {
+		t.Fatal("want an error from the recovered panic, got nil")
+	}
+	if n != 0 {
+		t.Errorf("n = %d, want 0", n)
+	}
+
+	out := logs.String()
+	for _, want := range []string{"srv", "kaboom", "goroutine"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// The per-server lock must still be released after a recovered panic, or
+// every later CatchUp for that server deadlocks.
+func TestCatchUpReleasesLockAfterPanic(t *testing.T) {
+	st := newStore(t)
+	put(t, st, world("chunked:1", t0))
+
+	d := NewDeriver(st, nil)
+	d.AfterApply = func() { panic("kaboom") }
+	if _, err := d.CatchUp(context.Background(), "srv"); err == nil {
+		t.Fatal("want an error from the recovered panic, got nil")
+	}
+
+	d.AfterApply = nil
+	done := make(chan struct{})
+	go func() {
+		d.CatchUp(context.Background(), "srv")
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("CatchUp did not return: the per-server lock was not released after the panic")
+	}
+}
+
+// M5: CatchUpAsync (ingest's background path) must recover a panic the
+// same way CatchUp does. If it didn't, this test's process would crash
+// instead of failing.
+func TestCatchUpAsyncRecoversPanicAndLogsStack(t *testing.T) {
+	st := newStore(t)
+	put(t, st, world("chunked:1", t0))
+
+	var logs bytes.Buffer
+	d := NewDeriver(st, slog.New(slog.NewTextHandler(&logs, nil)))
+	d.AfterApply = func() { panic("kaboom") }
+
+	d.CatchUpAsync("srv")
+	d.Idle() // would hang or crash the test binary if the panic weren't recovered
+
+	out := logs.String()
+	for _, want := range []string{"srv", "kaboom", "goroutine"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log output missing %q:\n%s", want, out)
+		}
 	}
 }

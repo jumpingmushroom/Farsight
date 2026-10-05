@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"runtime/debug"
 	"sync"
 
 	"github.com/jumpingmushroom/farsight/internal/extract"
@@ -106,7 +107,23 @@ func (d *Deriver) load(ctx context.Context, serverID, saveID string) (*extract.S
 // again between snapshots, so a long backfill (or one waiting its turn
 // behind another) stops promptly when ctx is cancelled instead of running
 // to completion.
-func (d *Deriver) CatchUp(ctx context.Context, serverID string) (int, error) {
+//
+// A panic anywhere in the diff path (worldgen, explored, or elsewhere) is
+// recovered here rather than crashing the process: both callers run this
+// in the background (CatchUpAsync, and the startup backfill's own
+// goroutine), where an unrecovered panic would take farsight down, and the
+// startup backfill would then crash-loop on every restart. The recovered
+// panic is logged with the server id and a stack trace, and returned as an
+// error like any other CatchUp failure, so the caller skips this server
+// and moves on exactly as it does for a decode or store error.
+func (d *Deriver) CatchUp(ctx context.Context, serverID string) (n int, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			d.log.Error("world events: recovered panic", "server", serverID, "panic", p, "stack", string(debug.Stack()))
+			err = fmt.Errorf("worldevents: recovered panic for server %s: %v", serverID, p)
+		}
+	}()
+
 	release, ok := d.acquire(ctx, serverID)
 	if !ok {
 		return 0, ctx.Err()
