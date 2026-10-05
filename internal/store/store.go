@@ -182,6 +182,27 @@ var migrations = [][]string{
 			status_at       INTEGER
 		)`,
 	},
+	// 2: world-save events (Plan 7). world_diff records, per server, the
+	// last snapshot whose differences went into events (its presence means
+	// the backfill has run); tombstones holds every distinct tombstone ever
+	// seen in a save, with the save time it first appeared.
+	{
+		`CREATE TABLE IF NOT EXISTS world_diff (
+			server_id TEXT PRIMARY KEY,
+			save_id   TEXT NOT NULL,
+			saved_at  INTEGER NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS tombstones (
+			server_id  TEXT NOT NULL,
+			id         TEXT NOT NULL,
+			owner      TEXT NOT NULL,
+			x          REAL NOT NULL,
+			z          REAL NOT NULL,
+			first_seen INTEGER NOT NULL,
+			PRIMARY KEY (server_id, id)
+		) WITHOUT ROWID`,
+		`CREATE INDEX IF NOT EXISTS idx_sessions_server_platform ON sessions (server_id, platform_id)`,
+	},
 }
 
 // migrate brings the database schema up to len(migrations), tracking the

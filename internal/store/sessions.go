@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"slices"
+	"sort"
 	"time"
 )
 
@@ -123,6 +125,100 @@ func (s *Store) Recent(ctx context.Context, serverID string, after time.Time, li
 	}
 	defer rows.Close()
 	return scanSessions(rows)
+}
+
+// PlayerSessions returns every session of platformID on serverID, oldest
+// first.
+func (s *Store) PlayerSessions(ctx context.Context, serverID, platformID string) ([]Session, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT server_id, platform_id, name, since, platform, until, seconds, reason
+		FROM sessions
+		WHERE server_id = ? AND platform_id = ?
+		ORDER BY since ASC`, serverID, platformID)
+	if err != nil {
+		return nil, fmt.Errorf("store: player sessions: %w", err)
+	}
+	defer rows.Close()
+	return scanSessions(rows)
+}
+
+// SessionsOverlapping returns serverID's sessions that overlap
+// [from, until): started before until, and still open or ended after
+// from. Oldest first.
+func (s *Store) SessionsOverlapping(ctx context.Context, serverID string, from, until time.Time) ([]Session, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT server_id, platform_id, name, since, platform, until, seconds, reason
+		FROM sessions
+		WHERE server_id = ? AND since < ? AND (until IS NULL OR until > ?)
+		ORDER BY since ASC`, serverID, millis(until), millis(from))
+	if err != nil {
+		return nil, fmt.Errorf("store: sessions overlapping: %w", err)
+	}
+	defer rows.Close()
+	return scanSessions(rows)
+}
+
+// Player is one platform ID seen on a server, under the newest name its
+// sessions carry.
+type Player struct {
+	PlatformID string
+	Platform   string
+	Name       string
+	Names      []string  // every name its sessions carry, oldest first
+	Online     bool      // has an open session
+	LastSeen   time.Time // latest session end; zero if it never closed one
+}
+
+// Players returns every player with a platform ID on serverID: online
+// players first (by name), then by LastSeen, newest first.
+func (s *Store) Players(ctx context.Context, serverID string) ([]Player, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT server_id, platform_id, name, since, platform, until, seconds, reason
+		FROM sessions
+		WHERE server_id = ? AND platform_id <> ''
+		ORDER BY since ASC`, serverID)
+	if err != nil {
+		return nil, fmt.Errorf("store: players: %w", err)
+	}
+	defer rows.Close()
+	sessions, err := scanSessions(rows)
+	if err != nil {
+		return nil, err
+	}
+	byID := map[string]*Player{}
+	var order []string
+	for _, sess := range sessions {
+		p := byID[sess.PlatformID]
+		if p == nil {
+			p = &Player{PlatformID: sess.PlatformID}
+			byID[sess.PlatformID] = p
+			order = append(order, sess.PlatformID)
+		}
+		p.Name, p.Platform = sess.Name, sess.Platform // oldest first: the last one wins
+		if !slices.Contains(p.Names, sess.Name) {
+			p.Names = append(p.Names, sess.Name)
+		}
+		if sess.Until == nil {
+			p.Online = true
+		} else if sess.Until.After(p.LastSeen) {
+			p.LastSeen = *sess.Until
+		}
+	}
+	out := make([]Player, 0, len(order))
+	for _, id := range order {
+		out = append(out, *byID[id])
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if a.Online != b.Online {
+			return a.Online
+		}
+		if a.Online {
+			return a.Name < b.Name
+		}
+		return a.LastSeen.After(b.LastSeen)
+	})
+	return out, nil
 }
 
 // ServersWithOpenSessions returns the IDs of all servers that currently

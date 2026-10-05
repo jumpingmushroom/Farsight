@@ -362,31 +362,36 @@ func TestSaveTimesOrdersDesc(t *testing.T) {
 	}
 }
 
-func TestPruneEvents(t *testing.T) {
+func TestPruneEventsDeletesOnlyOldHeartbeatsAndPlayersNow(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	if _, err := s.InsertEventIfNew(ctx, nil, "srv", logwatch.Event{ID: "old", Type: logwatch.EvPlayerJoin, At: ms("2026-01-01T00:00:00Z")}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.InsertEventIfNew(ctx, nil, "srv", logwatch.Event{ID: "new", Type: logwatch.EvPlayerJoin, At: ms("2026-01-03T00:00:00Z")}); err != nil {
-		t.Fatal(err)
+	for _, e := range []logwatch.Event{
+		{ID: "old-hb", Type: logwatch.EvHeartbeat, At: ms("2026-01-01T00:00:00Z")},
+		{ID: "old-now", Type: logwatch.EvPlayersNow, At: ms("2026-01-01T00:00:00Z")},
+		{ID: "old-join", Type: logwatch.EvPlayerJoin, At: ms("2026-01-01T00:00:00Z")},
+		{ID: "new-hb", Type: logwatch.EvHeartbeat, At: ms("2026-01-03T00:00:00Z")},
+		{ID: "new-join", Type: logwatch.EvPlayerJoin, At: ms("2026-01-03T00:00:00Z")},
+	} {
+		if _, err := s.InsertEventIfNew(ctx, nil, "srv", e); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	n, err := s.PruneEvents(ctx, ms("2026-01-02T00:00:00Z"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 1 {
-		t.Fatalf("pruned %d, want 1", n)
+	if n != 2 {
+		t.Fatalf("pruned %d, want 2 (the old heartbeat and players_now)", n)
 	}
 
 	got, err := s.RecentActivity(ctx, "srv", 100)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].ID != "new" {
-		t.Fatalf("remaining events = %+v", got)
+	if len(got) != 2 || got[0].ID != "new-join" || got[1].ID != "old-join" {
+		t.Fatalf("remaining activity = %+v, want new-join then old-join", got)
 	}
 }
 
