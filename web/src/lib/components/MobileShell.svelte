@@ -30,6 +30,7 @@
 		buildMarkers,
 		defaultLayers,
 		layerCounts,
+		markerAt,
 		markersKey,
 		visibleMarkers,
 		type LayerKey,
@@ -37,6 +38,7 @@
 	} from '$lib/markers';
 	import { cardPadBottom, centerDy, mobileDim, topBarSub, zoomBottom, type MobileOverlay, type Snap } from '$lib/mobile';
 	import { app } from '$lib/state.svelte';
+	import ActivitySheet from './ActivitySheet.svelte';
 	import AtlasMap from './AtlasMap.svelte';
 	import ChartingCard from './ChartingCard.svelte';
 	import JoinSheet from './JoinSheet.svelte';
@@ -70,6 +72,23 @@
 	let selectedKey: string | undefined;
 	/** Focus to restore when an overlay sheet closes. */
 	let opener: HTMLElement | null = null;
+	/**
+	 * Adaptation (Plan 7, brief predates it): the Activity view's only
+	 * mobile entry point is "Full timeline" inside the menu sheet, which
+	 * unmounts as the sheet closes to open ActivitySheet — unlike a
+	 * profile, always opened from a row that stays mounted underneath,
+	 * there is nothing left for ActivitySheet's own focusTrap to capture
+	 * as its opener. This carries the menu's own opener (the top bar's
+	 * menu button, which does stay mounted) across that gap.
+	 */
+	let activityOpener: HTMLElement | null = null;
+	$effect(() => {
+		if (app.view?.kind === 'activity') return;
+		const el = activityOpener;
+		if (!el) return;
+		activityOpener = null;
+		if (el.isConnected) requestAnimationFrame(() => el.focus({ preventScroll: true }));
+	});
 
 	const card = $derived(app.card?.id === app.currentId ? app.card : undefined);
 	const summary = $derived(app.servers.find((s) => s.id === app.currentId));
@@ -207,6 +226,18 @@
 			const close = document.querySelector<HTMLElement>('[data-testid="mobile-marker-card"] [aria-label="Close"]');
 			(close ?? map?.getContainer())?.focus();
 		});
+	}
+
+	/** The timeline's "Show on map →": close the sheet, centre there, selecting the marker if any. */
+	function showOnMap(x: number, z: number): void {
+		app.closeView();
+		snap = 'peek';
+		const m = markerAt(all, x, z);
+		if (m) {
+			focusMarker(m, 4);
+		} else if (map) {
+			atlas?.centerOn(x, z, 4, centerDy(map.getSize().y));
+		}
 	}
 
 	/** Search pick (§5.2, Mobile ruling): close the menu, select the marker at zoom 4.25. */
@@ -352,6 +383,11 @@
 			ontoggle={toggleLayer}
 			onlinks={() => (portalLinks = !portalLinks)}
 			onpick={pickResult}
+			ontimeline={() => {
+				activityOpener = opener;
+				closeOverlay(false);
+				app.openView({ kind: 'activity' });
+			}}
 			onclose={() => closeOverlay()}
 		/>
 	{:else if overlay === 'server'}
@@ -362,6 +398,8 @@
 
 	{#if profilePlayer !== undefined && app.currentId}
 		<ProfileSheet serverId={app.currentId} player={profilePlayer} onclose={() => app.closeView()} onmap={mapTo} />
+	{:else if app.view?.kind === 'activity' && app.currentId}
+		<ActivitySheet serverId={app.currentId} gameDay={card?.world?.day} onclose={() => app.closeView()} onmap={showOnMap} />
 	{/if}
 </main>
 

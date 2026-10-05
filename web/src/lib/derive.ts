@@ -3,8 +3,9 @@
 // against DESIGN-NOTES §3.3, §3.5, §3.7, §3.8, §3.9, §3.10, §3.11, §3.19,
 // §3.22 and the plan's rulings on design ambiguities.
 
-import { fmtClock, fmtCode, fmtDayRef, fmtMapAge } from './format';
-import type { Card, Marker, ServerSummary, Status, WorldCard } from './types';
+import { fmtClock, fmtDayRef, fmtMapAge } from './format';
+import { eventIcon, eventText, eventTone, passes, type ActivityIcon, type Tone } from './timeline';
+import type { Activity, Card, Category, Marker, ServerSummary, Status, WorldCard } from './types';
 
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -63,59 +64,37 @@ export function recentList(card: Card): { name: string; until: string; platformI
 		.slice(0, 5);
 }
 
-// --- Activity (§3.8) --------------------------------------------------------
+// --- Activity (§3.8; Plan 7) ------------------------------------------------
 
 export interface ActivityRow {
-	icon: 'log-in' | 'log-out' | 'power' | 'map';
-	tone: 'ember' | 'neutral';
+	icon: ActivityIcon;
+	tone: Tone;
 	text: string;
 	at: string;
+	source: Activity['source'];
 }
 
-function toActivityRow(a: Card['activity'][number]): ActivityRow | undefined {
-	switch (a.type) {
-		case 'player_join':
-			return { icon: 'log-in', tone: 'ember', text: `${a.name} joined`, at: a.at };
-		case 'player_leave':
-			return { icon: 'log-out', tone: 'neutral', text: `${a.name} left`, at: a.at };
-		case 'server_ready':
-			return {
-				icon: 'power',
-				tone: 'neutral',
-				text: a.version ? `Server is up · version ${a.version}` : 'Server is up',
-				at: a.at
-			};
-		case 'server_stopped':
-			return { icon: 'power', tone: 'neutral', text: 'Server stopped', at: a.at };
-		case 'server_starting':
-		case 'server_boot':
-			return { icon: 'power', tone: 'neutral', text: 'Server starting', at: a.at };
-		case 'world_saved':
-			return { icon: 'map', tone: 'neutral', text: 'Autosave finished · map updated', at: a.at };
-		case 'join_code':
-			return {
-				icon: 'power',
-				tone: 'neutral',
-				text: `New join code ${a.code ? fmtCode(a.code) : ''}`,
-				at: a.at
-			};
-		default:
-			return undefined;
-	}
-}
-
-/** Keeps only the newest `world_saved` row (activity is `at desc`) and caps at `limit`. */
-export function activityRows(card: Card, limit: number): ActivityRow[] {
+/**
+ * The side panel's short list: the card's activity (newest first) through
+ * the timeline's filters, only the newest `world_saved` row kept, capped at
+ * `limit`. Text, icon and tone are the timeline's.
+ */
+export function activityRows(
+	card: Card,
+	limit: number,
+	off: readonly Category[] = [],
+	people: readonly string[] = []
+): ActivityRow[] {
 	const rows: ActivityRow[] = [];
 	let sawWorldSaved = false;
 	for (const a of card.activity) {
 		if (rows.length >= limit) break;
+		if (!passes(a, off, people)) continue;
 		if (a.type === 'world_saved') {
 			if (sawWorldSaved) continue;
 			sawWorldSaved = true;
 		}
-		const row = toActivityRow(a);
-		if (row) rows.push(row);
+		rows.push({ icon: eventIcon(a), tone: eventTone(a), text: eventText(a), at: a.at, source: a.source });
 	}
 	return rows;
 }

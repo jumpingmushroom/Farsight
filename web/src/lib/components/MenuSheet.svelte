@@ -4,7 +4,8 @@
   menu button. It holds:
   - the search field (52 px, 16 px text so iOS doesn't zoom);
   - with an empty query, the hint tags, then Layers (the 2-column tile grid
-    and "Show portal connections"), then the theme row "Theme · Dark/Light";
+    and "Show portal connections"), "Full timeline" (Plan 7: opens the
+    Activity view), then the theme row "Theme · Dark/Light";
   - with a query, the result rows (or "Nothing matches…") in place of the
     hints and layers. Picking a result calls `onpick` (the shell closes the
     menu and selects the marker at zoom 4.25). Enter picks the first result.
@@ -34,6 +35,7 @@
 		ontoggle,
 		onlinks,
 		onpick,
+		ontimeline,
 		onclose
 	}: {
 		all: MapMarker[];
@@ -45,6 +47,8 @@
 		ontoggle: (key: LayerKey) => void;
 		onlinks: () => void;
 		onpick: (m: MapMarker) => void;
+		/** "Full timeline" (Plan 7): the shell closes the menu and opens the Activity view. */
+		ontimeline: () => void;
 		onclose: () => void;
 	} = $props();
 
@@ -113,6 +117,9 @@
 				<SearchResults results={[]} {hints} q="" {listId} onpick={pick} onhint={hint} mobile />
 			{/if}
 			<LayersPanel id="{uid}-layers" variant="mobile" {layers} {portalLinks} {counts} {ontoggle} {onlinks} />
+			<button class="timeline" type="button" onclick={ontimeline}>
+				<span class="timeline-label">Full timeline</span><span class="timeline-sub">Who was on, deaths, portals, raids…</span>
+			</button>
 			<div class="theme">
 				<span class="theme-label">Theme · {app.theme === 'dark' ? 'Dark' : 'Light'}</span>
 				<ThemeToggle />
@@ -175,6 +182,29 @@
 	}
 	.results :global(.sub) {
 		font-size: 12.5px;
+	}
+	.timeline {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		justify-content: center;
+		min-height: 52px;
+		padding: 6px 12px;
+		border-radius: 18px;
+		border: 1.5px solid var(--color-divider);
+		background: transparent;
+		color: var(--color-text);
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+	.timeline-label {
+		font-size: 14px;
+		font-weight: 600;
+	}
+	.timeline-sub {
+		font-size: 12px;
+		color: var(--muted);
 	}
 	.theme {
 		display: flex;

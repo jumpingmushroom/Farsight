@@ -3,7 +3,7 @@
 // UI always sees the latest state.
 
 import { decodeExplored } from './explored';
-import type { Card, Profile, ServerSummary, SnapshotView } from './types';
+import type { ActivityPage, Card, Profile, ServerSummary, SnapshotView, TodaySessions } from './types';
 
 export class ApiError extends Error {
 	status: number;
@@ -25,6 +25,7 @@ const CARD_TIMEOUT_MS = 20_000;
 const SNAPSHOT_TIMEOUT_MS = 60_000;
 const UNLOCK_TIMEOUT_MS = 15_000;
 const PROFILE_TIMEOUT_MS = 20_000;
+const ACTIVITY_TIMEOUT_MS = 20_000;
 
 // `run` covers the whole request — fetch() resolving is not enough, since a
 // server can send headers promptly and then stall the body — so the caller
@@ -93,6 +94,29 @@ export async function getProfile(
 		if (res.status === 404) return null;
 		if (!res.ok) throw new ApiError(res.status, await res.text());
 		return (await res.json()) as Profile;
+	});
+}
+
+/** Three local days of activity ending at `before` (the start of an earlier page), or at the end of today. */
+export async function getActivity(
+	id: string,
+	before?: string,
+	f: typeof fetch = fetch,
+	timeoutMs = ACTIVITY_TIMEOUT_MS
+): Promise<ActivityPage> {
+	const q = before ? `?before=${encodeURIComponent(before)}` : '';
+	return withTimeout(timeoutMs, async (signal) => {
+		const res = await f(`/api/servers/${encodeURIComponent(id)}/activity${q}`, jsonInit(signal));
+		if (!res.ok) throw new ApiError(res.status, await res.text());
+		return (await res.json()) as ActivityPage;
+	});
+}
+
+export async function getSessionsToday(id: string, f: typeof fetch = fetch, timeoutMs = ACTIVITY_TIMEOUT_MS): Promise<TodaySessions> {
+	return withTimeout(timeoutMs, async (signal) => {
+		const res = await f(`/api/servers/${encodeURIComponent(id)}/sessions/today`, jsonInit(signal));
+		if (!res.ok) throw new ApiError(res.status, await res.text());
+		return (await res.json()) as TodaySessions;
 	});
 }
 

@@ -24,6 +24,7 @@
 		defaultLayers,
 		enabledLayerCount,
 		layerCounts,
+		markerAt,
 		markersKey,
 		visibleMarkers,
 		type LayerKey,
@@ -31,6 +32,7 @@
 	} from '$lib/markers';
 	import { app } from '$lib/state.svelte';
 	import type { Marker } from '$lib/types';
+	import ActivityPanel from './ActivityPanel.svelte';
 	import AtlasMap from './AtlasMap.svelte';
 	import ChartingCard from './ChartingCard.svelte';
 	import CollapsedPill from './CollapsedPill.svelte';
@@ -49,6 +51,7 @@
 	import ZoomControls from './ZoomControls.svelte';
 
 	const PANEL_W = 376; // 16 + 344 + 16
+	const ACTIVITY_W = 552; // 16 + 520 + 16
 	const POPOVER_W = 312;
 	const CULL = 40;
 
@@ -79,9 +82,10 @@
 	const card = $derived(app.card?.id === app.currentId ? app.card : undefined);
 	/** The decoded 12 m explored mask, for the cursor readout's "Unexplored". */
 	const mask = $derived(app.snapshot?.mask);
-	/** A profile (Plan 7) takes the panel's place, open or collapsed. */
+	/** A profile or the Activity view (Plan 7) takes the panel's place, open or collapsed. */
 	const profilePlayer = $derived(app.view?.kind === 'profile' ? app.view.player : undefined);
-	const padLeft = $derived(panelOpen || profilePlayer !== undefined ? PANEL_W : 0);
+	const activityOpen = $derived(app.view?.kind === 'activity');
+	const padLeft = $derived(activityOpen ? ACTIVITY_W : panelOpen || profilePlayer !== undefined ? PANEL_W : 0);
 
 	// The state treatment (§3.22): overlay, tile filter and pin opacity.
 	// `app.tileSamples` is replaced together with `app.card`, so reading it
@@ -180,27 +184,40 @@
 	});
 
 	/**
-	 * Desktop focus (fix round 1): opening a profile unmounts the SidePanel
-	 * (and whatever "Profile →" row had focus) in favour of ProfilePanel,
-	 * which focuses its own Back button on mount. Closing it remounts the
-	 * SidePanel, but as a fresh instance — a captured element reference
-	 * would just be disconnected — so once that settles (tick(), since the
-	 * panel's own effects and PlayersTab's fetch-free render still need a
-	 * beat) this looks up the row by the name `openView` recorded, and
-	 * falls back to the Online tab when that row is gone (e.g. the player
-	 * left and dropped off "Recently online" by the time the profile closed).
+	 * Desktop focus (fix round 1; extended for the Activity view, Plan 7):
+	 * opening a profile or the timeline unmounts the SidePanel (and
+	 * whatever row had focus — a "Profile →" row, or the "Full timeline →"
+	 * link) in favour of ProfilePanel/ActivityPanel, which focus their own
+	 * Back button on mount. Closing it remounts the SidePanel, but as a
+	 * fresh instance — a captured element reference would just be
+	 * disconnected — so once that settles (tick(), since the panel's own
+	 * effects and PlayersTab's fetch-free render still need a beat) this
+	 * looks up the row that opened it (by name for a profile, falling back
+	 * to the Online tab when that row is gone — e.g. the player left and
+	 * dropped off "Recently online" by the time the profile closed — or the
+	 * "Full timeline →" link for the activity view) and focuses it.
 	 */
+	let closingFocusKind: 'profile' | 'activity' | undefined;
 	let closingFocusName: string | undefined;
 	$effect(() => {
-		if (profilePlayer !== undefined) {
-			untrack(() => (closingFocusName = app.viewOpenerName));
+		if (profilePlayer !== undefined || activityOpen) {
+			untrack(() => {
+				closingFocusKind = activityOpen ? 'activity' : 'profile';
+				closingFocusName = app.viewOpenerName;
+			});
 			return;
 		}
-		if (closingFocusName === undefined) return;
+		if (closingFocusKind === undefined) return;
+		const kind = closingFocusKind;
 		const name = closingFocusName;
+		closingFocusKind = undefined;
 		closingFocusName = undefined;
 		untrack(() => {
 			void tick().then(() => {
+				if (kind === 'activity') {
+					(document.querySelector<HTMLElement>('.panel .full') ?? document.getElementById('tab-players'))?.focus();
+					return;
+				}
 				const rows = document.querySelectorAll<HTMLButtonElement>('.panel .profile');
 				const row = Array.from(rows).find((b) => b.getAttribute('aria-label') === `Profile of ${name}`);
 				(row ?? document.getElementById('tab-players'))?.focus();
@@ -288,6 +305,13 @@
 		if (all.some((m) => m.id === id)) select(id);
 	}
 
+	/** The timeline's "Show on map →": centre at zoom 4, selecting the marker there if any. */
+	function showOnMap(x: number, z: number): void {
+		atlas?.centerOn(x, z, 4);
+		const m = markerAt(all, x, z);
+		if (m) select(m.id);
+	}
+
 	/** Search pick (§5.2): centre on the marker at zoom 4.25 and select it. */
 	function pickResult(m: MapMarker): void {
 		atlas?.centerOn(m.x, m.z, 4.25);
@@ -344,6 +368,8 @@
 
 	{#if profilePlayer !== undefined && app.currentId}
 		<ProfilePanel serverId={app.currentId} player={profilePlayer} onback={() => app.closeView()} onmap={mapTo} />
+	{:else if activityOpen && app.currentId}
+		<ActivityPanel serverId={app.currentId} gameDay={card?.world?.day} onback={() => app.closeView()} onmap={showOnMap} />
 	{:else if panelOpen}
 		<SidePanel bind:tab oncollapse={() => (panelOpen = false)} onjoin={openJoin} onshowaltar={showAltar} />
 	{:else}

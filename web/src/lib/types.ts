@@ -29,15 +29,45 @@ export interface RecentSession {
 	seconds: number;
 }
 
+/** An activity category: the timeline's chips (Plan 7). */
+export type Category = 'session' | 'death' | 'boss' | 'build' | 'portal' | 'tame' | 'event' | 'server';
+
+/**
+ * One activity entry, in the card's `activity` and the timeline alike.
+ * Log events carry their exact time, world-save events (`source: 'save'`)
+ * the save's time. Only the fields its type uses are set.
+ */
 export interface Activity {
+	id: string;
 	type: string;
+	category: Category;
+	source: 'log' | 'save';
 	at: string;
+	/** Platform IDs of the players it concerns (the people filter). */
+	who: string[];
+	/** The player (log events), or the tame or base (world events). */
 	name?: string;
 	platform?: string;
+	platformId?: string;
 	code?: string;
 	players?: number;
 	seconds?: number;
 	version?: string;
+	/** event_raid: the game's event name, e.g. "army_theelder". */
+	raid?: string;
+	owner?: string;
+	tag?: string;
+	paired?: boolean;
+	species?: string;
+	pieces?: number;
+	grew?: number;
+	boss?: string;
+	biome?: string;
+	/** A known location near the place: "a sunken crypt". */
+	near?: string;
+	/** Set only for a place in explored ground ("Show on map →"). */
+	x?: number;
+	z?: number;
 }
 
 export interface Boss {
@@ -175,4 +205,26 @@ export interface Profile {
 		week: number;
 		tombstones: { id: string; biome: string; firstSeen: string; x: number; z: number }[];
 	};
+}
+
+/** GET /api/servers/{id}/activity: events in [from, until), newest first. */
+export interface ActivityPage {
+	timeZone: string;
+	from: string;
+	until: string;
+	/** When tracking began; absent before any event. */
+	earliest?: string;
+	events: Activity[];
+	counts: Record<Category, number>;
+	/** Every player seen: online first, then most recently seen. */
+	people: { id: string; name: string; online: boolean }[];
+}
+
+/** GET /api/servers/{id}/sessions/today: today's sessions in the server's zone. */
+export interface TodaySessions {
+	timeZone: string;
+	dayStart: string;
+	dayEnd: string;
+	now: string;
+	players: { id: string; name: string; online: boolean; spans: { since: string; until?: string }[] }[];
 }

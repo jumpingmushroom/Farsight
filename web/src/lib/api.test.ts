@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { ApiError, getCard, getProfile, getSnapshot, listServers, tileUrl, unlock } from './api';
+import { ApiError, getActivity, getCard, getProfile, getSessionsToday, getSnapshot, listServers, tileUrl, unlock } from './api';
 import type { ServerSummary } from './types';
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -241,5 +241,22 @@ describe('getProfile (Plan 7)', () => {
 		expect(await getProfile('a', '1', ok as unknown as typeof fetch)).toMatchObject({ id: '1', name: 'A' });
 		const bad = vi.fn().mockResolvedValue(textResponse('boom', 500));
 		await expect(getProfile('a', '1', bad as unknown as typeof fetch)).rejects.toMatchObject({ status: 500 });
+	});
+});
+
+describe('getActivity / getSessionsToday (Plan 7)', () => {
+	test('the first page has no before; an earlier page passes it', async () => {
+		const fake = vi.fn(async (_url: string) => jsonResponse({ events: [] }));
+		await getActivity('a', undefined, fake as unknown as typeof fetch);
+		await getActivity('a', '2026-09-26T22:00:00Z', fake as unknown as typeof fetch);
+		expect(fake.mock.calls[0][0]).toBe('/api/servers/a/activity');
+		expect(fake.mock.calls[1][0]).toBe('/api/servers/a/activity?before=2026-09-26T22%3A00%3A00Z');
+	});
+	test('sessions today; errors throw', async () => {
+		const fake = vi.fn().mockResolvedValue(jsonResponse({ players: [] }));
+		await getSessionsToday('a', fake as unknown as typeof fetch);
+		expect(fake.mock.calls[0][0]).toBe('/api/servers/a/sessions/today');
+		const bad = vi.fn().mockResolvedValue(textResponse('not found', 404));
+		await expect(getActivity('a', undefined, bad as unknown as typeof fetch)).rejects.toBeInstanceOf(ApiError);
 	});
 });

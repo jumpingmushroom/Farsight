@@ -63,7 +63,7 @@
 			{/each}
 		</ul>
 	{/if}
-	<ActivityList {card} {now} limit={8} />
+	<ActivityList {card} {now} limit={8} full />
 </div>
 
 <style>
