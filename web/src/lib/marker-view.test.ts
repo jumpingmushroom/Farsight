@@ -1,6 +1,8 @@
 import './testing/leaflet-node';
 import { describe, expect, test } from 'vitest';
-import { MarkerGrid, createVisibleCache, viewPoints, type Projector } from './marker-view';
+import L from 'leaflet';
+import { CRS } from './geo';
+import { MarkerGrid, containerProjector, createVisibleCache, viewPoints, type Projector } from './marker-view';
 import { buildMarkers, defaultLayers, portalPairs, visibleMarkers, type LayerKey, type MapMarker } from './markers';
 import { fixtureMask, fixtureSnapshot, fixtureWorld } from './testing/markers-fixture';
 
@@ -140,6 +142,7 @@ describe('createVisibleCache', () => {
 					expect(v.visible).toEqual(want);
 					expect(v.pairs).toEqual(portalPairs(want));
 					expect([...v.byId.keys()]).toEqual(want.map((m) => m.id));
+					expect([...v.rank]).toEqual(want.map((m, i) => [m.id, i]));
 					expect(v.grid.query(-1e9, -1e9, 1e9, 1e9)).toEqual(want);
 				}
 	});
@@ -173,6 +176,39 @@ describe('createVisibleCache', () => {
 		expect(get([...all], layers, mask, false, 2)).not.toBe(f);
 	});
 
+	test('a band computed once is kept while the other inputs stay the same', () => {
+		const get = createVisibleCache();
+		const mask = fixtureMask();
+		const layers = defaultLayers();
+		const low = get(all, layers, mask, true, 2);
+		const high = get(all, layers, mask, true, 4);
+		expect(get(all, layers, mask, true, 1)).toBe(low);
+		expect(get(all, layers, mask, true, 5)).toBe(high);
+		// Another input drops every band.
+		get(all, layers, mask, false, 2);
+		expect(get(all, layers, mask, true, 4)).not.toBe(high);
+	});
+
+	test('warm computes the other bands one per call, then a zoom into them is a hit', () => {
+		const get = createVisibleCache();
+		const mask = fixtureMask();
+		const layers = defaultLayers();
+		const low = get(all, layers, mask, true, 2);
+		// The fixture's only minZoom is the dungeons' 3: two bands.
+		expect(get.warm(all, layers, mask, true)).toBe(false);
+		const high = get(all, layers, mask, true, 3.5);
+		expect(high.visible).toEqual(visibleMarkers(all, layers, mask, true, 3.5));
+		expect(get(all, layers, mask, true, 6)).toBe(high);
+		expect(get(all, layers, mask, true, 1)).toBe(low);
+		expect(get.warm(all, layers, mask, true)).toBe(false);
+		// Cold: band 0 first (more to do), then band 1.
+		const cold = createVisibleCache();
+		expect(cold.warm(all, layers, mask, true)).toBe(true);
+		expect(cold.warm(all, layers, mask, true)).toBe(false);
+		expect(cold(all, layers, mask, true, 1).visible).toEqual(visibleMarkers(all, layers, mask, true, 1));
+		expect(cold(all, layers, mask, true, 3).visible).toEqual(visibleMarkers(all, layers, mask, true, 3));
+	});
+
 	test('a layer object mutated in place still recomputes', () => {
 		const get = createVisibleCache();
 		const layers = defaultLayers();
@@ -181,5 +217,23 @@ describe('createVisibleCache', () => {
 		const b = get(all, layers, undefined, false, 2);
 		expect(b).not.toBe(a);
 		expect(b.visible).toEqual(visibleMarkers(all, layers, undefined, false, 2));
+	});
+});
+
+describe('containerProjector', () => {
+	test("is bit-for-bit Leaflet's latLngToContainerPoint (project, round, − origin, + pane)", () => {
+		const r = rng(9);
+		for (let i = 0; i < 2000; i++) {
+			const zoom = 1 + Math.round(r() * 20) * 0.25;
+			const origin = L.point(Math.round((r() - 0.5) * 40000), Math.round((r() - 0.5) * 40000));
+			const pane = r() < 0.5 ? L.point(Math.round((r() - 0.5) * 3000), Math.round((r() - 0.5) * 3000)) : L.point((r() - 0.5) * 3000, (r() - 0.5) * 3000);
+			const x = (r() * 2 - 1) * 12000;
+			const z = (r() * 2 - 1) * 12000;
+			// Map#latLngToContainerPoint, step by step (Leaflet 1.9.4).
+			const want = CRS.latLngToPoint(L.latLng(z, x), zoom).round().subtract(origin).add(pane);
+			const got = containerProjector(zoom, origin, pane)(x, z);
+			expect(got.x).toBe(want.x);
+			expect(got.y).toBe(want.y);
+		}
 	});
 });

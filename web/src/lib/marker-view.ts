@@ -12,6 +12,7 @@
 //    the same markers, in the same (input) order, at the same points — the
 //    clusterer is order-sensitive, so the order matters.
 
+import { CRS, TRANSFORM } from './geo';
 import { portalPairs, visibleMarkers, type LayerKey, type MapMarker } from './markers';
 
 const CELL_M = 512;
@@ -77,9 +78,12 @@ export class MarkerGrid {
 			}
 		}
 		if (stats) stats.scanned += scanned;
-		// Cells are visited column by column: restore the input order.
-		hits.sort((a, b) => a - b);
-		return hits.map((i) => this.items[i]);
+		// Cells are visited column by column: restore the input order (a
+		// typed array sorts numerically, natively).
+		const order = Int32Array.from(hits).sort();
+		const out: MapMarker[] = new Array(order.length);
+		for (let i = 0; i < order.length; i++) out[i] = this.items[order[i]];
+		return out;
 	}
 }
 
@@ -87,6 +91,26 @@ export class MarkerGrid {
 export interface Projector {
 	project(x: number, z: number): { x: number; y: number };
 	unproject(px: number, py: number): { x: number; z: number };
+}
+
+/**
+ * Map#latLngToContainerPoint for world (x, z), without its four allocations
+ * per call: the same float steps in the same order (Leaflet 1.9.4: project
+ * with the CRS transformation, round, subtract the pixel origin, add the map
+ * pane position), so the result is bit-for-bit Leaflet's. Valid while the
+ * view (zoom, origin, pane position) doesn't change.
+ */
+export function containerProjector(
+	zoom: number,
+	origin: { x: number; y: number },
+	pane: { x: number; y: number }
+): (x: number, z: number) => { x: number; y: number } {
+	const scale = CRS.scale(zoom);
+	const { a, b, c, d } = TRANSFORM;
+	return (x, z) => ({
+		x: Math.round(scale * (a * x + b)) - origin.x + pane.x,
+		y: Math.round(scale * (c * z + d)) - origin.y + pane.y
+	});
 }
 
 export interface ViewPoint {
@@ -134,32 +158,43 @@ export interface VisibleSet {
 	/** visibleMarkers(...) for the inputs. */
 	visible: MapMarker[];
 	byId: Map<string, MapMarker>;
+	/** Each marker's index in `visible`: its stable stacking rank. */
+	rank: Map<string, number>;
 	/** portalPairs(visible). */
 	pairs: [MapMarker, MapMarker][];
 	grid: MarkerGrid;
 }
 
-export type VisibleCache = (
-	all: MapMarker[],
-	layers: Record<LayerKey, boolean>,
-	mask: Uint8Array | undefined,
-	fog: boolean,
-	zoom: number
-) => VisibleSet;
+export interface VisibleCache {
+	(
+		all: MapMarker[],
+		layers: Record<LayerKey, boolean>,
+		mask: Uint8Array | undefined,
+		fog: boolean,
+		zoom: number
+	): VisibleSet;
+	/**
+	 * Computes one not-yet-cached zoom band's set for these inputs (for idle
+	 * time, so a zoom crossing a minZoom later finds it ready); true while
+	 * more bands remain.
+	 */
+	warm(all: MapMarker[], layers: Record<LayerKey, boolean>, mask: Uint8Array | undefined, fog: boolean): boolean;
+}
 
 /**
  * A memoised visibleMarkers (plus its pairs and grid). The zoom only matters
- * through the markers' minZoom thresholds, so the cache keys on how many of
- * them the zoom has reached; layers are compared by value (the object may be
- * mutated in place or replaced by an equal copy).
+ * through the markers' minZoom thresholds, so sets are cached per band (how
+ * many of them the zoom has reached) for the current marker list, mask, fog
+ * and layers; layers are compared by value (the object may be mutated in
+ * place or replaced by an equal copy). Any other change drops every band.
  */
 export function createVisibleCache(): VisibleCache {
 	let lastAll: MapMarker[] | undefined;
 	let thresholds: number[] = [];
-	let key: { mask: Uint8Array | undefined; fog: boolean; layers: string; band: number } | undefined;
-	let value: VisibleSet | undefined;
+	let key: { mask: Uint8Array | undefined; fog: boolean; layers: string } | undefined;
+	const bands = new Map<number, VisibleSet>();
 
-	return (all, layers, mask, fog, zoom) => {
+	function sync(all: MapMarker[], layers: Record<LayerKey, boolean>, mask: Uint8Array | undefined, fog: boolean): void {
 		if (all !== lastAll) {
 			lastAll = all;
 			key = undefined;
@@ -167,23 +202,49 @@ export function createVisibleCache(): VisibleCache {
 			for (const m of all) if (m.minZoom !== undefined) t.add(m.minZoom);
 			thresholds = [...t].sort((a, b) => a - b);
 		}
-		let band = 0;
-		while (band < thresholds.length && zoom >= thresholds[band]) band++;
 		const layerKey = (Object.keys(layers) as LayerKey[])
 			.sort()
 			.map((k) => `${k}:${layers[k] ? 1 : 0}`)
 			.join(',');
-		if (value && key && key.mask === mask && key.fog === fog && key.layers === layerKey && key.band === band) {
-			return value;
-		}
+		if (key && key.mask === mask && key.fog === fog && key.layers === layerKey) return;
+		key = { mask, fog, layers: layerKey };
+		bands.clear();
+	}
+
+	function compute(all: MapMarker[], layers: Record<LayerKey, boolean>, mask: Uint8Array | undefined, fog: boolean, zoom: number): VisibleSet {
 		const visible = visibleMarkers(all, layers, mask, fog, zoom);
-		key = { mask, fog, layers: layerKey, band };
-		value = {
+		return {
 			visible,
 			byId: new Map(visible.map((m) => [m.id, m])),
+			rank: new Map(visible.map((m, i) => [m.id, i])),
 			pairs: portalPairs(visible),
 			grid: new MarkerGrid(visible)
 		};
+	}
+
+	const get = ((all, layers, mask, fog, zoom) => {
+		sync(all, layers, mask, fog);
+		let band = 0;
+		while (band < thresholds.length && zoom >= thresholds[band]) band++;
+		let value = bands.get(band);
+		if (!value) {
+			value = compute(all, layers, mask, fog, zoom);
+			bands.set(band, value);
+		}
 		return value;
+	}) as VisibleCache;
+
+	get.warm = (all, layers, mask, fog) => {
+		sync(all, layers, mask, fog);
+		for (let band = 0; band <= thresholds.length; band++) {
+			if (bands.has(band)) continue;
+			// Band b covers zooms from thresholds[b - 1] up to thresholds[b].
+			const zoom = band === 0 ? -Infinity : thresholds[band - 1];
+			bands.set(band, compute(all, layers, mask, fog, zoom));
+			return bands.size <= thresholds.length;
+		}
+		return false;
 	};
+
+	return get;
 }
