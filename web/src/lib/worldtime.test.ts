@@ -3,8 +3,6 @@
 declare const process: { env: Record<string, string | undefined> };
 process.env.TZ = 'UTC';
 
-import './testing/leaflet-node';
-
 import { describe, expect, test } from 'vitest';
 import type { Card, Clock, Weather } from './types';
 import {

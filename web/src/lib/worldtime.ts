@@ -5,7 +5,7 @@
 // and the plan's global constraints (exact formulas, thresholds, copy).
 
 import { fmtClock } from './format';
-import { BIOME_LEGEND } from './markers';
+import { BIOME_LEGEND } from './legend';
 import type { Card, Clock, Weather } from './types';
 
 /** A game day is 1800 s. */
