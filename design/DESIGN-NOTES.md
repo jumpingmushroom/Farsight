@@ -115,6 +115,8 @@ The header (`:748`) reads "07 · Multiple servers", with the subline "Each serve
 
 **Profiles built in Plan 7** (`docs/superpowers/specs/2026-10-05-player-profile-design.md`): "Profile →" is on Online and Recently online rows, desktop and mobile. The time and weather pieces stay out.
 
+**Time and weather built in Plan 9** (`docs/superpowers/specs/2026-10-05-time-and-weather-design.md`): the pill (`WeatherPill.svelte`), its dropdown (`WeatherContent.svelte`, shared with the mobile sheet `WeatherSheet.svelte`) and the night map tint are all built, from an estimated live world clock and the game's own weather schedule (not derived from the design's sample data, which has none of this). Rulings beyond the design: the pill's `top` isn't the fixed 106 px of `:309-336` — it sits 12 px under the map-updated pill when that pill is shown (`DesktopShell.svelte`'s `weatherTop`), else at 106 px, since the two pills would otherwise overlap when the map-updated pill grows past its default slot. The dropdown's Next/Then column headers read "from HH:MM" (e.g. "from 18:42", local wall time) only while the clock is running; while paused they read "after Now" and "after Next" rather than a frozen time, since a paused clock has no "from" to anchor to. The mobile chip (`:479`) opens the same `WeatherContent` in a bottom sheet instead of a dropdown.
+
 ---
 
 ## 2. Theme

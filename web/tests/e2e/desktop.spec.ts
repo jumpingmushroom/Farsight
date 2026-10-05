@@ -880,3 +880,40 @@ test('fix · desktop activity: focus moves to Back on open, and back to "Full ti
 	await expect(row).toBeFocused();
 });
 
+// --- Plan 9: time and weather -------------------------------------------------
+
+const weatherPill = (page: Page) => page.getByTestId('weather-pill');
+
+test('weather · the pill shows a phase and clock; the dropdown lists the seeded explored biomes', async ({ page }) => {
+	await unlock(page);
+	const pill = weatherPill(page);
+	await expect(pill).toBeVisible();
+	const button = pill.locator('button.pill');
+	// The weather word itself (Clear, Rain, …) depends on wall-clock time
+	// (the period draw), so only the phase/clock structure is asserted here;
+	// "Meadows" is the biggest base's biome in the seed (Longhouse) and
+	// doesn't change with time.
+	await expect(button.locator('.title')).toHaveText(/^(Morning|Day|Evening|Night) · \d{2}:\d{2}$/);
+	await expect(button.locator('.line')).toHaveText(/^Meadows: .+$/);
+
+	await expect(button).toHaveAttribute('aria-expanded', 'false');
+	await button.click();
+	await expect(button).toHaveAttribute('aria-expanded', 'true');
+	const panel = page.getByRole('region', { name: 'Time and weather' });
+	await expect(panel).toBeVisible();
+	await expect(panel).toContainText(/^Day \d+ ·/);
+
+	// global-setup.ts posts snapshot.json with -explored, which rasterises
+	// exploredZones into the 12 m mask the server samples against the biome
+	// grid; these six biomes are exactly what that fixture covers, and (unlike
+	// the weather itself) don't depend on wall-clock time.
+	const table = panel.getByRole('table', { name: 'Weather by biome' });
+	for (const biome of ['Ocean', 'Meadows', 'Black Forest', 'Swamp', 'Mountains', 'Plains']) {
+		await expect(table.getByText(biome, { exact: true })).toHaveCount(1);
+	}
+
+	await page.keyboard.press('Escape');
+	await expect(button).toHaveAttribute('aria-expanded', 'false');
+	await expect(panel).toHaveCount(0);
+});
+
