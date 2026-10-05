@@ -70,3 +70,19 @@ export function createSlicer(sched: FrameScheduler = browserScheduler, budgetMs 
 		}
 	};
 }
+
+/**
+ * Cancels `slicer`'s queue whenever `source` fires `type`; returns the
+ * unbind. MarkerLayer uses it on the map's zoomstart: pins added or moved
+ * during Leaflet's CSS zoom animation would sit at the old zoom's position
+ * until it ends, and the render after zoomend redoes the work anyway.
+ */
+export function cancelOn(
+	source: { on(type: string, fn: () => void): unknown; off(type: string, fn: () => void): unknown },
+	type: string,
+	slicer: Slicer
+): () => void {
+	const fn = () => slicer.cancel();
+	source.on(type, fn);
+	return () => void source.off(type, fn);
+}

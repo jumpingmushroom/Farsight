@@ -19,14 +19,16 @@ export interface ClusterGroup {
 export function cluster(points: ClusterPoint[], radius: number, lockedId?: string): ClusterGroup[] {
 	const groups: ClusterGroup[] = [];
 	const r2 = radius * radius;
-	if (!(radius > 0)) return points.map((p) => ({ ids: [p.id], x: p.x, y: p.y }));
+	// Only the distance squared matters (a negative radius acts as its size);
+	// a zero or NaN one joins nothing.
+	if (!(r2 > 0)) return points.map((p) => ({ ids: [p.id], x: p.x, y: p.y }));
 	// The first matching group in creation order, found through a grid of
 	// radius-sized cells over the unlocked groups' running centroids: a
 	// centroid strictly within `radius` of p is in p's cell or a neighbour,
 	// so only those are checked (the linear scan was O(points × groups)).
 	// Cells a hair wider than the radius, so float rounding in the cell
 	// division can never put a matching centroid two cells away.
-	const cell = radius * (1 + 1e-9);
+	const cell = Math.abs(radius) * (1 + 1e-9);
 	const cells = new Map<number, number[]>();
 	const cellOf = new Map<number, number>(); // group index → its cell key
 	const key = (cx: number, cy: number) => cx * 1_000_003 + cy;

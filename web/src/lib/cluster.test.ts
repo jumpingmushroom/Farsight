@@ -161,4 +161,9 @@ describe('cluster equals the linear-scan reference', () => {
 		const neg = pts.map((p) => ({ ...p, x: -p.x, y: -p.y }));
 		expect(cluster(neg, 26, '3:3')).toEqual(reference(neg, 26, '3:3'));
 	});
+
+	test('a negative, zero or NaN radius behaves like the reference', () => {
+		const pts: ClusterPoint[] = Array.from({ length: 60 }, (_, i) => ({ id: `${i}`, x: (i * 7) % 50, y: (i * 11) % 40 }));
+		for (const radius of [-26, -5, 0, NaN]) expect(cluster(pts, radius)).toEqual(reference(pts, radius));
+	});
 });

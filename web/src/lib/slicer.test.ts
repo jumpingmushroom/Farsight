@@ -1,5 +1,7 @@
+import './testing/leaflet-node';
 import { describe, expect, test } from 'vitest';
-import { createSlicer, type FrameScheduler } from './slicer';
+import L from 'leaflet';
+import { cancelOn, createSlicer, type FrameScheduler } from './slicer';
 
 /** A fake clock and rAF: frames run only when the test calls `frame()`. */
 function fakeScheduler() {
@@ -127,5 +129,24 @@ describe('createSlicer', () => {
 		s.run([() => s.run(tasks(f, 2, 1, log, 'b')), ...tasks(f, 5, 1, log, 'a')]);
 		while (f.pendingFrames()) f.frame();
 		expect(log).toEqual(['b0', 'b1']);
+	});
+
+	test('cancelOn drops the queue when the event fires (a map zoomstart), until unbound', () => {
+		const f = fakeScheduler();
+		const s = createSlicer(f.sched, 8);
+		const map = new (L.Evented as unknown as new () => L.Evented)();
+		const log: string[] = [];
+		const unbind = cancelOn(map, 'zoomstart', s);
+		s.run(tasks(f, 50, 1, log, 'a'));
+		expect(s.pending).toBe(42);
+		map.fire('zoomstart');
+		expect(s.pending).toBe(0);
+		expect(f.pendingFrames()).toBe(0);
+		expect(log).toHaveLength(8);
+		unbind();
+		s.run(tasks(f, 50, 1, log, 'b'));
+		map.fire('zoomstart');
+		expect(s.pending).toBe(42);
+		expect(f.pendingFrames()).toBe(1);
 	});
 });

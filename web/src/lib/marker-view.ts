@@ -122,6 +122,10 @@ export interface ViewPoint {
 // World metres of slack on the query rect, so float rounding in unproject
 // can never drop a marker the exact pixel test below would keep.
 const SLACK_M = 1;
+// Pixels of padding on the query rect: Leaflet rounds projected points, so a
+// marker up to 0.5 px past the cull line rounds back inside it (half a pixel
+// is ~20 m at zoom 1, more than SLACK_M covers).
+const PAD_PX = 1;
 
 /**
  * The markers within `cull` px of the `size` view, projected to container
@@ -136,8 +140,8 @@ export function viewPoints(
 	cull: number,
 	stats?: ScanStats
 ): ViewPoint[] {
-	const a = p.unproject(-cull, -cull);
-	const b = p.unproject(size.x + cull, size.y + cull);
+	const a = p.unproject(-cull - PAD_PX, -cull - PAD_PX);
+	const b = p.unproject(size.x + cull + PAD_PX, size.y + cull + PAD_PX);
 	const near = grid.query(
 		Math.min(a.x, b.x) - SLACK_M,
 		Math.min(a.z, b.z) - SLACK_M,

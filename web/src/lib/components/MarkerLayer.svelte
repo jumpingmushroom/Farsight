@@ -33,7 +33,7 @@
 	import { cluster } from '$lib/cluster';
 	import { fromLatLng, toLatLng } from '$lib/geo';
 	import { containerProjector, createVisibleCache, viewPoints } from '$lib/marker-view';
-	import { browserScheduler, createSlicer } from '$lib/slicer';
+	import { browserScheduler, cancelOn, createSlicer } from '$lib/slicer';
 	import {
 		clusterHtml,
 		clusterSize,
@@ -397,12 +397,23 @@
 		});
 	}
 
-	// Map events: re-cluster after every zoom and pan.
+	// Map events: re-cluster after every zoom and pan. A zoom drops the
+	// unfinished DOM work (and a render still waiting for its frame): no pin
+	// is added or moved during the zoom animation, and the zoomend render
+	// reconciles from `entries`, which holds only what is on the map.
+	function zoomStart(): void {
+		if (frame) cancelAnimationFrame(frame);
+		frame = 0;
+	}
 	$effect(() => {
 		const m = map;
 		m.on('zoomend moveend resize viewreset', schedule);
+		m.on('zoomstart', zoomStart);
+		const unbind = cancelOn(m, 'zoomstart', slicer);
 		return () => {
 			m.off('zoomend moveend resize viewreset', schedule);
+			m.off('zoomstart', zoomStart);
+			unbind();
 		};
 	});
 

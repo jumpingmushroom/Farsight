@@ -105,6 +105,30 @@ describe('viewPoints', () => {
 		}
 	});
 
+	test("equals the full scan with Leaflet's own rounded projection, at fractional zooms 1-6", () => {
+		// The runtime pairing: containerProjector rounds to whole pixels, so a
+		// marker up to 0.5 px past the cull line rounds back inside it.
+		const ms = synth(10_000, 12, 10_500);
+		const grid = new MarkerGrid(ms);
+		const r = rng(13);
+		const flat = (vs: { id: string; x: number; y: number }[]) => vs.map((v) => `${v.id}@${v.x},${v.y}`).join(' ');
+		for (let i = 0; i < 300; i++) {
+			const zoom = 1 + Math.round(r() * 20) * 0.25 + (i % 3 === 0 ? r() * 0.25 : 0);
+			const world = 256 * 2 ** zoom;
+			const origin = L.point(Math.round(r() * world - size.x / 2), Math.round(r() * world - size.y / 2));
+			const pane = L.point(Math.round((r() - 0.5) * 200), Math.round((r() - 0.5) * 200));
+			const p: Projector = {
+				project: containerProjector(zoom, origin, pane),
+				unproject: (px, py) => {
+					const ll = CRS.pointToLatLng(L.point(px, py).subtract(pane).add(origin), zoom);
+					return { x: ll.lng, z: ll.lat };
+				}
+			};
+			// Compared as strings: toEqual over thousands of objects is slow.
+			expect(flat(viewPoints(grid, p, size, CULL))).toBe(flat(fullScan(ms, p, size, CULL)));
+		}
+	});
+
 	test('regression guard: a pan projects only the markers near the view, not all of them', () => {
 		// 2,000 markers in the view's neighbourhood, then 20,000 more far away.
 		const zoom = 5;
