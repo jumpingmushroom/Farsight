@@ -82,6 +82,29 @@ func newWorldState(snap *extract.Snapshot, log *slog.Logger) *worldState {
 // first use (about half a second, once per fog key).
 func (w *worldState) fogData() (*fog.Field, *fog.ClassMap) { return w.fog.get() }
 
+// cardBosses returns the seven-boss list for snap, rebuilt from its
+// GlobalKeys with extract.BossesFromKeys so the central app has the
+// correct boss list (no invented Writhan entry) without depending on the
+// agent being updated — updating the agent restarts the game server.
+//
+// A snapshot stored before GlobalKeys existed has no "globalKeys" key in
+// its JSON at all, so it decodes to a nil slice; that's the only case this
+// falls back to the snapshot's own stored Bosses, with any defeated_writhan
+// entry (the invented 8th boss) filtered out.
+func cardBosses(snap *extract.Snapshot) []extract.Boss {
+	if snap.GlobalKeys != nil {
+		return extract.BossesFromKeys(snap.GlobalKeys)
+	}
+	bosses := make([]extract.Boss, 0, len(snap.Bosses))
+	for _, b := range snap.Bosses {
+		if b.Key == "defeated_writhan" {
+			continue
+		}
+		bosses = append(bosses, b)
+	}
+	return bosses
+}
+
 // worldCache holds each server's current worldState.
 type worldCache struct {
 	store *store.Store

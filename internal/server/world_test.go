@@ -68,6 +68,57 @@ func TestNewWorldStateCanonicalizesTheExploredEncoding(t *testing.T) {
 	}
 }
 
+// cardBosses rebuilds the seven-boss list from GlobalKeys rather than
+// trusting the stored Bosses, so the central app doesn't depend on the
+// agent having been updated to drop the invented 8th boss, Writhan
+// (updating the agent restarts the game server). A snapshot stored before
+// GlobalKeys existed has no "globalKeys" key at all, so it decodes to a
+// nil slice; that's the only case this falls back to the stored Bosses,
+// filtering out any defeated_writhan entry.
+func TestCardBosses(t *testing.T) {
+	t.Run("rebuilds from GlobalKeys, ignoring stale stored Bosses", func(t *testing.T) {
+		snap := &extract.Snapshot{
+			GlobalKeys: []string{"activebosses 0", "defeated_eikthyr", "killedtroll", "defeated_gdking", "defeated_writhan", "defeated_bonemass"},
+			Bosses: []extract.Boss{
+				{Key: "defeated_eikthyr", Name: "Eikthyr", Defeated: true},
+				{Key: "defeated_writhan", Name: "Writhan", Defeated: true},
+			},
+		}
+		bosses := cardBosses(snap)
+		if len(bosses) != 7 {
+			t.Fatalf("len = %d, want 7: %+v", len(bosses), bosses)
+		}
+		defeated := map[string]bool{}
+		n := 0
+		for _, b := range bosses {
+			if b.Key == "defeated_writhan" {
+				t.Fatalf("writhan present: %+v", bosses)
+			}
+			if b.Defeated {
+				n++
+				defeated[b.Name] = true
+			}
+		}
+		if n != 3 || !defeated["Eikthyr"] || !defeated["The Elder"] || !defeated["Bonemass"] {
+			t.Fatalf("defeated = %+v, want exactly Eikthyr, The Elder, Bonemass", defeated)
+		}
+	})
+
+	t.Run("falls back to stored Bosses, filtering writhan, when GlobalKeys is absent", func(t *testing.T) {
+		snap := &extract.Snapshot{
+			Bosses: []extract.Boss{
+				{Key: "defeated_eikthyr", Name: "Eikthyr", Defeated: true},
+				{Key: "defeated_gdking", Name: "The Elder", Defeated: false},
+				{Key: "defeated_writhan", Name: "Writhan", Defeated: true},
+			},
+		}
+		bosses := cardBosses(snap)
+		if len(bosses) != 2 || bosses[0].Key != "defeated_eikthyr" || !bosses[0].Defeated || bosses[1].Defeated {
+			t.Fatalf("bosses = %+v, want eikthyr(true), gdking(false), writhan filtered", bosses)
+		}
+	})
+}
+
 // newTestWorldCache is a worldCache over a fresh in-memory store, for
 // tests that drive it directly rather than through the HTTP handlers.
 func newTestWorldCache(t *testing.T) (*worldCache, *store.Store) {

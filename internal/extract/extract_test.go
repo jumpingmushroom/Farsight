@@ -74,8 +74,13 @@ func TestExtractMarkersPlayersBosses(t *testing.T) {
 	if len(s.Locations) != 2 || s.Locations[0].Kind != "boss_altar" || s.Locations[0].Label != "Eikthyr" || s.Locations[1].Kind != "dungeon" {
 		t.Fatalf("locations = %+v", s.Locations)
 	}
-	if len(s.Bosses) != 8 || !s.Bosses[0].Defeated || s.Bosses[1].Defeated || !s.Bosses[7].Defeated {
+	if len(s.Bosses) != 7 || !s.Bosses[0].Defeated || s.Bosses[1].Defeated {
 		t.Fatalf("bosses = %+v", s.Bosses)
+	}
+	for _, b := range s.Bosses {
+		if b.Key == "defeated_writhan" {
+			t.Fatalf("writhan should not be a boss: %+v", s.Bosses)
+		}
 	}
 	if s.World.Day != 278 || s.World.Modifiers["combat"] != "default" || s.World.Modifiers["portals"] != "casual" ||
 		len(s.World.Flags) != 1 || s.World.Flags[0] != "teleportall" {

@@ -58,7 +58,8 @@
 		<WorldRules {world} />
 		<ExploredBar pct={world.exploredPct} />
 		<p class="foot">
-			Bosses come from the world’s progress keys. Exploration comes from the zones the server has generated.
+			Bosses come from the world’s progress keys. Exploration comes from the cartography tables’
+			shared map, plus the area around anything built.
 		</p>
 	</div>
 {/if}
