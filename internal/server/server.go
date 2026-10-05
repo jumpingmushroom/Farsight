@@ -124,6 +124,8 @@ func NewHandlers(d Deps) (public, ingest http.Handler) {
 	mux.Handle("GET /api/servers/{id}", gzipJSON(s.Log, http.HandlerFunc(s.card)))
 	mux.Handle("GET /api/servers/{id}/snapshot", gzipJSON(s.Log, http.HandlerFunc(s.snapshot)))
 	mux.Handle("GET /api/servers/{id}/players/{player}", gzipJSON(s.Log, http.HandlerFunc(s.profile)))
+	mux.Handle("GET /api/servers/{id}/activity", gzipJSON(s.Log, http.HandlerFunc(s.activity)))
+	mux.Handle("GET /api/servers/{id}/sessions/today", gzipJSON(s.Log, http.HandlerFunc(s.sessionsToday)))
 
 	mux.HandleFunc("GET /tiles/{id}/{key}/{fog}/{z}/{x}/{y}", s.fogTile)
 
