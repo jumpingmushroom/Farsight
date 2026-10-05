@@ -17,10 +17,9 @@ Valheim's ground plane is X (east) / Z (north); Y is height. The game's own map 
 
 ### Data: a biome grid per seed
 
-- The server writes `biomes.bin` next to each tile set (`tileset` dir for `(seed, gen)`): a 1024×1024 grid of one byte per cell, cell size 20 m (world span ±10 240 m, same orientation as the explored mask), row-major from the north-west corner, gzip-compressed. Byte value = biome index (0 = outside the disc/none, 1 Meadows, 2 Black Forest, 3 Swamp, 4 Mountains, 5 Plains, 6 Mistlands, 7 Ashlands, 8 Deep North, 9 Ocean). Sample at the cell centre with `worldgen` `Sampler.Biome`.
-- Generated lazily: first request for a tile set without the file computes it (one at a time, single-flight per key), writes it atomically, then serves it. Existing tile sets do not need a re-render, and RenderVersion is not bumped.
-- Endpoint: `GET /tiles/{id}/{key}/biomes` — same unlock check as tiles, `Content-Type: application/octet-stream`, `Content-Encoding: gzip`, long-lived immutable cache headers (the key already names the seed and generator). 404 while the tile set itself isn't ready.
-- Expected size: a few hundred KB compressed; fetched once per seed and kept in memory.
+- The server builds a biome grid per `(seed, gen)`: 1024×1024 cells of one byte, 20 m per cell, covering ±10 240 m. Cell `(gx, gz)` = `(floor(x/20) + 512, floor(z/20) + 512)`, row-major by `gz` (row 0 is the south edge, the same orientation as the explored mask), sampled at the cell centre with `worldgen.NewBase(seed, gen).Biome`. Byte value = biome index: 0 none/outside the grid, 1 Meadows, 2 Black Forest, 3 Swamp, 4 Mountains, 5 Plains, 6 Mistlands, 7 Ashlands, 8 Deep North, 9 Ocean.
+- Measured on MuleVikings: under 1 s on one core, 44 KB gzip'd. So it is built on first request, kept gzip'd in memory (a small cache keyed by seed and gen, single-flight per key), and never written to disk. No tile-set re-render, and RenderVersion is not bumped.
+- Endpoint: `GET /tiles/{id}/{key}/biomes`. It uses the same unlock check as tiles, and `key` must equal the server's current tile-set key (the set itself need not be complete). Served as `Content-Type: application/octet-stream`, `Content-Encoding: gzip`, `Cache-Control: public, max-age=31536000, immutable`. Anything else is a 404.
 
 ### Client
 
@@ -43,9 +42,9 @@ Valheim 1.0 "alt biomes" (sector modifiers that rename or restyle regions) need 
 
 Today the agent maps prefab → kind and drops everything else, so every mapping change needs an agent rollout. New:
 
-- The agent sends every location as `{type, x, y, z, placed}` (prefab name; `kind`/`label` empty). ~12k entries per world; snapshots are gzip-stored, so the cost is small. One agent rollout, then mapping changes are server-only.
-- The location table (prefab → kind, label, group, unique flag) moves to one place in `extract` and the server applies it when building the snapshot response; unmapped types are dropped. Snapshots from older agents (already classified, no `placed`) pass through as they are: their entries count as placed.
-- Visibility rule, server side: explored-mask filter as today, **and** for unique sites (`unique` in the table) only `placed` entries.
+- The agent sends every location in `Snapshot.Locations` as a `Marker` with `kind: "location"`, `type` = prefab name, no label, and the new `unplaced: true` when the save's `Placed` flag is false (omitted otherwise, so older snapshots read as placed). IDs stay positional (`loc-N`). About 12k entries per world; snapshots are gzip-stored, so the cost is small. One agent rollout, then mapping changes are server-only.
+- `extract.ClassifyLocations(raw []Marker) []Marker` is the one place that applies the table: it looks up each entry by `type` (so snapshots from older agents, already classified, are re-labelled the same way), sets `kind`, `label` and the new `group`, drops unmapped types, and drops unplaced entries of unique sites. The central app applies it once per stored snapshot (in `worldState`), and `worldevents` applies it before its "near a location" lookup.
+- The snapshot API then filters to the explored mask, as today.
 
 ### The set
 
@@ -63,14 +62,14 @@ Runestones, ruins, houses, shipwrecks and the rest stay unmapped.
 
 ### Client
 
-- The `locations` layer is replaced by three layers in this order: Landmarks (on, icon `flame`/existing location icon), Dungeons (off, `arch`), Minor places (off, `mountain`). Saved layer preferences under the old `locations` key map to Landmarks.
+- The `locations` layer is replaced by three layers in this order: Landmarks (on, icon `flame`/existing location icon), Dungeons (off, `arch`), Minor places (off, `mountain`). (Layer switches are not persisted, so nothing to migrate.)
 - New pin type `landmark` (INK disc, icon per type where Lucide has one: Forge → `anvil`, Mysterious location → `sparkles`, Sacrificial stones → `circle-dot`, Charred fortress → `castle`, Memorial site → `landmark`); kicker = label, card note as for dungeons.
 - Dungeon zoom gating (hidden below zoom 3) applies to `dungeons` and `minor`.
 - Layer counts and search include the new kinds.
 
 ## Testing
 
-- Go: biome grid encode/decode and orientation (known points in the golden seed: spawn = Meadows, an ocean point, a point outside the disc); the lazy-generation single-flight; the endpoint (auth, 404 before ready, headers). Location classification table (every mapped prefab, unique filtering on `placed`, legacy pre-classified snapshots).
-- Web: readout states incl. biome; layer split and preference migration; landmark pins.
+- Go: biome grid encode/decode and orientation (known points in the golden seed: spawn = Meadows, an ocean point, a point outside the disc); the in-memory cache and single-flight; the endpoint (auth, stale key 404, headers). Location classification table (every mapped prefab, unique filtering on `placed`, legacy pre-classified snapshots).
+- Web: readout states incl. biome; the layer split; landmark pins.
 - e2e: hover readout shows a biome on the seeded world; the Dungeons layer is off by default.
 - Live check after deploy: the Bog Witch shows only when placed; the Forge of Potential appears on MuleVikings if explored.
