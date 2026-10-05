@@ -74,7 +74,7 @@ func TestExtractMarkersPlayersBosses(t *testing.T) {
 	if len(s.Locations) != 2 || s.Locations[0].Kind != "boss_altar" || s.Locations[0].Label != "Eikthyr" || s.Locations[1].Kind != "dungeon" {
 		t.Fatalf("locations = %+v", s.Locations)
 	}
-	if len(s.Bosses) != 7 || !s.Bosses[0].Defeated || s.Bosses[1].Defeated {
+	if len(s.Bosses) != 8 || !s.Bosses[0].Defeated || s.Bosses[1].Defeated {
 		t.Fatalf("bosses = %+v", s.Bosses)
 	}
 	for _, b := range s.Bosses {

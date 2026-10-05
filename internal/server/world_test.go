@@ -68,7 +68,7 @@ func TestNewWorldStateCanonicalizesTheExploredEncoding(t *testing.T) {
 	}
 }
 
-// cardBosses rebuilds the seven-boss list from GlobalKeys rather than
+// cardBosses rebuilds the boss list from GlobalKeys rather than
 // trusting the stored Bosses, so the central app doesn't depend on the
 // agent having been updated to drop the invented 8th boss, Writhan
 // (updating the agent restarts the game server). A snapshot stored before
@@ -85,8 +85,8 @@ func TestCardBosses(t *testing.T) {
 			},
 		}
 		bosses := cardBosses(snap)
-		if len(bosses) != 7 {
-			t.Fatalf("len = %d, want 7: %+v", len(bosses), bosses)
+		if len(bosses) != 8 {
+			t.Fatalf("len = %d, want 8: %+v", len(bosses), bosses)
 		}
 		defeated := map[string]bool{}
 		n := 0

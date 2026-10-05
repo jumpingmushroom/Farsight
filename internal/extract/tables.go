@@ -9,6 +9,7 @@ var bossAltars = map[string]string{
 	"GoblinKing":                    "Yagluth",
 	"Mistlands_DvergrBossEntrance1": "The Queen",
 	"FaderLocation":                 "Fader",
+	"DN_Bossroom":                   "Kall Fimbulbringer",
 }
 
 var traders = map[string]string{
@@ -32,9 +33,11 @@ var dungeons = map[string]string{
 }
 
 // Boss progression, in game order, keyed by the global key set on defeat.
-// Valheim has exactly seven bosses; defeated_writhan is not one of
-// them, it's the progress key the game sets when the Writhan, an ordinary
-// Swamp creature, is killed (like killedtroll).
+// Valheim 1.0 has eight bosses, the last being Kall Fimbulbringer in the
+// Deep North (prefab FrozenKing, key defeated_frozenking).
+// defeated_writhan is not a boss key: it's the progress key the game sets
+// when the Writhan, an ordinary Swamp creature, is killed (like
+// killedtroll).
 var bossKeys = []struct{ Key, Name string }{
 	{"defeated_eikthyr", "Eikthyr"},
 	{"defeated_gdking", "The Elder"},
@@ -43,9 +46,10 @@ var bossKeys = []struct{ Key, Name string }{
 	{"defeated_goblinking", "Yagluth"},
 	{"defeated_queen", "The Queen"},
 	{"defeated_fader", "Fader"},
+	{"defeated_frozenking", "Kall Fimbulbringer"},
 }
 
-// BossesFromKeys returns the seven bosses in game order, with Defeated set
+// BossesFromKeys returns the eight bosses in game order, with Defeated set
 // from whichever of globalKeys are present. It's the single source of
 // truth for turning a save's (or a stored snapshot's) global keys into the
 // boss list; the extractor and the central app's card-building code both

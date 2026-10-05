@@ -309,9 +309,9 @@ Wrapper: `flex-direction:column; gap:18px; padding:8px 6px`.
 2. **"Forsaken defeated"** (heading, 17 px, `margin-bottom:10px`; only in the World tab), then a boss grid: `grid-template-columns:repeat(8,minmax(0,1fr)); gap:4px`. Each cell is a column with `gap:6px`, centred:
    - a 38×38 disc (heading font, 14 px, `border:2px`, `box-sizing:border-box`) with the roman numeral I–VIII. Defeated: `background:var(--color-accent); color:var(--color-bg); border:2px solid var(--color-accent)`. Not defeated: transparent, `color:var(--muted); border:2px dashed color-mix(in srgb,var(--color-text) 35%,transparent)`;
    - the name (10.5 px, `line-height:1.2`), `--color-text` if defeated and muted otherwise. Short names: `{'The Elder':'Elder','The Queen':'Queen','Kall Fimbulbringer':'Kall'}`.
-   - The design's boss list is `['Eikthyr','The Elder','Bonemass','Moder','Yagluth','The Queen','Fader','Kall Fimbulbringer']`. **Valheim has only seven bosses; there is no 8th.** `defeated_writhan` (`tables.go`) is not a boss key — it's the progress key the game sets when the Writhan, an ordinary Swamp creature, is killed, like `killedtroll`. Use the API's seven names. Short-name map: The Elder → Elder, The Queen → Queen, anything else as is.
+   - The design's boss list is `['Eikthyr','The Elder','Bonemass','Moder','Yagluth','The Queen','Fader','Kall Fimbulbringer']`. Valheim 1.0 has these **eight** bosses; the 8th, Kall Fimbulbringer (Deep North, prefab `FrozenKing`), sets `defeated_frozenking`. `defeated_writhan` is not a boss key: the game sets it when the Writhan, an ordinary Swamp creature, is killed, like `killedtroll`.
 3. **"Next up" box** (`:275-278`): `display:flex; align-items:center; gap:10px; padding:12px 14px; border-radius:20px; border:1px dashed var(--color-divider)`. It holds the text "Next up: <b>Yagluth</b>, whose altar is in the Plains." (13 px, `line-height:1.4`) and `btn btn-secondary` "Show altar" (13 px), which centres the map on the altar at design zoom 3 and selects it (`:1474`).
-   - The next boss is the first undefeated one in order. [GAP] Biome is not in the API. Use a static map: Eikthyr → Meadows, The Elder → Black Forest, Bonemass → Swamp, Moder → Mountains, Yagluth → Plains, The Queen → Mistlands, Fader → Ashlands, Writhan → Deep North.
+   - The next boss is the first undefeated one in order. [GAP] Biome is not in the API. Use a static map: Eikthyr → Meadows, The Elder → Black Forest, Bonemass → Swamp, Moder → Mountains, Yagluth → Plains, The Queen → Mistlands, Fader → Ashlands, Kall Fimbulbringer → Deep North.
    - Show "Show altar" only if a `boss_altar` location with that label is in the snapshot. Locations are filtered to explored zones. [AMBIG] Several altar locations can exist (for example, multiple GDKing or Dragonqueen altars). Proposal: pick the one nearest the world centre, or the first.
    - When all bosses are defeated, hide the box. [AMBIG, not designed]
 4. **World rules card**: §3.10.
@@ -914,7 +914,7 @@ There is no gesture logic in the design (§3.18). The implied snaps are peek (ab
 | Crossplay | `Card.crossplay` | "crossplay on/off" |
 | Password hint | `Card.discordHint` | |
 | In-game day | `Card.world.day` | |
-| Bosses | `Card.world.bosses[] {key, name, defeated}` | the 8th is "Writhan", not "Kall Fimbulbringer" |
+| Bosses | `Card.world.bosses[] {key, name, defeated}` | the 8th is Kall Fimbulbringer (`defeated_frozenking`) |
 | World rules | `Card.world.modifiers`, `Card.world.flags` | §3.10 |
 | Explored % | `Card.world.exploredPct` | |
 | Map updated / next save | `Card.world.savedAt`, `Card.world.saveIntervalSec?` | `readAt` also available |
@@ -989,7 +989,7 @@ Grounded in `internal/extract/extract.go` (`Add`, `Finish`) and `tables.go`.
 
 | backend kind | `type` (prefab) → `label` | design type / icon | layer |
 |---|---|---|---|
-| `boss_altar` | Eikthyrnir → Eikthyr, GDKing → The Elder, Bonemass → Bonemass, Dragonqueen → Moder, GoblinKing → Yagluth, Mistlands_DvergrBossEntrance1 → The Queen, FaderLocation → Fader, DN_Bossroom → Writhan | altar / flame; SAGE disc if defeated, else INK; 30 px | locations (on) |
+| `boss_altar` | Eikthyrnir → Eikthyr, GDKing → The Elder, Bonemass → Bonemass, Dragonqueen → Moder, GoblinKing → Yagluth, Mistlands_DvergrBossEntrance1 → The Queen, FaderLocation → Fader, DN_Bossroom → Kall Fimbulbringer | altar / flame; SAGE disc if defeated, else INK; 30 px | locations (on) |
 | `trader` | Vendor_BlackForest → Haldor, Hildir_camp → Hildir, BogWitch_Camp → Bog Witch | trader / coins | locations |
 | `dungeon` | SunkenCrypt4 → Sunken crypt | crypt / arch | locations |
 | `dungeon` | Crypt2, Crypt3, Crypt4 → Burial chambers | burial / arch | locations |
