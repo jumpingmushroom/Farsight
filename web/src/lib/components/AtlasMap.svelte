@@ -155,12 +155,25 @@
 			maxBounds: MAX_BOUNDS,
 			maxBoundsViscosity: 0.8,
 			attributionControl: false,
-			zoomControl: false
+			zoomControl: false,
+			// No tile fade-in: Leaflet fades tiles with a per-frame JS loop
+			// (GridLayer._updateOpacity) that runs through every pan and zoom
+			// and showed up as main-thread work in profiles on slow phones.
+			// The parchment disc under the tiles already hides the pop-in.
+			fadeAnimation: false
 		});
 		padBoundsLimit(m);
 		m.createPane('disc').style.zIndex = '150';
 		m.createPane('portalLines').style.zIndex = '380';
 
+		// A soft dark ring under the disc's edge stands in for a drop shadow:
+		// a CSS filter on the disc's SVG was re-rastered on every redraw.
+		L.circle([0, 0], {
+			radius: WORLD_RADIUS,
+			pane: 'disc',
+			className: 'world-disc-halo',
+			interactive: false
+		}).addTo(m);
 		L.circle([0, 0], {
 			radius: WORLD_RADIUS,
 			pane: 'disc',
@@ -259,6 +272,15 @@
 		stroke: color-mix(in srgb, var(--color-text) 12%, transparent);
 		stroke-opacity: 1;
 		stroke-width: 5px;
-		filter: drop-shadow(0 30px 80px rgba(0, 0, 0, 0.35));
+	}
+	/* The disc's shadow, without a filter (no CSS filter on map panes: it is
+	   re-rastered whenever the SVG redraws, on every pan and zoom). A wide,
+	   faint stroke centred on the edge, drawn under the disc, so only its
+	   outer half shows: a soft dark rim like the old drop-shadow. */
+	.atlas-map :global(.world-disc-halo) {
+		fill: none;
+		stroke: rgba(0, 0, 0, 0.14);
+		stroke-opacity: 1;
+		stroke-width: 36px;
 	}
 </style>

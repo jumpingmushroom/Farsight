@@ -11,8 +11,11 @@ import L from 'leaflet';
 export const WORLD_RADIUS = 10500;
 const SPAN = 2 * WORLD_RADIUS; // 21000 m
 
+/** The CRS transformation's coefficients (x_px = a·x + b, y_px = c·z + d at zoom 0). */
+export const TRANSFORM = { a: 256 / SPAN, b: 128, c: -256 / SPAN, d: 128 } as const;
+
 export const CRS: L.CRS = L.extend({}, L.CRS.Simple, {
-	transformation: new L.Transformation(256 / SPAN, 128, -256 / SPAN, 128)
+	transformation: new L.Transformation(TRANSFORM.a, TRANSFORM.b, TRANSFORM.c, TRANSFORM.d)
 });
 
 export function toLatLng(x: number, z: number): L.LatLng {
