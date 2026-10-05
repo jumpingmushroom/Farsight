@@ -2,11 +2,13 @@
 
 A companion site for Valheim dedicated servers. It offers a world atlas rebuilt from each autosave, who's online, and how to join.
 
-- **World atlas.** Terrain is generated from the world seed and rendered into map tiles. Markers for portals, beds, bases, tames, signs, boss altars, traders and dungeons are read from the latest autosave. The fog of war follows the game's own map: what has been recorded at a cartography table, plus 100 m around anything built. It is drawn into the map tiles on the server, so unexplored terrain never reaches the browser.
+- **World atlas.** Terrain is generated from the world seed and rendered into map tiles. Markers for portals, beds, bases, tames and signs are read from the latest autosave, alongside three location layers built from the save's full location plan: Landmarks (boss altars, traders and sites such as the Forge of Potential, on by default), Dungeons and Minor places (both off by default). The cursor readout shows the base biome under the pointer from a small per-world grid built on the server. The fog of war follows the game's own map: what has been recorded at a cartography table, plus 100 m around anything built. It is drawn into the map tiles on the server, so unexplored terrain never reaches the browser.
 - **Server card.** Shows who's online and who was recently online, recent activity, the in-game day, bosses defeated, world rules, and the live crossplay join code.
 - **Player profiles.** Playtime this week and since tracking began, hours online per day for the last 7 days, and each player's bases, beds, portals, named tames and deaths, linked from the save by who placed or named them.
 - **Activity timeline.** Joins, leaves, restarts and raids from the server log, plus what changed between world saves: new tombstones, portals, tames and bases, bases that grew and bosses defeated. Filter it by kind and by player, back to when tracking began.
 - **Private by default.** Each server is unlocked with a shared passphrase. Player positions are never shown.
+
+Limitations: the cursor readout shows base biomes only — Valheim 1.0's alt-biome sector modifiers aren't computed, so a renamed/restyled region still reads as its underlying biome.
 
 Farsight has two parts:
 
@@ -28,6 +30,8 @@ make e2e                          # Playwright end-to-end tests
 Without the `webui` build tag, `farsight` serves a placeholder page instead of the UI. Container images are built from `Dockerfile` and `Dockerfile.agent`.
 
 Each server in `farsight.json` may set `timeZone`, an IANA name such as `"Europe/Oslo"` (default `"UTC"`). Set it to the same zone as that server's agent's `FARSIGHT_LOG_TZ`: profiles and the activity timeline count days in it.
+
+The agent now ships every world location raw (prefab name, unplaced flag); `farsight` classifies them into the location layers, server-side. An agent still on an older build keeps working — the entries it already classified itself are re-labelled by the same table — but it dropped anything outside the old boss altar/trader/dungeon set before it ever reached `Snapshot.Locations`, so new location kinds (e.g. the Forge of Potential, or any Landmarks/Minor places site) need that agent rolled out to a current build before they can appear.
 
 ## Not affiliated with Iron Gate
 
