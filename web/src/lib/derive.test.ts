@@ -59,7 +59,8 @@ function makeWorld(overrides: Partial<WorldCard> = {}): WorldCard {
 			{ key: 'moder', name: 'Moder', defeated: true },
 			{ key: 'yagluth', name: 'Yagluth', defeated: false },
 			{ key: 'queen', name: 'The Queen', defeated: false },
-			{ key: 'fader', name: 'Fader', defeated: false }
+			{ key: 'fader', name: 'Fader', defeated: false },
+			{ key: 'frozenking', name: 'Kall Fimbulbringer', defeated: false }
 		],
 		modifiers: {},
 		flags: [],
@@ -380,7 +381,7 @@ describe('switcherSub', () => {
 	test('current server with a card', () => {
 		const s: ServerSummary = { id: 'example', name: 'Example Vikings', status: 'online', players: 4, maxPlayers: 10 };
 		const card = makeCard({ id: 'example', world: makeWorld({ day: 214 }) });
-		expect(switcherSub(s, card)).toBe('Day 214 · 4 of 7 bosses');
+		expect(switcherSub(s, card)).toBe('Day 214 · 4 of 8 bosses');
 	});
 	test('another server -> status word', () => {
 		const s: ServerSummary = { id: 'ashen', name: 'Ashen Crew', status: 'offline', players: 0, maxPlayers: 10 };

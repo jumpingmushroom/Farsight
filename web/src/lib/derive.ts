@@ -408,7 +408,8 @@ export const BOSS_BIOME: Record<string, string> = {
 	Moder: 'Mountains',
 	Yagluth: 'Plains',
 	'The Queen': 'Mistlands',
-	Fader: 'Ashlands'
+	Fader: 'Ashlands',
+	'Kall Fimbulbringer': 'Deep North'
 };
 
 export function nextBoss(world: WorldCard): { name: string; biome: string } | undefined {
@@ -419,7 +420,8 @@ export function nextBoss(world: WorldCard): { name: string; biome: string } | un
 
 const BOSS_SHORT_NAMES: Record<string, string> = {
 	'The Elder': 'Elder',
-	'The Queen': 'Queen'
+	'The Queen': 'Queen',
+	'Kall Fimbulbringer': 'Kall'
 };
 
 export function bossShort(name: string): string {

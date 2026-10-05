@@ -82,7 +82,7 @@ func newWorldState(snap *extract.Snapshot, log *slog.Logger) *worldState {
 // first use (about half a second, once per fog key).
 func (w *worldState) fogData() (*fog.Field, *fog.ClassMap) { return w.fog.get() }
 
-// cardBosses returns the seven-boss list for snap, rebuilt from its
+// cardBosses returns the boss list for snap, rebuilt from its
 // GlobalKeys with extract.BossesFromKeys so the central app has the
 // correct boss list (no invented Writhan entry) without depending on the
 // agent being updated — updating the agent restarts the game server.

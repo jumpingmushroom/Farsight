@@ -277,8 +277,8 @@ test('5 · world tab: day, bosses, next up and world rules', async ({ page }) =>
 	await page.getByRole('tab', { name: 'World' }).click();
 	const panel = page.getByRole('tabpanel');
 	await expect(panel.locator('.tile', { hasText: 'In-game day' })).toContainText('214');
-	await expect(panel.locator('.tile', { hasText: 'Bosses' }).locator('.big')).toHaveText('4 / 7');
-	await expect(panel.locator('li.boss')).toHaveCount(7);
+	await expect(panel.locator('.tile', { hasText: 'Bosses' }).locator('.big')).toHaveText('4 / 8');
+	await expect(panel.locator('li.boss')).toHaveCount(8);
 	await expect(panel.locator('li.boss.defeated')).toHaveCount(4);
 	await expect(panel).toContainText('Next up: Yagluth');
 	await expect(panel.getByRole('button', { name: 'Show altar' })).toBeVisible();
