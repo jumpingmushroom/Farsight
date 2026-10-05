@@ -177,7 +177,7 @@ exactly — this section is kept in sync with that file):
   world: { name, seedName, seed, genVersion, netTime, day, modifiers{}, flags[] },
   globalKeys[],
   bosses: [{ key, name, defeated }],                // in game progression order
-  exploredZones: [[x,z]…],                          // 64 m zones
+  exploredZones: [[x,z]…],                          // 64 m zones (ingest only: the old-format mask source; not in the snapshot API)
   explored?: { source, cell, size, bits },          // 12 m mask: "tables"|"zones", 12, 2048, base64(gzip(bitset)) (fog spec)
   locations: [{ id, kind, type, label, x, y, z }],  // only types we mark; same shape as markers
   markers: [{ id, kind, x, y, z, label?, owner?, species?, type?, pair? }],
@@ -269,7 +269,7 @@ GET  /api/servers/{id}                    -> Card
                 exploredPct, savedAt, readAt, saveIntervalSec?},
        tiles:  {state:"none"|"queued"|"rendering"|"complete"|"refused", done, total, key?}
      }
-GET  /api/servers/{id}/snapshot           -> {savedAt, fogKey, explored, exploredZones, markers, locations, bases, players}
+GET  /api/servers/{id}/snapshot           -> {savedAt, fogKey, explored, markers, locations, bases, players}
                                              (markers, locations and bases filtered to the explored mask, which also
                                              blanks a kept portal's `pair` when its partner was filtered out, so it
                                              shows as unpaired rather than revealing a hidden partner; 404 if no

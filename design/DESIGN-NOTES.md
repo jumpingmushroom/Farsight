@@ -928,7 +928,7 @@ There is no gesture logic in the design (§3.18). The implied snaps are peek (ab
 | Tames | `markers[kind=tame] {species, label (TamedName)}` | |
 | Bases | `snapshot.bases[] {id, name, x, z, radius, pieces, builders[{id, name?, pieces}]}` | |
 | Altars, traders, dungeons | `snapshot.locations[] {id, kind, type, label, x, y, z}` | already filtered to explored zones |
-| Fog | `snapshot.exploredZones [[zx, zz]…]` | |
+| Fog | drawn into the server's tiles (`snapshot.fogKey` names them); `snapshot.explored` is the 12 m mask, for the cursor readout | markers, locations and bases already filtered to it (fog spec 2026-10-01) |
 | Player id → name | `snapshot.players[] {id, name}` | from beds and tombstones; used by bases' builders |
 | Per-player base count (mobile) | `bases[].builders[0].name === online.name` | [AMBIG] the log name and the character name should match, but unverified |
 
