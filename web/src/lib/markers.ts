@@ -572,3 +572,20 @@ export function clusterTooltip(ms: MapMarker[]): string {
 	const kinds = [...new Set(ms.map((m) => m.card.kicker))].slice(0, 3).join(', ');
 	return `${ms.length} markers · ${kinds}`;
 }
+
+/**
+ * The marker nearest (x, z) within `radius` metres, if any: a timeline
+ * event knows its place but not the marker (marker ids are per save).
+ */
+export function markerAt(all: readonly MapMarker[], x: number, z: number, radius = 5): MapMarker | undefined {
+	let best: MapMarker | undefined;
+	let bestD = radius;
+	for (const m of all) {
+		const d = Math.hypot(m.x - x, m.z - z);
+		if (d <= bestD) {
+			best = m;
+			bestD = d;
+		}
+	}
+	return best;
+}

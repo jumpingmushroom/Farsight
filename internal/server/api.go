@@ -215,17 +215,6 @@ type recentJSON struct {
 	Seconds    int64  `json:"seconds"`
 }
 
-type activityJSON struct {
-	Type     string `json:"type"`
-	At       string `json:"at"`
-	Name     string `json:"name,omitempty"`
-	Platform string `json:"platform,omitempty"`
-	Code     string `json:"code,omitempty"`
-	Players  *int   `json:"players,omitempty"`
-	Seconds  int64  `json:"seconds,omitempty"`
-	Version  string `json:"version,omitempty"`
-}
-
 type worldJSON struct {
 	Name            string            `json:"name"`
 	SeedName        string            `json:"seedName"`
@@ -247,25 +236,26 @@ type tilesJSON struct {
 }
 
 type cardJSONOut struct {
-	ID             string         `json:"id"`
-	Name           string         `json:"name"`
-	Crossplay      bool           `json:"crossplay"`
-	Address        string         `json:"address,omitempty"`
-	DiscordHint    string         `json:"discordHint,omitempty"`
-	MaxPlayers     int            `json:"maxPlayers"`
-	Status         string         `json:"status"`
-	Version        string         `json:"version,omitempty"`
-	NetworkVersion int            `json:"networkVersion,omitempty"`
-	UpSince        string         `json:"upSince,omitempty"`
-	LastHeartbeat  string         `json:"lastHeartbeat,omitempty"`
-	Players        int            `json:"players"`
-	JoinCode       string         `json:"joinCode,omitempty"`
-	JoinCodeAt     string         `json:"joinCodeAt,omitempty"`
-	Online         []onlineJSON   `json:"online"`
-	Recent         []recentJSON   `json:"recent"`
-	Activity       []activityJSON `json:"activity"`
-	World          *worldJSON     `json:"world,omitempty"`
-	Tiles          tilesJSON      `json:"tiles"`
+	ID             string       `json:"id"`
+	Name           string       `json:"name"`
+	Crossplay      bool         `json:"crossplay"`
+	Address        string       `json:"address,omitempty"`
+	DiscordHint    string       `json:"discordHint,omitempty"`
+	MaxPlayers     int          `json:"maxPlayers"`
+	Status         string       `json:"status"`
+	Version        string       `json:"version,omitempty"`
+	NetworkVersion int          `json:"networkVersion,omitempty"`
+	UpSince        string       `json:"upSince,omitempty"`
+	LastHeartbeat  string       `json:"lastHeartbeat,omitempty"`
+	Players        int          `json:"players"`
+	JoinCode       string       `json:"joinCode,omitempty"`
+	JoinCodeAt     string       `json:"joinCodeAt,omitempty"`
+	TimeZone       string       `json:"timeZone"`
+	Online         []onlineJSON `json:"online"`
+	Recent         []recentJSON `json:"recent"`
+	Activity       []eventJSON  `json:"activity"`
+	World          *worldJSON   `json:"world,omitempty"`
+	Tiles          tilesJSON    `json:"tiles"`
 }
 
 func (s *server) internalError(w http.ResponseWriter, what, id string, err error) {
@@ -300,7 +290,8 @@ func (s *server) buildCard(r *http.Request, srv *config.Server) (*cardJSONOut, e
 		Status: status, Version: l.Version, NetworkVersion: l.NetworkVersion,
 		UpSince: optTime(l.UpSince), LastHeartbeat: optTime(l.LastHeartbeat),
 		Players: players, JoinCode: l.JoinCode, JoinCodeAt: optTime(l.JoinCodeAt),
-		Online: []onlineJSON{}, Recent: []recentJSON{}, Activity: []activityJSON{},
+		TimeZone: srv.Location().String(),
+		Online:   []onlineJSON{}, Recent: []recentJSON{}, Activity: []eventJSON{},
 		Tiles: tilesJSON{State: string(tileset.StateNone)},
 	}
 
@@ -324,20 +315,26 @@ func (s *server) buildCard(r *http.Request, srv *config.Server) (*cardJSONOut, e
 		c.Recent = append(c.Recent, rj)
 	}
 
-	events, err := s.Store.RecentActivity(ctx, srv.ID, activityLimit)
-	if err != nil {
-		return nil, err
-	}
-	for _, e := range events {
-		c.Activity = append(c.Activity, activityJSON{
-			Type: e.Type, At: rfc3339(e.At), Name: e.Name, Platform: e.Platform,
-			Code: e.Code, Players: e.Players, Seconds: e.Seconds, Version: e.Version,
-		})
-	}
-
 	ws, ok, err := s.worlds.get(ctx, srv.ID)
 	if err != nil {
 		return nil, err
+	}
+	events, err := s.Store.RecentEvents(ctx, srv.ID, activityLimit)
+	if err != nil {
+		return nil, err
+	}
+	who, err := s.people(ctx, srv.ID)
+	if err != nil {
+		return nil, err
+	}
+	var mask *explored.Mask
+	if ok {
+		mask = ws.mask
+	}
+	for _, se := range events {
+		if e, shown := toEventJSON(se, who, mask); shown {
+			c.Activity = append(c.Activity, e)
+		}
 	}
 	if !ok {
 		return c, nil

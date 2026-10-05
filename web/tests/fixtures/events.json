@@ -1,5 +1,13 @@
 {
   "events": [
+    {"id": "demo-h1", "type": "player_join", "at": "2026-09-25T12:00:00Z", "name": "Sigrun", "platform": "Steam", "platformId": "76561190000000003"},
+    {"id": "demo-h2", "type": "player_leave", "at": "2026-09-25T13:00:00Z", "name": "Sigrun", "platform": "Steam", "platformId": "76561190000000003", "since": "2026-09-25T12:00:00Z", "seconds": 3600, "reason": "left"},
+    {"id": "demo-h3", "type": "player_join", "at": "2026-09-27T20:00:00Z", "name": "Astrid", "platform": "Steam", "platformId": "76561190000000001"},
+    {"id": "demo-h4", "type": "player_leave", "at": "2026-09-27T22:30:00Z", "name": "Astrid", "platform": "Steam", "platformId": "76561190000000001", "since": "2026-09-27T20:00:00Z", "seconds": 9000, "reason": "left"},
+    {"id": "demo-h5", "type": "player_join", "at": "2026-09-28T10:00:00Z", "name": "Ulf", "platform": "Steam", "platformId": "76561190000000004"},
+    {"id": "demo-h6", "type": "player_leave", "at": "2026-09-28T11:30:00Z", "name": "Ulf", "platform": "Steam", "platformId": "76561190000000004", "since": "2026-09-28T10:00:00Z", "seconds": 5400, "reason": "left"},
+    {"id": "demo-h7", "type": "player_join", "at": "2026-09-28T21:00:00Z", "name": "Astrid", "platform": "Steam", "platformId": "76561190000000001"},
+    {"id": "demo-h8", "type": "player_leave", "at": "2026-09-28T23:00:00Z", "name": "Astrid", "platform": "Steam", "platformId": "76561190000000001", "since": "2026-09-28T21:00:00Z", "seconds": 7200, "reason": "left"},
     {"id": "demo-01", "type": "server_boot", "at": "2026-09-29T17:00:00Z", "version": "0.221.4", "networkVersion": 36},
     {"id": "demo-02", "type": "server_ready", "at": "2026-09-29T17:01:00Z"},
     {"id": "demo-03", "type": "join_code", "at": "2026-09-29T17:01:30Z", "code": "318742"},
@@ -9,6 +17,7 @@
     {"id": "demo-08", "type": "player_join", "at": "2026-09-29T19:10:00Z", "name": "Bjorn", "platform": "Xbox", "platformId": "2535400000000002"},
     {"id": "demo-07", "type": "world_saved", "at": "2026-09-29T19:15:00Z"},
     {"id": "demo-09", "type": "world_saved", "at": "2026-09-29T19:35:00Z"},
+    {"id": "demo-h9", "type": "event_raid", "at": "2026-09-29T19:20:00Z", "raid": "army_theelder"},
     {"id": "demo-10", "type": "player_join", "at": "2026-09-29T19:42:00Z", "name": "Sigrun", "platform": "Steam", "platformId": "76561190000000003"},
     {"id": "demo-11", "type": "players_now", "at": "2026-09-29T19:43:00Z", "players": 3},
     {"id": "demo-12", "type": "world_saved", "at": "2026-09-29T19:55:00Z"},

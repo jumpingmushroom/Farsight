@@ -3,13 +3,14 @@
   (API order, longest session first), "Recently online" (deduped, capped at
   5, label hidden when empty), then recent activity. Offline and nobody-
   online replace the intro and online list with the §3.22 empty states.
-  No "Profile →": rows are not clickable in the MVP. Relative times derive
-  from `now`.
+  Each row with a platform ID has "Profile →" (Plan 7), which opens the
+  player's profile in place of the panel. Relative times derive from `now`.
 -->
 <script lang="ts">
 	import Moon from 'lucide-svelte/icons/moon';
 	import { playersEmpty, recentList, sessionSeconds } from '$lib/derive';
 	import { fmtLastSeen, fmtSession } from '$lib/format';
+	import { app } from '$lib/state.svelte';
 	import type { Card } from '$lib/types';
 	import ActivityList from './ActivityList.svelte';
 	import Avatar from './Avatar.svelte';
@@ -38,6 +39,9 @@
 						<div class="name">{p.name}</div>
 						<div class="sub">online {fmtSession(sessionSeconds(p.since, now))}</div>
 					</div>
+					{#if p.platformId}
+						<button class="btn btn-ghost profile" type="button" aria-label="Profile of {p.name}" onclick={() => app.openView({ kind: 'profile', player: p.platformId }, p.name)}>Profile →</button>
+					{/if}
 				</li>
 			{/each}
 		</ul>
@@ -52,11 +56,14 @@
 						<div class="name">{r.name}</div>
 						<div class="sub">{fmtLastSeen(r.until, now)}</div>
 					</div>
+					{#if r.platformId}
+						<button class="btn btn-ghost profile" type="button" aria-label="Profile of {r.name}" onclick={() => app.openView({ kind: 'profile', player: r.platformId }, r.name)}>Profile →</button>
+					{/if}
 				</li>
 			{/each}
 		</ul>
 	{/if}
-	<ActivityList {card} {now} limit={8} />
+	<ActivityList {card} {now} limit={8} full />
 </div>
 
 <style>
@@ -104,6 +111,14 @@
 		font-size: 13px;
 		color: var(--muted);
 		font-variant-numeric: tabular-nums;
+	}
+	.profile {
+		flex: none;
+		font-family: var(--font-body);
+		font-size: 12px;
+		font-weight: 700;
+		color: var(--cold-ink);
+		white-space: nowrap;
 	}
 	.label {
 		font-size: 12px;

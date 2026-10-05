@@ -24,11 +24,13 @@
 -->
 <script lang="ts">
 	import type L from 'leaflet';
+	import { tick } from 'svelte';
 	import { mapView } from '$lib/derive';
 	import {
 		buildMarkers,
 		defaultLayers,
 		layerCounts,
+		markerAt,
 		markersKey,
 		visibleMarkers,
 		type LayerKey,
@@ -36,6 +38,7 @@
 	} from '$lib/markers';
 	import { cardPadBottom, centerDy, mobileDim, topBarSub, zoomBottom, type MobileOverlay, type Snap } from '$lib/mobile';
 	import { app } from '$lib/state.svelte';
+	import ActivitySheet from './ActivitySheet.svelte';
 	import AtlasMap from './AtlasMap.svelte';
 	import ChartingCard from './ChartingCard.svelte';
 	import JoinSheet from './JoinSheet.svelte';
@@ -44,6 +47,7 @@
 	import MobileMarkerCard from './MobileMarkerCard.svelte';
 	import MobileTopBar from './MobileTopBar.svelte';
 	import PeekSheet from './PeekSheet.svelte';
+	import ProfileSheet from './ProfileSheet.svelte';
 	import ServerSheet from './ServerSheet.svelte';
 	import StateBanner from './StateBanner.svelte';
 	import WaitingPill from './WaitingPill.svelte';
@@ -68,6 +72,18 @@
 	let selectedKey: string | undefined;
 	/** Focus to restore when an overlay sheet closes. */
 	let opener: HTMLElement | null = null;
+	/**
+	 * Adaptation (Plan 7, brief predates it; fix round 1: via focusTrap's
+	 * own `returnTo` rather than a shell-level effect): the Activity
+	 * view's only mobile entry point is "Full timeline" inside the menu
+	 * sheet, which unmounts as the sheet closes to open ActivitySheet —
+	 * unlike a profile, always opened from a row that stays mounted
+	 * underneath, there is nothing left for ActivitySheet's own focusTrap
+	 * to capture as its opener. This carries the menu's own opener (the
+	 * top bar's menu button, which does stay mounted) across that gap;
+	 * ActivitySheet passes it straight through to focusTrap as `returnTo`.
+	 */
+	let activityOpener: HTMLElement | null = null;
 
 	const card = $derived(app.card?.id === app.currentId ? app.card : undefined);
 	const summary = $derived(app.servers.find((s) => s.id === app.currentId));
@@ -89,10 +105,12 @@
 	const cardShown = $derived(!!selected && visibleMarkers([selected], layers, zoom).length === 1);
 
 	const sub = $derived(topBarSub(view, card?.world, app.now, overlay === 'server'));
-	const dim = $derived(mobileDim(snap, overlay));
+	/** A profile (Plan 7) opens as a full-height sheet over everything. */
+	const profilePlayer = $derived(app.view?.kind === 'profile' ? app.view.player : undefined);
+	const dim = $derived(app.view ? 0.55 : mobileDim(snap, overlay));
 	// Hidden while there is nothing to zoom (waiting, charting) and whenever
 	// a raised sheet or the docked card would cover them.
-	const zoomShown = $derived(markersOn && snap === 'peek' && overlay === 'none' && !cardShown);
+	const zoomShown = $derived(markersOn && snap === 'peek' && overlay === 'none' && !cardShown && !app.view);
 
 	// Pin opacity for offline / stale lives on the marker pane (app.css).
 	$effect(() => {
@@ -182,6 +200,49 @@
 		focusMarker(partner, Math.max(3.5, map.getZoom()));
 	}
 
+	/**
+	 * A profile's "Map →": close the sheet, then centre on the item
+	 * (selecting its marker when on the map). The row with focus closes
+	 * along with the sheet, so once things settle (fix round 1), focus
+	 * moves to the docked marker card's Close button when the item landed
+	 * on one, or to the map itself otherwise (an item not currently on the
+	 * map, e.g. filtered out or still unexplored).
+	 */
+	function mapTo(x: number, z: number, id: string): void {
+		app.closeView();
+		snap = 'peek';
+		const m = all.find((mm) => mm.id === id);
+		if (m) {
+			focusMarker(m, 4);
+		} else if (map) {
+			atlas?.centerOn(x, z, 4, centerDy(map.getSize().y));
+		}
+		void tick().then(() => {
+			const close = document.querySelector<HTMLElement>('[data-testid="mobile-marker-card"] [aria-label="Close"]');
+			(close ?? map?.getContainer())?.focus();
+		});
+	}
+
+	/**
+	 * The timeline's "Show on map →" (fix round 1: focus lands on the
+	 * docked marker card's Close button when one opens, matching the
+	 * profile's own `mapTo` — not on the menu's carried-over opener).
+	 */
+	function showOnMap(x: number, z: number): void {
+		app.closeView();
+		snap = 'peek';
+		const m = markerAt(all, x, z);
+		if (m) {
+			focusMarker(m, 4);
+		} else if (map) {
+			atlas?.centerOn(x, z, 4, centerDy(map.getSize().y));
+		}
+		void tick().then(() => {
+			const close = document.querySelector<HTMLElement>('[data-testid="mobile-marker-card"] [aria-label="Close"]');
+			(close ?? map?.getContainer())?.focus();
+		});
+	}
+
 	/** Search pick (§5.2, Mobile ruling): close the menu, select the marker at zoom 4.25. */
 	function pickResult(m: MapMarker): void {
 		closeOverlay();
@@ -203,7 +264,10 @@
 
 	function onkeydown(e: KeyboardEvent): void {
 		if (e.key !== 'Escape' || e.defaultPrevented || app.unlockPrompt) return;
-		if (overlay !== 'none') {
+		if (app.view) {
+			e.preventDefault();
+			app.closeView();
+		} else if (overlay !== 'none') {
 			e.preventDefault();
 			closeOverlay();
 		} else if (selectedId !== undefined) {
@@ -322,12 +386,29 @@
 			ontoggle={toggleLayer}
 			onlinks={() => (portalLinks = !portalLinks)}
 			onpick={pickResult}
+			ontimeline={() => {
+				activityOpener = opener;
+				closeOverlay(false);
+				app.openView({ kind: 'activity' });
+			}}
 			onclose={() => closeOverlay()}
 		/>
 	{:else if overlay === 'server'}
 		<ServerSheet onclose={closeOverlay} />
 	{:else if overlay === 'join' && card}
 		<JoinSheet {card} onclose={() => closeOverlay()} oncopy={toast} />
+	{/if}
+
+	{#if profilePlayer !== undefined && app.currentId}
+		<ProfileSheet serverId={app.currentId} player={profilePlayer} onclose={() => app.closeView()} onmap={mapTo} />
+	{:else if app.view?.kind === 'activity' && app.currentId}
+		<ActivitySheet
+			serverId={app.currentId}
+			gameDay={card?.world?.day}
+			returnTo={() => activityOpener}
+			onclose={() => app.closeView()}
+			onmap={showOnMap}
+		/>
 	{/if}
 </main>
 

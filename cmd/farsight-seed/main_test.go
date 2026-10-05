@@ -83,7 +83,7 @@ func TestShiftTimes(t *testing.T) {
 	snap := &extract.Snapshot{SavedAt: base.Add(-5 * time.Minute), ReadAt: base.Add(-4 * time.Minute)}
 	now := time.Date(2026, 10, 3, 9, 30, 15, 0, time.UTC)
 
-	d := shiftTimes(evs, snap, now)
+	d := shiftTimes(evs, []*extract.Snapshot{snap}, now)
 
 	if want := now.Add(-time.Minute).Sub(base); d != want {
 		t.Fatalf("delta = %v, want %v", d, want)
@@ -109,7 +109,7 @@ func TestShiftTimesWithoutEvents(t *testing.T) {
 	saved := time.Date(2026, 9, 29, 19, 55, 0, 0, time.UTC)
 	snap := &extract.Snapshot{SavedAt: saved, ReadAt: saved}
 	now := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-	shiftTimes(nil, snap, now)
+	shiftTimes(nil, []*extract.Snapshot{snap}, now)
 	if want := now.Add(-6 * time.Minute); !snap.SavedAt.Equal(want) {
 		t.Fatalf("savedAt = %v, want %v", snap.SavedAt, want)
 	}
@@ -167,7 +167,7 @@ func TestRunPostsSnapshotAndEvents(t *testing.T) {
 	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
 	cfg := config{
 		URL: srv.URL, Server: "demo", TokenEnv: "FARSIGHT_SEED_TOKEN",
-		Snapshot: fixtureSnapshot, Events: fixtureEvents, Shift: true,
+		Snapshots: []string{fixtureSnapshot}, Events: fixtureEvents, Shift: true,
 	}
 	getenv := func(k string) string {
 		if k == "FARSIGHT_SEED_TOKEN" {
@@ -208,7 +208,7 @@ func TestRunExploredRasterisesTheFixtureZones(t *testing.T) {
 	rec := &received{}
 	srv := ingestStub(t, rec)
 	defer srv.Close()
-	cfg := config{URL: srv.URL, Server: "demo", TokenEnv: "T", Snapshot: fixtureSnapshot, Explored: true}
+	cfg := config{URL: srv.URL, Server: "demo", TokenEnv: "T", Snapshots: []string{fixtureSnapshot}, Explored: true}
 	getenv := func(string) string { return "demo-token" }
 	if err := run(context.Background(), cfg, getenv, time.Now(), io.Discard); err != nil {
 		t.Fatal(err)
@@ -257,7 +257,7 @@ func TestRunNeedsToken(t *testing.T) {
 
 func TestRunFakeTilesOnly(t *testing.T) {
 	data := t.TempDir()
-	cfg := config{Snapshot: fixtureSnapshot, FakeTiles: data}
+	cfg := config{Snapshots: []string{fixtureSnapshot}, FakeTiles: data}
 	if err := run(context.Background(), cfg, func(string) string { return "" }, time.Now(), io.Discard); err != nil {
 		t.Fatal(err)
 	}
@@ -272,6 +272,65 @@ func TestRunRejectsNothingToDo(t *testing.T) {
 	}
 	if err := run(context.Background(), config{FakeTiles: t.TempDir()}, func(string) string { return "" }, time.Now(), io.Discard); err == nil {
 		t.Fatal("want an error: tiles need -snapshot for the seed")
+	}
+}
+
+// Plan 7: -snapshot repeats; the snapshots go in order, shifted together.
+func TestRunPostsSnapshotsInOrderWithOneShift(t *testing.T) {
+	var mu sync.Mutex
+	var saved []time.Time
+	var ids []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		zr, err := gzip.NewReader(r.Body)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		var s extract.Snapshot
+		if r.URL.Path == "/ingest/demo/snapshot" {
+			if err := json.NewDecoder(zr).Decode(&s); err != nil {
+				t.Error(err)
+			}
+			mu.Lock()
+			saved, ids = append(saved, s.SavedAt), append(ids, s.SaveID)
+			mu.Unlock()
+		}
+		io.WriteString(w, `{}`)
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	write := func(name, saveID string, at time.Time) string {
+		p := filepath.Join(dir, name)
+		b, _ := json.Marshal(extract.Snapshot{ServerID: "x", SaveID: saveID, SavedAt: at, ReadAt: at})
+		if err := os.WriteFile(p, b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	base := time.Date(2026, 9, 29, 19, 55, 0, 0, time.UTC)
+	first := write("a.json", "chunked:1", base.Add(-24*time.Hour))
+	second := write("b.json", "chunked:2", base)
+	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	cfg := config{URL: srv.URL, Server: "demo", TokenEnv: "T", Snapshots: []string{first, second}, Shift: true}
+	if err := run(context.Background(), cfg, func(string) string { return "tok" }, now, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 2 || ids[0] != "chunked:1" || ids[1] != "chunked:2" {
+		t.Fatalf("posted %v, want chunked:1 then chunked:2", ids)
+	}
+	if !saved[1].Equal(now.Add(-6*time.Minute)) || saved[1].Sub(saved[0]) != 24*time.Hour {
+		t.Fatalf("saved at %v, want the newest at now-6m and a day apart", saved)
+	}
+}
+
+func TestParseFlagsRepeatsSnapshot(t *testing.T) {
+	cfg, err := parseFlags([]string{"-server", "demo", "-snapshot", "a.json", "-snapshot", "b.json"}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Snapshots) != 2 || cfg.Snapshots[0] != "a.json" || cfg.Snapshots[1] != "b.json" {
+		t.Fatalf("snapshots = %v", cfg.Snapshots)
 	}
 }
 
@@ -372,5 +431,40 @@ func TestFixtures(t *testing.T) {
 	}
 	if !snap.SavedAt.Equal(newestSave) {
 		t.Fatalf("snapshot savedAt %v, want the newest world_saved %v", snap.SavedAt, newestSave)
+	}
+
+	// Plan 7: sessions reach back four days (past the timeline's first
+	// three-day page), every leave matches its join, and the save names
+	// portal creators and a tame's namer by the players' platform IDs.
+	var oldest time.Time
+	ids = map[string]bool{}
+	for _, e := range evs {
+		if oldest.IsZero() || e.At.Before(oldest) {
+			oldest = e.At
+		}
+		if e.Type == logwatch.EvPlayerLeave && (e.Since == nil || int64(e.At.Sub(*e.Since)/time.Second) != e.Seconds) {
+			t.Errorf("leave %s: since %v, seconds %d", e.ID, e.Since, e.Seconds)
+		}
+		if e.PlatformID != "" {
+			ids[e.Platform+"_"+e.PlatformID] = true
+		}
+	}
+	if got := newest.Sub(oldest); got < 4*24*time.Hour {
+		t.Errorf("history spans %v, want at least 4 days", got)
+	}
+	owners, namers := 0, 0
+	for _, m := range snap.Markers {
+		if m.Kind == "portal" && m.Owner != "" {
+			owners++
+		}
+		if m.Namer != "" {
+			namers++
+			if !ids[m.Namer] {
+				t.Errorf("tame %s namer %q is no player's platform user ID", m.ID, m.Namer)
+			}
+		}
+	}
+	if owners != 3 || namers != 1 {
+		t.Errorf("portals with an owner %d (want 3), tames with a namer %d (want 1)", owners, namers)
 	}
 }

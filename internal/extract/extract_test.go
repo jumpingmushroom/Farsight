@@ -170,3 +170,43 @@ func TestTamesExcludeTemporarySummonsButKeepHen(t *testing.T) {
 		t.Fatalf("tames = %+v, want only Hen (Skeleton_Friendly excluded)", tames)
 	}
 }
+
+func TestPortalOwnerAndTameNamer(t *testing.T) {
+	e := New()
+	// The portal comes before the bed that names its creator: Finish
+	// resolves owners after every ZDO is in.
+	portal := z("portal_wood", [3]float32{1, 0, 1})
+	portal.Strings = map[int32]string{h("tag"): "copper"}
+	portal.Longs = map[int32]int64{h("creator"): 42}
+	stranger := z("portal_wood", [3]float32{2, 0, 2})
+	stranger.Longs = map[int32]int64{h("creator"): 7} // no bed or tombstone names 7
+	bed := z("bed", [3]float32{3, 0, 3})
+	bed.Longs = map[int32]int64{h("owner"): 42}
+	bed.Strings = map[int32]string{h("ownerName"): "Astrid"}
+	named := z("Lox", [3]float32{4, 0, 4})
+	named.Ints = map[int32]int32{h("tamed"): 1}
+	named.Strings = map[int32]string{h("TamedName"): "Big Mama", h("TamedNameAuthor"): "Steam_76561190000000001"}
+	byHost := z("Wolf", [3]float32{5, 0, 5})
+	byHost.Ints = map[int32]int32{h("tamed"): 1}
+	byHost.Strings = map[int32]string{h("TamedName"): "Grey", h("TamedNameAuthor"): "host"}
+	for _, zz := range []*save.ZDO{portal, stranger, bed, named, byHost} {
+		e.Add(zz)
+	}
+	s := e.Finish(&save.World{}, "x", time.Now())
+	got := map[string]Marker{}
+	for _, m := range s.Markers {
+		got[m.Kind+":"+m.Label] = m
+	}
+	if o := got["portal:copper"].Owner; o != "Astrid" {
+		t.Errorf("copper owner = %q, want Astrid", o)
+	}
+	if o := got["portal:"].Owner; o != "" {
+		t.Errorf("unnamed creator's portal owner = %q, want empty", o)
+	}
+	if n := got["tame:Big Mama"].Namer; n != "Steam_76561190000000001" {
+		t.Errorf("Big Mama namer = %q", n)
+	}
+	if n := got["tame:Grey"].Namer; n != "" {
+		t.Errorf(`a "host" namer = %q, want empty`, n)
+	}
+}

@@ -69,6 +69,26 @@ test('3 · the menu searches; picking a result docks the marker card', async ({ 
 	await expect(peek(page)).toBeVisible();
 });
 
+test('fix · mobile profile: "Map →" closes the sheet and focuses the docked marker card', async ({ page }) => {
+	await unlock(page);
+	const h = await centre(page, '[data-sheet-handle]');
+	await touchDrag(page, h.x, h.y, 250);
+	await expect(pulled(page)).toBeVisible();
+	// .click() rather than .tap(): a second synthetic touch sequence right
+	// after touchDrag's own CDP session is flaky here (observed hanging
+	// without reaching the row's onclick); a plain click exercises the same
+	// handler.
+	await pulled(page).getByRole('button', { name: 'Profile of Astrid' }).click();
+	const sheet = page.getByTestId('sheet-full');
+	await expect(sheet).toBeVisible();
+	await page.getByRole('button', { name: /Longhouse/ }).click();
+	await expect(sheet).toHaveCount(0);
+	const card = page.getByTestId('mobile-marker-card');
+	await expect(card).toBeVisible();
+	await expect(card).toContainText('Longhouse');
+	await expect(card.getByRole('button', { name: 'Close' })).toBeFocused();
+});
+
 test('fix · a search result is activatable by keyboard (focus + Enter)', async ({ page }) => {
 	await unlock(page);
 	await page.getByRole('button', { name: 'Search and layers' }).tap();
@@ -169,4 +189,95 @@ test('carried · Esc on the pulled sheet collapses it to peek', async ({ page })
 	await expect(peek(page)).toBeVisible();
 	await expect(pulled(page)).toHaveCount(0);
 	await expect(handle(page)).toHaveAccessibleName('Expand sheet');
+});
+
+// --- Plan 7: player profiles and the activity timeline ----------------------
+
+test('profile · pulled sheet → Profile: the full-height sheet; Map → docks the card; back closes', async ({ page }) => {
+	await unlock(page);
+	// A tap, not a drag: a tap right after a touch drag can land as the
+	// fling-stopping tap, which fires no click.
+	await handle(page).tap();
+	await expect(pulled(page)).toBeVisible();
+	await pulled(page).getByRole('button', { name: 'Profile of Astrid' }).tap();
+	const sheet = page.getByRole('dialog', { name: 'Player profile' });
+	await expect(sheet.getByRole('heading', { name: 'Astrid' })).toBeVisible();
+	await expect(sheet.locator('.stat', { hasText: 'Sessions' }).locator('dd')).toHaveText('3');
+	await expect(page).toHaveURL(/#s=demo&p=76561190000000001$/);
+	await page.goBack();
+	await expect(sheet).toBeHidden();
+
+	await pulled(page).getByRole('button', { name: 'Profile of Astrid' }).tap();
+	await sheet.getByRole('region', { name: 'Bases' }).getByRole('button', { name: /Longhouse/ }).tap();
+	await expect(sheet).toBeHidden();
+	await expect(page.getByTestId('mobile-marker-card')).toContainText('Longhouse');
+	await expect(page).toHaveURL(/#s=demo$/);
+});
+
+test('profile · Recently online → Ulf: figures from the seed, Map →, Back button, focus returns', async ({ page }) => {
+	await unlock(page);
+	await handle(page).tap();
+	await expect(pulled(page)).toBeVisible();
+	const row = pulled(page).getByRole('button', { name: 'Profile of Ulf' });
+	await row.tap();
+	const sheet = page.getByRole('dialog', { name: 'Player profile' });
+	await expect(sheet.getByRole('heading', { name: 'Ulf' })).toBeVisible();
+	await expect(sheet.locator('.stat', { hasText: 'Sessions' }).locator('dd')).toHaveText('2');
+	await expect(sheet.getByRole('region', { name: 'Bases' })).toContainText('Eastwatch');
+	await expect(page).toHaveURL(/#s=demo&p=76561190000000004$/);
+
+	// Back first: unlike "Map →" (below), it doesn't collapse the pulled
+	// sheet, so the same `row` still resolves for the second open.
+	await sheet.getByRole('button', { name: 'Back' }).tap();
+	await expect(sheet).toBeHidden();
+	await expect(page).toHaveURL(/#s=demo$/);
+
+	await row.tap();
+	await expect(sheet).toBeVisible();
+	await sheet.getByRole('region', { name: 'Bases' }).getByRole('button', { name: /Eastwatch/ }).tap();
+	await expect(sheet).toBeHidden();
+	await expect(page.getByTestId('mobile-marker-card')).toContainText('Eastwatch');
+});
+
+test('activity · menu → Full timeline: chips, Show earlier, Show on map →', async ({ page }) => {
+	await unlock(page);
+	await page.getByRole('button', { name: 'Search and layers' }).tap();
+	await page.getByRole('dialog', { name: 'Search and layers' }).getByRole('button', { name: /Full timeline/ }).tap();
+	const sheet = page.getByRole('dialog', { name: 'Activity' });
+	await expect(sheet).toContainText('Moder defeated');
+	await expect(page).toHaveURL(/#s=demo&activity$/);
+	const bosses = sheet.getByRole('button', { name: /^Bosses/ });
+	await bosses.tap();
+	await expect(sheet).not.toContainText('Moder defeated');
+	await bosses.tap();
+	await sheet.getByRole('button', { name: 'Show earlier' }).tap();
+	await expect(sheet).toContainText('Sigrun left after 1h 00m');
+
+	await sheet.getByRole('listitem').filter({ hasText: 'New portal “copper”' }).getByRole('button', { name: 'Show on map →' }).tap();
+	await expect(sheet).toBeHidden();
+	await expect(page.getByTestId('mobile-marker-card')).toContainText('copper');
+});
+
+test('activity · a world event in unexplored ground never reaches the mobile timeline', async ({ page }) => {
+	await unlock(page);
+	await page.getByRole('button', { name: 'Search and layers' }).tap();
+	await page.getByRole('dialog', { name: 'Search and layers' }).getByRole('button', { name: /Full timeline/ }).tap();
+	const sheet = page.getByRole('dialog', { name: 'Activity' });
+	await expect(sheet).toContainText('New portal “copper”, not paired with anything yet');
+	await expect(sheet).not.toContainText('New portal “mountain”');
+});
+
+test('activity · the menu button opens the sheet, and Back closes it and returns focus', async ({ page }) => {
+	await unlock(page);
+	const menuBtn = page.getByRole('button', { name: 'Search and layers' });
+	await menuBtn.tap();
+	await page.getByRole('dialog', { name: 'Search and layers' }).getByRole('button', { name: /Full timeline/ }).tap();
+	const sheet = page.getByRole('dialog', { name: 'Activity' });
+	await expect(sheet).toBeVisible();
+	await expect(page).toHaveURL(/#s=demo&activity$/);
+
+	await sheet.getByRole('button', { name: 'Back' }).tap();
+	await expect(sheet).toBeHidden();
+	await expect(page).toHaveURL(/#s=demo$/);
+	await expect(menuBtn).toBeFocused();
 });

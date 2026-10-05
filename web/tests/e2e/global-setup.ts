@@ -13,9 +13,13 @@
  *     cookieSecure false, and a free 127.0.0.1 port.
  *  3. `farsight-seed -fake-tiles` writes a complete tile set before serve
  *     starts, so the snapshot post finds the map ready; serve starts, /healthz
- *     is awaited, then demo's snapshot and events are posted with -shift (the
- *     newest event lands at now − 1 min) and -explored (the snapshot carries
+ *     is awaited, then demo's snapshots and events are posted with -shift (the
+ *     newest event lands at now − 1 min) and -explored (each snapshot carries
  *     a 12 m explored mask rasterised from its zones, as a current agent's).
+ *     demo gets two saves (Plan 7): `earlierSnapshot` (fixture minus Bjorn's
+ *     tombstone, the copper portal, Big Mama, Eastwatch, 124 Longhouse pieces
+ *     and Moder's key), a day before snapshot.json, so the server derives one
+ *     world-save event of each kind from the pair.
  *     `swap` gets the same snapshot (same world seed, so it shares demo's
  *     tile set on disk) but no events, so a test can repost to it with a new
  *     fog key without racing a parallel test's view of demo's state.
@@ -47,6 +51,47 @@ const FIXTURES = join(WEB, 'tests/fixtures');
 
 const HEARTBEAT_EVERY_MS = 30_000;
 const HEALTH_TIMEOUT_MS = 20_000;
+
+interface FixtureSnapshot {
+	saveId: string;
+	savedAt: string;
+	readAt: string;
+	globalKeys: string[];
+	bosses: { key: string; defeated: boolean }[];
+	markers: { id: string }[];
+	bases: { id: string; pieces: number }[];
+}
+
+/**
+ * The save before snapshot.json (Plan 7): a day earlier, without Bjorn's
+ * tombstone, the copper portal, Big Mama or the Eastwatch base, with 124
+ * fewer Longhouse pieces and Moder not yet defeated. Diffing the two gives
+ * a new tombstone, portal, tame and base, a base that grew, and a boss.
+ *
+ * Adaptation (beyond the brief): also without portal-4 — "mountain"'s
+ * partner, already placed outside every explored zone in the fixture, so
+ * removing it from this save alone (snapshot.json itself is untouched, so
+ * every Go/Vitest invariant keyed on its marker counts still holds) makes
+ * it read as a brand-new portal in the diff, with a Pos in unexplored
+ * ground. That exercises the server's drop-in-unexplored-ground rule
+ * (`toEventJSON`, internal/server/activity.go) end to end: the event must
+ * never reach the timeline, while "mountain"'s own explored end never
+ * reports a pairing (its partner stays unexplored either way).
+ */
+function earlierSnapshot(fixture: string): FixtureSnapshot {
+	const s = JSON.parse(readFileSync(fixture, 'utf8')) as FixtureSnapshot;
+	const dayBefore = (iso: string) => new Date(new Date(iso).getTime() - 24 * 3600 * 1000).toISOString();
+	return {
+		...s,
+		saveId: 'chunked:213',
+		savedAt: dayBefore(s.savedAt),
+		readAt: dayBefore(s.readAt),
+		globalKeys: s.globalKeys.filter((k) => k !== 'defeated_dragon'),
+		bosses: s.bosses.map((b) => (b.key === 'defeated_dragon' ? { ...b, defeated: false } : b)),
+		markers: s.markers.filter((m) => !['tombstone-1', 'portal-5', 'tame-1', 'portal-4'].includes(m.id)),
+		bases: s.bases.filter((b) => b.id !== 'base-2').map((b) => (b.id === 'base-1' ? { ...b, pieces: b.pieces - 124 } : b))
+	};
+}
 
 function run(cmd: string, args: string[], opts: { cwd?: string; input?: string; env?: NodeJS.ProcessEnv } = {}): string {
 	return execFileSync(cmd, args, {
@@ -161,6 +206,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 					address: 'play.example.net:2456',
 					discordHint: 'ask in #demo',
 					maxPlayers: 10,
+					timeZone: 'Europe/Oslo',
 					passphraseHash: hash('demo-pass'),
 					agentTokenHash: hash('demo-token')
 				},
@@ -200,7 +246,9 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 		await waitHealthy(base, proc, log);
 
 		process.env.FARSIGHT_SEED_TOKEN = 'demo-token';
-		run(seed, ['-url', base, '-server', 'demo', '-shift', '-explored', '-snapshot', snapshot, '-events', events]);
+		const earlier = join(dir, 'snapshot-earlier.json');
+		writeFileSync(earlier, JSON.stringify(earlierSnapshot(snapshot)));
+		run(seed, ['-url', base, '-server', 'demo', '-shift', '-explored', '-snapshot', earlier, '-snapshot', snapshot, '-events', events]);
 		// `swap`: seeded once, here, for the tile-swap e2e test alone (fix
 		// round 2, item 2) — never posted to again by anything shared, so a
 		// test reposting to it (a new fog key) can't race a parallel test's

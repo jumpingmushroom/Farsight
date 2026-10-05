@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import {
 	checkGuard,
 	expect,
+	overrideCard,
 	pinsOfKind,
 	postSnapshot,
 	refreshNow,
@@ -268,8 +269,64 @@ test('4 · online tab: players, recently online and activity', async ({ page }) 
 	await expect(online.getByRole('listitem')).toHaveCount(3);
 	await expect(page.getByRole('list', { name: 'Recently online' })).toContainText('Ulf');
 	const activity = page.getByRole('region', { name: 'Recent activity' });
-	await expect(activity).toContainText('Astrid joined');
+	// Plan 7: the newest save's world events lead the list now.
+	await expect(activity).toContainText('Sigrun joined');
+	await expect(activity).toContainText('Moder defeated');
 	await expect(activity.getByRole('listitem').filter({ hasText: 'Autosave finished' })).toHaveCount(1);
+});
+
+test('fix · desktop profile: focus moves to Back on open, and back to the opening row on close (button, Escape, browser back)', async ({
+	page
+}) => {
+	await unlock(page);
+	const online = page.getByRole('list', { name: 'Online now' });
+	const row = online.getByRole('button', { name: 'Profile of Astrid' });
+	const back = page.getByRole('button', { name: 'Back' });
+
+	await row.click();
+	await expect(back).toBeFocused();
+	await expect(page).toHaveURL(/#s=demo&p=76561190000000001$/);
+	await back.click();
+	await expect(page.getByTestId('profile-panel')).toHaveCount(0);
+	await expect(row).toBeFocused();
+
+	await row.click();
+	await expect(back).toBeFocused();
+	await page.keyboard.press('Escape');
+	await expect(page.getByTestId('profile-panel')).toHaveCount(0);
+	await expect(row).toBeFocused();
+
+	await row.click();
+	await page.goBack();
+	await expect(page.getByTestId('profile-panel')).toHaveCount(0);
+	await expect(row).toBeFocused();
+});
+
+test('fix · desktop profile: closing falls back to the Online tab when the opening row is gone', async ({ page }) => {
+	await unlock(page);
+	const online = page.getByRole('list', { name: 'Online now' });
+	await online.getByRole('button', { name: 'Profile of Astrid' }).click();
+	const back = page.getByRole('button', { name: 'Back' });
+	await expect(back).toBeFocused();
+
+	// Astrid drops off the online (and recent) lists before the next poll;
+	// the open profile itself is unaffected (it's keyed on the player, not
+	// the card). Adaptation (Plan 7): Astrid's seed now also has closed
+	// sessions on earlier days (Task 9's seeded history), so the real
+	// card's own `recent` list carries her too — strip both, or her row
+	// would still exist there and the fallback would (correctly) refocus
+	// it instead of falling back to the Online tab.
+	await overrideCard(page, (c) => ({
+		...c,
+		online: c.online.filter((p) => p.name !== 'Astrid'),
+		recent: c.recent.filter((r) => r.name !== 'Astrid')
+	}));
+	await refreshNow(page);
+	await expect(page.getByTestId('profile-panel')).toContainText('Astrid');
+
+	await back.click();
+	await expect(page.getByTestId('profile-panel')).toHaveCount(0);
+	await expect(page.getByRole('tab', { name: /^Online/ })).toBeFocused();
 });
 
 test('5 · world tab: day, bosses, next up and world rules', async ({ page }) => {
@@ -616,3 +673,175 @@ pwTest.describe('guard self-tests', () => {
 		expect(() => checkGuard(problems)).not.toThrow();
 	});
 });
+
+// --- Plan 7: player profiles and the activity timeline ----------------------
+
+const profilePanel = (page: Page) => page.getByRole('complementary', { name: 'Player profile' });
+const activityPanel = (page: Page) => page.getByRole('complementary', { name: 'Activity' });
+const stat = (root: ReturnType<typeof profilePanel>, k: string) => root.locator('.stat', { hasText: k }).locator('dd');
+
+test('profile · Online → Profile: Astrid’s figures from the seed, Map →, browser back', async ({ page }) => {
+	await unlock(page);
+	await markersReady(page);
+	await page.getByRole('list', { name: 'Online now' }).getByRole('button', { name: 'Profile of Astrid' }).click();
+	await expect(page).toHaveURL(/#s=demo&p=76561190000000001$/);
+	const profile = profilePanel(page);
+	await expect(profile.getByRole('heading', { name: 'Astrid' })).toBeVisible();
+	await expect(profile.locator('.status')).toHaveText(/^Online now · 1h \d+m$/);
+	// Three sessions: 2 h 30 m and 2 h on earlier days, and the open one.
+	await expect(stat(profile, 'Sessions')).toHaveText('3');
+	await expect(stat(profile, 'All time')).toHaveText(/^5h \d\dm$/);
+	await expect(profile.getByRole('list', { name: 'Hours online per day' }).getByRole('listitem')).toHaveCount(7);
+	await expect(profile.locator('.facts')).toContainText('1 · Longhouse');
+	await expect(profile.getByRole('region', { name: 'Bases' })).toContainText('2,184 pieces · Meadows');
+	// home and mountain are hers; mountain's partner is unexplored, so it shows unpaired.
+	await expect(profile.getByRole('region', { name: 'Portals placed' })).toContainText('2 portals');
+	await expect(profile.getByRole('region', { name: 'Tames they named' })).toContainText('Big Mama · Lox');
+	await expect(profile.getByRole('region', { name: 'Deaths' })).toContainText('0 spotted · 0 this week');
+
+	await profile.getByRole('region', { name: 'Bases' }).getByRole('button', { name: /Longhouse/ }).click();
+	await expect(markerCard(page)).toContainText('Longhouse');
+
+	await page.goBack();
+	await expect(profile).toBeHidden();
+	await expect(page).toHaveURL(/#s=demo$/);
+	await expect(serverCard(page)).toBeVisible();
+});
+
+test('profile · Recently online → Ulf; Bjorn’s tombstone; a linked profile; an unknown player', async ({ page }) => {
+	await unlock(page);
+	await markersReady(page);
+	await page.getByRole('list', { name: 'Recently online' }).getByRole('button', { name: 'Profile of Ulf' }).click();
+	const profile = profilePanel(page);
+	await expect(profile.locator('.status')).toHaveText(/^Last seen /);
+	await expect(stat(profile, 'Sessions')).toHaveText('2');
+	await expect(stat(profile, 'All time')).toHaveText('2h 10m');
+	await expect(profile.getByRole('region', { name: 'Bases' })).toContainText('Eastwatch');
+	await expect(profile.getByRole('region', { name: 'Portals placed' })).toContainText('None yet.');
+	await profile.getByRole('button', { name: 'Back' }).click();
+	await expect(profile).toBeHidden();
+	await expect(page).toHaveURL(/#s=demo$/);
+
+	await page.getByRole('list', { name: 'Online now' }).getByRole('button', { name: 'Profile of Bjorn' }).click();
+	const deaths = profilePanel(page).getByRole('region', { name: 'Deaths' });
+	await expect(deaths).toContainText('1 spotted · 1 this week');
+	await deaths.getByRole('button', { name: /Tombstone in the Meadows · since save/ }).click();
+	await expect(markerCard(page)).toContainText('Bjorn');
+
+	// A linked profile opens on load; an unknown player says so.
+	await page.goto('about:blank');
+	await page.goto('/#s=demo&p=76561190000000004');
+	await expect(profilePanel(page).getByRole('heading', { name: 'Ulf' })).toBeVisible();
+	await page.goto('about:blank');
+	await page.goto('/#s=demo&p=nobody');
+	await expect(profilePanel(page)).toContainText('This player hasn’t been seen on this server.');
+});
+
+test('activity · Full timeline: world-save events, chips, people, the short list follows, back', async ({ page }) => {
+	await unlock(page);
+	await markersReady(page);
+	await page.getByRole('region', { name: 'Recent activity' }).getByRole('button', { name: 'Full timeline →' }).click();
+	await expect(page).toHaveURL(/#s=demo&activity$/);
+	const tl = activityPanel(page);
+	for (const text of [
+		'New tombstone: Bjorn, in the Meadows',
+		'New portal “copper”, not paired with anything yet',
+		'New tame: Big Mama (Lox)',
+		'New base: Eastwatch (Plains)',
+		'Longhouse grew by 124 pieces',
+		'Moder defeated',
+		'Raid: The forest is moving',
+		'Sigrun joined'
+	]) {
+		await expect(tl).toContainText(text);
+	}
+	await expect(tl.getByRole('listitem').filter({ hasText: 'Moder defeated' })).toContainText(/World save · \d\d:\d\d/);
+	await expect(tl.getByRole('listitem').filter({ hasText: 'Autosave finished' }).first()).toContainText('Server log');
+	const today = tl.locator('.today-row');
+	for (const name of ['Astrid', 'Bjorn', 'Sigrun']) await expect(today.filter({ hasText: name })).toHaveCount(1);
+
+	const deaths = tl.getByRole('button', { name: /^Deaths/ });
+	await expect(deaths).toHaveAttribute('aria-pressed', 'true');
+	await expect(deaths.locator('.count')).toHaveText('1');
+	await deaths.click();
+	await expect(deaths).toHaveAttribute('aria-pressed', 'false');
+	await expect(tl).not.toContainText('New tombstone');
+
+	await tl.getByRole('group', { name: 'People' }).getByRole('button', { name: /Ulf/ }).click();
+	await expect(tl).toContainText('Ulf left after 40m');
+	await expect(tl).not.toContainText('Sigrun joined');
+	await expect(tl).toContainText('Autosave finished'); // the server's own events stay
+	await tl.getByRole('button', { name: 'Reset filters' }).click();
+	await expect(tl).toContainText('New tombstone');
+	await expect(tl).toContainText('Sigrun joined');
+
+	// The side panel's short list shares the filters.
+	await deaths.click();
+	await tl.getByRole('button', { name: 'Back' }).click();
+	await expect(tl).toBeHidden();
+	await expect(page).toHaveURL(/#s=demo$/);
+	const short = page.getByRole('region', { name: 'Recent activity' });
+	await expect(short).toContainText('Moder defeated');
+	await expect(short).not.toContainText('New tombstone');
+});
+
+test('activity · Show earlier reaches the start of tracking; Show on map →', async ({ page }) => {
+	await unlock(page);
+	await markersReady(page);
+	await page.getByRole('region', { name: 'Recent activity' }).getByRole('button', { name: 'Full timeline →' }).click();
+	const tl = activityPanel(page);
+	await expect(tl).toContainText('Moder defeated');
+	await expect(tl).not.toContainText('Sigrun left after 1h 00m');
+	await tl.getByRole('button', { name: 'Show earlier' }).click();
+	await expect(tl).toContainText('Sigrun left after 1h 00m');
+	await expect(tl).toContainText(/Tracking began \d+ [A-Z][a-z]{2}/);
+	await expect(tl.getByRole('button', { name: 'Show earlier' })).toHaveCount(0);
+	await expect(tl.getByText(/^Last 6 days/)).toBeVisible();
+
+	await tl.getByRole('listitem').filter({ hasText: 'New tombstone: Bjorn' }).getByRole('button', { name: 'Show on map →' }).click();
+	await expect(markerCard(page)).toContainText('Bjorn');
+	await expect(tl).toBeVisible();
+});
+
+test('activity · a world event in unexplored ground never reaches the timeline', async ({ page }) => {
+	// Adaptation (beyond the brief): global-setup.ts's two-save pair also
+	// drops portal-4 ("mountain"'s partner, already outside every explored
+	// zone in the fixture) from the earlier save alone, so it reads as a
+	// brand-new portal with a Pos in unexplored ground — exercising the
+	// server's drop-in-unexplored-ground rule end to end.
+	await unlock(page);
+	await markersReady(page);
+	await page.getByRole('region', { name: 'Recent activity' }).getByRole('button', { name: 'Full timeline →' }).click();
+	const tl = activityPanel(page);
+	await expect(tl).toContainText('New portal “copper”, not paired with anything yet');
+	await expect(tl).not.toContainText('New portal “mountain”');
+	await expect(tl).not.toContainText('mountain” now paired');
+	await expect(tl.getByRole('button', { name: /^Portals/ }).locator('.count')).toHaveText('1');
+});
+
+test('fix · desktop activity: focus moves to Back on open, and back to "Full timeline →" on close (button, Escape, browser back)', async ({
+	page
+}) => {
+	await unlock(page);
+	const row = page.getByRole('region', { name: 'Recent activity' }).getByRole('button', { name: 'Full timeline →' });
+	const back = page.getByRole('button', { name: 'Back' });
+
+	await row.click();
+	await expect(back).toBeFocused();
+	await expect(page).toHaveURL(/#s=demo&activity$/);
+	await back.click();
+	await expect(page.getByTestId('activity-panel')).toHaveCount(0);
+	await expect(row).toBeFocused();
+
+	await row.click();
+	await expect(back).toBeFocused();
+	await page.keyboard.press('Escape');
+	await expect(page.getByTestId('activity-panel')).toHaveCount(0);
+	await expect(row).toBeFocused();
+
+	await row.click();
+	await page.goBack();
+	await expect(page.getByTestId('activity-panel')).toHaveCount(0);
+	await expect(row).toBeFocused();
+});
+

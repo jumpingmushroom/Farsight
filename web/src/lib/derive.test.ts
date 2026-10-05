@@ -120,6 +120,7 @@ describe('recentList', () => {
 		expect(list.find((r) => r.name === 'Halvor')).toBeUndefined();
 		const alina = list.find((r) => r.name === 'Alina');
 		expect(alina?.until).toBe(iso(-500));
+		expect(alina?.platformId).toBe('2');
 		for (let i = 1; i < list.length; i++) {
 			expect(new Date(list[i - 1].until).getTime()).toBeGreaterThanOrEqual(new Date(list[i].until).getTime());
 		}
@@ -127,16 +128,22 @@ describe('recentList', () => {
 });
 
 describe('activityRows', () => {
+	function act(type: string, at: string, extra: Partial<Activity> = {}): Activity {
+		const category = type.startsWith('player_') ? 'session' : type === 'world_tombstone' ? 'death' : 'server';
+		const source = type.startsWith('world_') && type !== 'world_saved' ? 'save' : 'log';
+		return { id: `${type}${at}`, type, category, source, at, who: [], ...extra };
+	}
+
 	test('keeps only the newest world_saved, maps copy, applies the limit', () => {
 		const activity: Activity[] = [
-			{ type: 'player_join', at: iso(-10), name: 'Halvor' },
-			{ type: 'world_saved', at: iso(-20) },
-			{ type: 'world_saved', at: iso(-40) },
-			{ type: 'player_leave', at: iso(-60), name: 'Bjorn' },
-			{ type: 'server_ready', at: iso(-80), version: '1.0.16' },
-			{ type: 'server_stopped', at: iso(-100) },
-			{ type: 'server_starting', at: iso(-120) },
-			{ type: 'join_code', at: iso(-140), code: '318742' }
+			act('player_join', iso(-10), { name: 'Halvor' }),
+			act('world_saved', iso(-20)),
+			act('world_saved', iso(-40)),
+			act('player_leave', iso(-60), { name: 'Bjorn' }),
+			act('server_ready', iso(-80), { version: '1.0.16' }),
+			act('server_stopped', iso(-100)),
+			act('server_starting', iso(-120)),
+			act('join_code', iso(-140), { code: '318742' })
 		];
 		const card = makeCard({ activity });
 		const rows = activityRows(card, 8);
@@ -151,18 +158,27 @@ describe('activityRows', () => {
 	});
 
 	test('applies the limit', () => {
-		const activity: Activity[] = Array.from({ length: 10 }, (_, i) => ({
-			type: 'player_join',
-			at: iso(-i * 10),
-			name: `P${i}`
-		}));
+		const activity: Activity[] = Array.from({ length: 10 }, (_, i) => act('player_join', iso(-i * 10), { name: `P${i}` }));
 		const card = makeCard({ activity });
 		expect(activityRows(card, 3).length).toBe(3);
 	});
 
 	test('server_ready without a version', () => {
-		const card = makeCard({ activity: [{ type: 'server_ready', at: iso(-5) }] });
+		const card = makeCard({ activity: [act('server_ready', iso(-5))] });
 		expect(activityRows(card, 8)[0].text).toBe('Server is up');
+	});
+
+	test('world events, and the timeline’s filters (Plan 7)', () => {
+		const activity: Activity[] = [
+			act('world_tombstone', iso(-5), { owner: 'Halvor', biome: 'Swamp', who: ['1'] }),
+			act('player_join', iso(-10), { name: 'Bjorn', who: ['2'] }),
+			act('world_saved', iso(-20))
+		];
+		const card = makeCard({ activity });
+		const all = activityRows(card, 8);
+		expect(all[0]).toMatchObject({ text: 'New tombstone: Halvor, in the Swamp', icon: 'skull', tone: 'ember', source: 'save' });
+		expect(activityRows(card, 8, ['death']).map((r) => r.text)).toEqual(['Bjorn joined', 'Autosave finished · map updated']);
+		expect(activityRows(card, 8, [], ['2']).map((r) => r.text)).toEqual(['Bjorn joined', 'Autosave finished · map updated']);
 	});
 });
 

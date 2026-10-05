@@ -18,6 +18,7 @@ import (
 	"github.com/jumpingmushroom/farsight/internal/live"
 	"github.com/jumpingmushroom/farsight/internal/store"
 	"github.com/jumpingmushroom/farsight/internal/tileset"
+	"github.com/jumpingmushroom/farsight/internal/worldevents"
 )
 
 // Deps are everything the HTTP handlers need.
@@ -26,6 +27,10 @@ type Deps struct {
 	Store   *store.Store
 	Applier *live.Applier
 	Tiles   *tileset.Manager
+	// World derives world-save events from stored snapshots; nil means a
+	// Deriver of the handler's own over Store. serve passes the one its
+	// startup backfill uses, so the two share per-server locks.
+	World   *worldevents.Deriver
 	Codec   auth.Codec
 	Limiter *auth.Limiter // unlock attempts, per client IP
 	// IngestLimiter charges ingest requests whose token needs a bcrypt
@@ -69,6 +74,9 @@ func newServer(d Deps) *server {
 	}
 	if d.IngestLimiter == nil {
 		d.IngestLimiter = auth.NewLimiter(10, 10, d.Now)
+	}
+	if d.World == nil {
+		d.World = worldevents.NewDeriver(d.Store, d.Log)
 	}
 	return &server{
 		Deps:           d,
@@ -115,6 +123,9 @@ func NewHandlers(d Deps) (public, ingest http.Handler) {
 	mux.HandleFunc("GET /api/servers", s.listServers)
 	mux.Handle("GET /api/servers/{id}", gzipJSON(s.Log, http.HandlerFunc(s.card)))
 	mux.Handle("GET /api/servers/{id}/snapshot", gzipJSON(s.Log, http.HandlerFunc(s.snapshot)))
+	mux.Handle("GET /api/servers/{id}/players/{player}", gzipJSON(s.Log, http.HandlerFunc(s.profile)))
+	mux.Handle("GET /api/servers/{id}/activity", gzipJSON(s.Log, http.HandlerFunc(s.activity)))
+	mux.Handle("GET /api/servers/{id}/sessions/today", gzipJSON(s.Log, http.HandlerFunc(s.sessionsToday)))
 
 	mux.HandleFunc("GET /tiles/{id}/{key}/{fog}/{z}/{x}/{y}", s.fogTile)
 

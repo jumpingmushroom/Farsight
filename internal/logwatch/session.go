@@ -30,6 +30,11 @@ type Event struct {
 	Since   *time.Time `json:"since,omitempty"`
 	Seconds int64      `json:"seconds,omitempty"`
 	Reason  string     `json:"reason,omitempty"`
+
+	// Raid is an event_raid's game event name ("army_theelder"). EventID
+	// leaves it out, so IDs of every other type are unchanged; a raid's
+	// type and second are unique enough.
+	Raid string `json:"raid,omitempty"`
 }
 
 const (
@@ -43,6 +48,7 @@ const (
 	EvPlayerLeave    = "player_leave"
 	EvWorldSaved     = "world_saved"
 	EvHeartbeat      = "heartbeat"
+	EvRaid           = "event_raid"
 )
 
 // session is one open player session, keyed either "s:{steamID}" (Steam
@@ -105,6 +111,8 @@ func (s *Sessionizer) Feed(r Raw) []Event {
 		out = []Event{s.emit(EvPlayersNow, r.At, Event{Players: &p})}
 	case RawSaved:
 		out = []Event{s.emit(EvWorldSaved, r.At, Event{})}
+	case RawRaid:
+		out = []Event{s.emit(EvRaid, r.At, Event{Raid: r.Raid})}
 	}
 	return out
 }

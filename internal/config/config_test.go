@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -99,5 +100,33 @@ func TestIngestListenDefaultAndValidation(t *testing.T) {
 	c3, err := Load(write(t, `{"listen":":8080","ingestListen":":8081","servers":[{"id":"a","name":"x",`+good+`}]}`), env)
 	if err != nil || c3.IngestListen != ":8081" {
 		t.Errorf("distinct ports: %+v, err %v", c3, err)
+	}
+}
+
+// Plan 7: each server's timeZone (its agent's FARSIGHT_LOG_TZ) defaults to
+// UTC and must be a loadable IANA name.
+func TestTimeZone(t *testing.T) {
+	good := `"passphraseHash":"` + hash(t, "pw") + `","agentTokenHash":"` + hash(t, "tok") + `"`
+	c, err := Load(write(t, `{"servers":[{"id":"a","name":"x",`+good+`},{"id":"b","name":"y","timeZone":"Europe/Oslo",`+good+`}]}`), env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := c.Server("a")
+	b, _ := c.Server("b")
+	if a.TimeZone != "UTC" || a.Location() != time.UTC {
+		t.Errorf("a: timeZone %q, location %v; want UTC", a.TimeZone, a.Location())
+	}
+	if b.Location().String() != "Europe/Oslo" {
+		t.Errorf("b: location %v", b.Location())
+	}
+	if _, err := Load(write(t, `{"servers":[{"id":"a","name":"x","timeZone":"Mars/Olympus",`+good+`}]}`), env); err == nil || !strings.Contains(err.Error(), "timeZone") {
+		t.Errorf("bad timeZone: err = %v", err)
+	}
+	// A Server built without Load (as tests do) still resolves its zone.
+	if loc := (&Server{TimeZone: "Europe/Oslo"}).Location(); loc.String() != "Europe/Oslo" {
+		t.Errorf("unloaded server location = %v", loc)
+	}
+	if loc := (&Server{}).Location(); loc != time.UTC {
+		t.Errorf("zero server location = %v", loc)
 	}
 }

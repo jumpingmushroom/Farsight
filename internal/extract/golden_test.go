@@ -3,6 +3,7 @@ package extract
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -38,6 +39,31 @@ func TestGoldenMuleVikings(t *testing.T) {
 	}
 	if len(s.Players) < 5 || s.Stats.UnknownPrefabs != 0 || s.World.SeedName == "" {
 		t.Fatalf("players=%d unknown=%d seed=%q", len(s.Players), s.Stats.UnknownPrefabs, s.World.SeedName)
+	}
+	// Owners and namers (Plan 7): every portal owner is a player the save
+	// names, and every namer is a platform user ID ("Platform_ID").
+	known := map[string]bool{}
+	for _, p := range s.Players {
+		known[p.Name] = true
+	}
+	owned, named := 0, 0
+	for _, m := range s.Markers {
+		if m.Kind == "portal" && m.Owner != "" {
+			owned++
+			if !known[m.Owner] {
+				t.Errorf("portal %s owner %q is not in players", m.ID, m.Owner)
+			}
+		}
+		if m.Kind == "tame" && m.Namer != "" {
+			named++
+			if !strings.Contains(m.Namer, "_") {
+				t.Errorf("tame %s namer %q is not Platform_ID", m.ID, m.Namer)
+			}
+		}
+	}
+	t.Logf("portals with an owner: %d of %d; tames with a namer: %d of %d", owned, count["portal"], named, count["tame"])
+	if owned == 0 {
+		t.Errorf("no portal has an owner")
 	}
 	altars := 0
 	for _, l := range s.Locations {

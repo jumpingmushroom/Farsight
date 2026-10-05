@@ -22,6 +22,7 @@ import (
 	"github.com/jumpingmushroom/farsight/internal/server"
 	"github.com/jumpingmushroom/farsight/internal/store"
 	"github.com/jumpingmushroom/farsight/internal/tileset"
+	"github.com/jumpingmushroom/farsight/internal/worldevents"
 	"github.com/jumpingmushroom/farsight/web"
 )
 
@@ -78,6 +79,7 @@ func runServe(ctx context.Context, cfgPath string, getenv func(string) string, l
 	tiles := tileset.NewManager(filepath.Join(cfg.DataDir, "tiles"),
 		tileset.DefaultRender(max(1, runtime.GOMAXPROCS(0)-1)), log)
 	applier := &live.Applier{Store: st, Now: time.Now}
+	world := worldevents.NewDeriver(st, log)
 
 	splitIngest := cfg.IngestListen != ""
 	publicHandler, ingestHandler := server.NewHandlers(server.Deps{
@@ -85,6 +87,7 @@ func runServe(ctx context.Context, cfgPath string, getenv func(string) string, l
 		Store:         st,
 		Applier:       applier,
 		Tiles:         tiles,
+		World:         world,
 		Codec:         auth.Codec{Key: cfg.CookieKey},
 		Limiter:       auth.NewLimiter(5, 5, nil),
 		IngestLimiter: auth.NewLimiter(10, 10, nil),
@@ -144,6 +147,7 @@ func runServe(ctx context.Context, cfgPath string, getenv func(string) string, l
 	})
 	loop(func(ctx context.Context) { every(ctx, sweepInterval, false, func() { sweep(ctx, applier, log) }) })
 	loop(func(ctx context.Context) { every(ctx, pruneInterval, true, func() { prune(ctx, st, log) }) })
+	loop(func(ctx context.Context) { backfillWorldEvents(ctx, cfg, world, log) })
 
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Serve(ln) }()
@@ -176,6 +180,12 @@ func runServe(ctx context.Context, cfgPath string, getenv func(string) string, l
 		runErr = fmt.Errorf("ingest http server: %w", err)
 	}
 
+	// Stop any in-flight or future background world-event derivation
+	// (CatchUpAsync; the backfill loop below honours loopCtx on its own,
+	// once it's cancelled) before anything closes the store out from
+	// under it.
+	world.Cancel()
+
 	toShutdown := []*http.Server{srv}
 	if splitIngest {
 		toShutdown = append(toShutdown, ingestSrv)
@@ -185,8 +195,33 @@ func runServe(ctx context.Context, cfgPath string, getenv func(string) string, l
 	}
 	cancelLoops()
 	wg.Wait()
+	// Cancel only asks CatchUpAsync work to stop; wait, bounded, for it to
+	// actually have returned, so nothing touches the store (closed by the
+	// caller's defer) afterwards.
+	waitWorldIdle(world, shutdownTimeout, log)
 	log.Info("stopped")
 	return runErr
+}
+
+// waitWorldIdle waits up to timeout for every world.CatchUpAsync call so
+// far to have returned (Cancel, called beforehand, having already asked
+// them to stop), so the caller's deferred store Close never races a
+// lingering background derivation. It logs a warning, rather than
+// blocking indefinitely, if the deadline passes first: data is never at
+// risk either way, since every snapshot is applied in its own
+// transaction and the derivation resumes, from where it left off, on the
+// next ingest or restart.
+func waitWorldIdle(world *worldevents.Deriver, timeout time.Duration, log *slog.Logger) {
+	done := make(chan struct{})
+	go func() {
+		world.Idle()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		log.Warn("world events: shutdown timed out waiting for background derivation to stop")
+	}
 }
 
 // shutdownAll shuts down each of servers concurrently, each with its own,
@@ -262,6 +297,21 @@ func prune(ctx context.Context, st *store.Store, log *slog.Logger) {
 	}
 	if snaps > 0 || evs > 0 {
 		log.Info("pruned", "snapshots", snaps, "events", evs)
+	}
+}
+
+// backfillWorldEvents brings every configured server's world-save events
+// up to date once at startup: the first run for a server replays all its
+// stored snapshots, later runs only what arrived while farsight was down.
+// Errors are logged and the server skipped; ingest catches up later.
+func backfillWorldEvents(ctx context.Context, cfg *config.Config, world *worldevents.Deriver, log *slog.Logger) {
+	for _, s := range cfg.Servers {
+		if ctx.Err() != nil {
+			return
+		}
+		if _, err := world.CatchUp(ctx, s.ID); err != nil && ctx.Err() == nil {
+			log.Error("startup world events", "server", s.ID, "err", err)
+		}
 	}
 }
 

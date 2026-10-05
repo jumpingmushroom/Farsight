@@ -30,6 +30,7 @@ import (
 	"github.com/jumpingmushroom/farsight/internal/store"
 	"github.com/jumpingmushroom/farsight/internal/tiles"
 	"github.com/jumpingmushroom/farsight/internal/tileset"
+	"github.com/jumpingmushroom/farsight/internal/worldevents"
 )
 
 var t0 = time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
@@ -64,9 +65,15 @@ type env struct {
 	cfg     *config.Config
 	store   *store.Store
 	tiles   *tileset.Manager
+	world   *worldevents.Deriver
 	srv     *httptest.Server
 	release chan struct{} // closed to let the fake render finish
 }
+
+// waitWorld blocks until every world-event CatchUpAsync triggered by a
+// snapshot ingest so far has finished, so a test can assert on the
+// derived events deterministically without a sleep.
+func (e *env) waitWorld() { e.world.Idle() }
 
 func mustHash(t *testing.T, s string) string {
 	t.Helper()
@@ -87,7 +94,7 @@ func newEnvBurst(t *testing.T, burst int) *env {
 	cfg := &config.Config{
 		Servers: []config.Server{
 			{ID: "alpha", Name: "Alpha", Address: "alpha.example:2456", Crossplay: true, DiscordHint: "#alpha", MaxPlayers: 10,
-				PassphraseHash: mustHash(t, "alpha-pass"), AgentTokenHash: mustHash(t, "alpha-token")},
+				PassphraseHash: mustHash(t, "alpha-pass"), AgentTokenHash: mustHash(t, "alpha-token"), TimeZone: "Europe/Oslo"},
 			{ID: "beta", Name: "Beta", MaxPlayers: 5,
 				PassphraseHash: mustHash(t, "beta-pass"), AgentTokenHash: mustHash(t, "beta-token")},
 		},
@@ -100,7 +107,11 @@ func newEnvBurst(t *testing.T, burst int) *env {
 	}
 	t.Cleanup(func() { st.Close() })
 
-	e := &env{t: t, clock: clock, cfg: cfg, store: st, release: make(chan struct{})}
+	e := &env{t: t, clock: clock, cfg: cfg, store: st, world: worldevents.NewDeriver(st, nil), release: make(chan struct{})}
+	// Ingest derives world events in the background (CatchUpAsync); wait
+	// for it to go idle before the store closes, so a lingering goroutine
+	// never queries or writes to it after Close.
+	t.Cleanup(e.world.Idle)
 	render := func(ctx context.Context, seed, gen int32, dir string, progress func(int, int)) error {
 		progress(0, 1)
 		select {
@@ -121,6 +132,7 @@ func newEnvBurst(t *testing.T, burst int) *env {
 		Store:   st,
 		Applier: &live.Applier{Store: st, Now: clock.Now},
 		Tiles:   e.tiles,
+		World:   e.world,
 		Codec:   auth.Codec{Key: cfg.CookieKey, Now: clock.Now},
 		Limiter: auth.NewLimiter(1, burst, clock.Now),
 		Now:     clock.Now,
@@ -196,7 +208,8 @@ func newEnvSplit(t *testing.T) (e *env, ingestSrv *httptest.Server) {
 	}
 	t.Cleanup(func() { st.Close() })
 
-	e = &env{t: t, clock: clock, cfg: cfg, store: st, release: make(chan struct{})}
+	e = &env{t: t, clock: clock, cfg: cfg, store: st, world: worldevents.NewDeriver(st, nil), release: make(chan struct{})}
+	t.Cleanup(e.world.Idle)
 	render := func(ctx context.Context, seed, gen int32, dir string, progress func(int, int)) error {
 		<-ctx.Done()
 		return ctx.Err()
@@ -208,6 +221,7 @@ func newEnvSplit(t *testing.T) (e *env, ingestSrv *httptest.Server) {
 		Store:       st,
 		Applier:     &live.Applier{Store: st, Now: clock.Now},
 		Tiles:       e.tiles,
+		World:       e.world,
 		Codec:       auth.Codec{Key: cfg.CookieKey, Now: clock.Now},
 		Limiter:     auth.NewLimiter(1, 3, clock.Now),
 		Now:         clock.Now,

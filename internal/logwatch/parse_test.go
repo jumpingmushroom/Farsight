@@ -127,3 +127,18 @@ func TestParseSupervisorLines(t *testing.T) {
 		}
 	}
 }
+
+func TestParseRandomEventSet(t *testing.T) {
+	loc := oslo(t)
+	r := one(t, ParseServerLine("10/03/2026 21:14:05: Random event set:army_theelder", loc))
+	if r.Kind != RawRaid || r.Raid != "army_theelder" || !r.At.Equal(time.Date(2026, 10, 3, 19, 14, 5, 0, time.UTC)) {
+		t.Fatalf("raid = %+v", r)
+	}
+	r = one(t, ParseServerLine("10/03/2026 21:14:05: Random event set: foresttrolls\r", loc))
+	if r.Raid != "foresttrolls" {
+		t.Fatalf("raid with a space and CRLF = %+v", r)
+	}
+	if got := ParseServerLine("10/03/2026 21:14:05: Random event set:", loc); len(got) != 0 {
+		t.Fatalf("a nameless event line must be ignored: %+v", got)
+	}
+}

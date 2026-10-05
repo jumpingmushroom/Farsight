@@ -3,7 +3,7 @@
 // UI always sees the latest state.
 
 import { decodeExplored } from './explored';
-import type { Card, ServerSummary, SnapshotView } from './types';
+import type { ActivityPage, Card, Profile, ServerSummary, SnapshotView, TodaySessions } from './types';
 
 export class ApiError extends Error {
 	status: number;
@@ -24,6 +24,8 @@ const SERVERS_TIMEOUT_MS = 20_000;
 const CARD_TIMEOUT_MS = 20_000;
 const SNAPSHOT_TIMEOUT_MS = 60_000;
 const UNLOCK_TIMEOUT_MS = 15_000;
+const PROFILE_TIMEOUT_MS = 20_000;
+const ACTIVITY_TIMEOUT_MS = 20_000;
 
 // `run` covers the whole request — fetch() resolving is not enough, since a
 // server can send headers promptly and then stall the body — so the caller
@@ -77,6 +79,55 @@ export async function getSnapshot(
 		const snap = (await res.json()) as SnapshotView;
 		const mask = await decodeExplored(snap.explored);
 		return mask ? { ...snap, mask } : snap;
+	});
+}
+
+/** A player's profile; null when the server doesn't know them (404). */
+export async function getProfile(
+	id: string,
+	player: string,
+	f: typeof fetch = fetch,
+	timeoutMs = PROFILE_TIMEOUT_MS
+): Promise<Profile | null> {
+	return withTimeout(timeoutMs, async (signal) => {
+		const res = await f(`/api/servers/${encodeURIComponent(id)}/players/${encodeURIComponent(player)}`, jsonInit(signal));
+		if (res.status === 404) return null;
+		if (!res.ok) throw new ApiError(res.status, await res.text());
+		return (await res.json()) as Profile;
+	});
+}
+
+/**
+ * `days` (1-14) local days of activity ending at `before` (the start of an
+ * earlier page), or at the end of today; `days` defaults to the server's
+ * own default (3) when omitted. A quiet refresh (fix round 2) passes an
+ * enlarged `days` to keep an already-loaded page's `from` pinned across a
+ * local-midnight rollover, instead of the server's default window sliding
+ * forward and opening a gap before any page loaded via "Show earlier".
+ */
+export async function getActivity(
+	id: string,
+	before?: string,
+	f: typeof fetch = fetch,
+	timeoutMs = ACTIVITY_TIMEOUT_MS,
+	days?: number
+): Promise<ActivityPage> {
+	const params: string[] = [];
+	if (before) params.push(`before=${encodeURIComponent(before)}`);
+	if (days !== undefined) params.push(`days=${days}`);
+	const q = params.length ? `?${params.join('&')}` : '';
+	return withTimeout(timeoutMs, async (signal) => {
+		const res = await f(`/api/servers/${encodeURIComponent(id)}/activity${q}`, jsonInit(signal));
+		if (!res.ok) throw new ApiError(res.status, await res.text());
+		return (await res.json()) as ActivityPage;
+	});
+}
+
+export async function getSessionsToday(id: string, f: typeof fetch = fetch, timeoutMs = ACTIVITY_TIMEOUT_MS): Promise<TodaySessions> {
+	return withTimeout(timeoutMs, async (signal) => {
+		const res = await f(`/api/servers/${encodeURIComponent(id)}/sessions/today`, jsonInit(signal));
+		if (!res.ok) throw new ApiError(res.status, await res.text());
+		return (await res.json()) as TodaySessions;
 	});
 }
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { ApiError, getCard, getSnapshot, listServers, tileUrl, unlock } from './api';
+import { ApiError, getActivity, getCard, getProfile, getSessionsToday, getSnapshot, listServers, tileUrl, unlock } from './api';
 import type { ServerSummary } from './types';
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -227,5 +227,43 @@ describe('timeouts', () => {
 		const assertion = expect(p).rejects.toMatchObject({ status: 0, message: 'timeout' });
 		await vi.advanceTimersByTimeAsync(15_000);
 		await assertion;
+	});
+});
+
+describe('getProfile (Plan 7)', () => {
+	test('escapes the ids; 404 -> null', async () => {
+		const fake = vi.fn().mockResolvedValue(textResponse('not found', 404));
+		expect(await getProfile('a b', 'Xbox/2', fake as unknown as typeof fetch)).toBeNull();
+		expect(fake.mock.calls[0][0]).toBe('/api/servers/a%20b/players/Xbox%2F2');
+	});
+	test('200 -> the profile; 500 -> ApiError', async () => {
+		const ok = vi.fn().mockResolvedValue(jsonResponse({ id: '1', name: 'A' }));
+		expect(await getProfile('a', '1', ok as unknown as typeof fetch)).toMatchObject({ id: '1', name: 'A' });
+		const bad = vi.fn().mockResolvedValue(textResponse('boom', 500));
+		await expect(getProfile('a', '1', bad as unknown as typeof fetch)).rejects.toMatchObject({ status: 500 });
+	});
+});
+
+describe('getActivity / getSessionsToday (Plan 7)', () => {
+	test('the first page has no before; an earlier page passes it', async () => {
+		const fake = vi.fn(async (_url: string) => jsonResponse({ events: [] }));
+		await getActivity('a', undefined, fake as unknown as typeof fetch);
+		await getActivity('a', '2026-09-26T22:00:00Z', fake as unknown as typeof fetch);
+		expect(fake.mock.calls[0][0]).toBe('/api/servers/a/activity');
+		expect(fake.mock.calls[1][0]).toBe('/api/servers/a/activity?before=2026-09-26T22%3A00%3A00Z');
+	});
+	test('an explicit days (fix round 2: a quiet refresh pins `from` across midnight) is passed through, with or without before', async () => {
+		const fake = vi.fn(async (_url: string) => jsonResponse({ events: [] }));
+		await getActivity('a', undefined, fake as unknown as typeof fetch, undefined, 4);
+		await getActivity('a', '2026-09-26T22:00:00Z', fake as unknown as typeof fetch, undefined, 5);
+		expect(fake.mock.calls[0][0]).toBe('/api/servers/a/activity?days=4');
+		expect(fake.mock.calls[1][0]).toBe('/api/servers/a/activity?before=2026-09-26T22%3A00%3A00Z&days=5');
+	});
+	test('sessions today; errors throw', async () => {
+		const fake = vi.fn().mockResolvedValue(jsonResponse({ players: [] }));
+		await getSessionsToday('a', fake as unknown as typeof fetch);
+		expect(fake.mock.calls[0][0]).toBe('/api/servers/a/sessions/today');
+		const bad = vi.fn().mockResolvedValue(textResponse('not found', 404));
+		await expect(getActivity('a', undefined, bad as unknown as typeof fetch)).rejects.toBeInstanceOf(ApiError);
 	});
 });

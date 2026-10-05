@@ -27,6 +27,7 @@ const (
 	RawIdentity     RawKind = "identity"
 	RawSpawn        RawKind = "spawn"
 	RawDestroy      RawKind = "destroy"
+	RawRaid         RawKind = "raid"
 )
 
 // Raw is one fact read from one log line, before session pairing.
@@ -42,6 +43,7 @@ type Raw struct {
 	UID        int64
 	Platform   string
 	PlatformID string
+	Raid       string // RawRaid: the game's event name, e.g. "army_theelder"
 }
 
 var (
@@ -57,6 +59,7 @@ var (
 	reIdentity   = regexp.MustCompile(`received local Platform ID ([A-Za-z]+)_(\S+)$`)
 	reSpawn      = regexp.MustCompile(`^Got character ZDOID from (.+?) : (-?\d+):\d+`)
 	reDestroy    = regexp.MustCompile(`^Destroying abandoned non persistent zdo -?\d+:\d+ owner (-?\d+)`)
+	reRaid       = regexp.MustCompile(`^Random event set:\s*(\S+)`)
 
 	superTS    = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+ INFO (.*)$`)
 	reStopped  = regexp.MustCompile(`^(?:stopped|exited): valheim-server \(`)
@@ -177,6 +180,8 @@ func (c *clock) serverLine(line string) []Raw {
 	case reDestroy.MatchString(msg):
 		uid, _ := strconv.ParseInt(reDestroy.FindStringSubmatch(msg)[1], 10, 64)
 		return []Raw{{Kind: RawDestroy, At: at, UID: uid}}
+	case reRaid.MatchString(msg):
+		return []Raw{{Kind: RawRaid, At: at, Raid: reRaid.FindStringSubmatch(msg)[1]}}
 	}
 	return nil
 }

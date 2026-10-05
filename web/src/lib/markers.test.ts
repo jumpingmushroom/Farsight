@@ -9,6 +9,7 @@ import {
 	buildMarkers,
 	clusterHtml,
 	layerCounts,
+	markerAt,
 	pinHtml,
 	portalPairs,
 	visibleMarkers,
@@ -447,5 +448,15 @@ describe('markersKey (memoising the marker model)', () => {
 		const flipped = { ...w, bosses: w.bosses.map((b, i) => (i === w.bosses.length - 1 ? { ...b, defeated: !b.defeated } : b)) };
 		expect(markersKey('demo', snap, flipped)).not.toBe(base);
 		expect(markersKey('demo', snap, undefined)).not.toBe(base);
+	});
+});
+
+describe('markerAt (Plan 7)', () => {
+	test('the nearest marker within the radius', () => {
+		const all = build();
+		expect(markerAt(all, 101, 99)?.id).toBe('portal-1');
+		expect(markerAt(all, -2003, 1002)?.id).toBe('tombstone-1');
+		expect(markerAt(all, 106, 100)).toBeUndefined();
+		expect(markerAt(all, 106, 100, 10)?.id).toBe('portal-1');
 	});
 });

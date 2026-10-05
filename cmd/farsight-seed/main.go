@@ -11,6 +11,9 @@
 //	FARSIGHT_SEED_TOKEN=... farsight-seed -server demo -shift -explored \
 //	    -snapshot web/tests/fixtures/snapshot.json -events web/tests/fixtures/events.json
 //
+// -snapshot may be repeated: the snapshots are posted in order, all shifted
+// by the same delta, so the server diffs them into world-save events.
+//
 // The agent token is only ever read from the environment (-token-env names
 // the variable), so it never shows in `ps`.
 package main
@@ -47,7 +50,7 @@ type config struct {
 	URL       string
 	Server    string
 	TokenEnv  string
-	Snapshot  string
+	Snapshots []string
 	Events    string
 	Shift     bool
 	Explored  bool
@@ -87,7 +90,10 @@ func parseFlags(args []string, stderr io.Writer) (config, error) {
 	fs.StringVar(&c.URL, "url", "http://127.0.0.1:8080", "farsight base URL")
 	fs.StringVar(&c.Server, "server", "", "server id to post to (required to post a snapshot or events)")
 	fs.StringVar(&c.TokenEnv, "token-env", "FARSIGHT_SEED_TOKEN", "name of the env var holding the agent token")
-	fs.StringVar(&c.Snapshot, "snapshot", "", "snapshot JSON file (an extract.Snapshot); also gives the world seed for -fake-tiles/-real-tiles")
+	fs.Func("snapshot", "snapshot JSON file (an extract.Snapshot); repeatable, posted in order; the first gives the world seed for -fake-tiles/-real-tiles", func(v string) error {
+		c.Snapshots = append(c.Snapshots, v)
+		return nil
+	})
 	fs.StringVar(&c.Events, "events", "", `events JSON file ({"events": [...]}, the ingest body)`)
 	fs.BoolVar(&c.Shift, "shift", false, "shift event and snapshot times so the newest event is now - 1 min")
 	fs.BoolVar(&c.Explored, "explored", false, "give a snapshot without an explored mask one rasterised from its exploredZones, as a current agent sends")
@@ -113,20 +119,20 @@ func run(ctx context.Context, c config, getenv func(string) string, now time.Tim
 	if !tilesWanted && !posting {
 		return usageError{"nothing to do: give -server (to post) and/or -fake-tiles/-real-tiles"}
 	}
-	if tilesWanted && c.Snapshot == "" {
+	if tilesWanted && len(c.Snapshots) == 0 {
 		return usageError{"-fake-tiles and -real-tiles need -snapshot for the world seed"}
 	}
-	if posting && c.Snapshot == "" && c.Events == "" {
+	if posting && len(c.Snapshots) == 0 && c.Events == "" {
 		return usageError{"-server needs -snapshot and/or -events"}
 	}
 
-	var snap *extract.Snapshot
-	if c.Snapshot != "" {
-		s, err := readSnapshot(c.Snapshot)
+	var snaps []*extract.Snapshot
+	for _, path := range c.Snapshots {
+		s, err := readSnapshot(path)
 		if err != nil {
 			return err
 		}
-		snap = s
+		snaps = append(snaps, s)
 	}
 	var evs []logwatch.Event
 	if c.Events != "" {
@@ -138,14 +144,14 @@ func run(ctx context.Context, c config, getenv func(string) string, now time.Tim
 	}
 
 	if c.FakeTiles != "" {
-		dir, err := writeFakeTiles(c.FakeTiles, snap.World.Seed, snap.World.GenVersion)
+		dir, err := writeFakeTiles(c.FakeTiles, snaps[0].World.Seed, snaps[0].World.GenVersion)
 		if err != nil {
 			return err
 		}
 		fmt.Fprintln(out, "fake tiles:", dir)
 	}
 	if c.RealTiles != "" {
-		dir, err := renderRealTiles(ctx, c.RealTiles, snap.World.Seed, snap.World.GenVersion, out)
+		dir, err := renderRealTiles(ctx, c.RealTiles, snaps[0].World.Seed, snaps[0].World.GenVersion, out)
 		if err != nil {
 			return err
 		}
@@ -160,15 +166,15 @@ func run(ctx context.Context, c config, getenv func(string) string, now time.Tim
 		return usageError{fmt.Sprintf("the agent token env var %s is empty", c.TokenEnv)}
 	}
 	if c.Shift {
-		d := shiftTimes(evs, snap, now)
+		d := shiftTimes(evs, snaps, now)
 		fmt.Fprintf(out, "shifted times by %s\n", d.Round(time.Second))
 	}
-	if c.Explored && snap != nil && snap.Explored == nil {
-		enc := explored.Encode(explored.FromZones(snap.ExploredZones), explored.SourceZones)
-		snap.Explored = &enc
-	}
 	cl := ingest.New(c.URL, c.Server, token)
-	if snap != nil {
+	for _, snap := range snaps {
+		if c.Explored && snap.Explored == nil {
+			enc := explored.Encode(explored.FromZones(snap.ExploredZones), explored.SourceZones)
+			snap.Explored = &enc
+		}
 		snap.ServerID = c.Server
 		if err := cl.Post(ctx, "snapshot", snap); err != nil {
 			return fmt.Errorf("post snapshot: %w", err)
@@ -215,12 +221,12 @@ func readEvents(path string) ([]logwatch.Event, error) {
 	return body.Events, nil
 }
 
-// shiftTimes moves every event time (at, since) and the snapshot's
+// shiftTimes moves every event time (at, since) and every snapshot's
 // savedAt/readAt by one delta, chosen so the newest event lands at
-// now - 1 min; relative gaps are preserved. With no events, the snapshot
-// is placed as if its save were 5 min before such a newest event. It
-// returns the delta.
-func shiftTimes(evs []logwatch.Event, snap *extract.Snapshot, now time.Time) time.Duration {
+// now - 1 min; relative gaps are preserved. With no events, the newest
+// snapshot is placed as if its save were 5 min before such a newest
+// event. It returns the delta.
+func shiftTimes(evs []logwatch.Event, snaps []*extract.Snapshot, now time.Time) time.Duration {
 	var newest time.Time
 	for _, e := range evs {
 		if e.At.After(newest) {
@@ -228,10 +234,14 @@ func shiftTimes(evs []logwatch.Event, snap *extract.Snapshot, now time.Time) tim
 		}
 	}
 	if newest.IsZero() {
-		if snap == nil {
+		for _, s := range snaps {
+			if t := s.SavedAt.Add(5 * time.Minute); t.After(newest) {
+				newest = t
+			}
+		}
+		if newest.IsZero() {
 			return 0
 		}
-		newest = snap.SavedAt.Add(5 * time.Minute)
 	}
 	d := now.Add(-time.Minute).Sub(newest)
 	for i := range evs {
@@ -241,9 +251,9 @@ func shiftTimes(evs []logwatch.Event, snap *extract.Snapshot, now time.Time) tim
 			evs[i].Since = &s
 		}
 	}
-	if snap != nil {
-		snap.SavedAt = snap.SavedAt.Add(d)
-		snap.ReadAt = snap.ReadAt.Add(d)
+	for _, s := range snaps {
+		s.SavedAt = s.SavedAt.Add(d)
+		s.ReadAt = s.ReadAt.Add(d)
 	}
 	return d
 }

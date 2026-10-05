@@ -29,15 +29,45 @@ export interface RecentSession {
 	seconds: number;
 }
 
+/** An activity category: the timeline's chips (Plan 7). */
+export type Category = 'session' | 'death' | 'boss' | 'build' | 'portal' | 'tame' | 'event' | 'server';
+
+/**
+ * One activity entry, in the card's `activity` and the timeline alike.
+ * Log events carry their exact time, world-save events (`source: 'save'`)
+ * the save's time. Only the fields its type uses are set.
+ */
 export interface Activity {
+	id: string;
 	type: string;
+	category: Category;
+	source: 'log' | 'save';
 	at: string;
+	/** Platform IDs of the players it concerns (the people filter). */
+	who: string[];
+	/** The player (log events), or the tame or base (world events). */
 	name?: string;
 	platform?: string;
+	platformId?: string;
 	code?: string;
 	players?: number;
 	seconds?: number;
 	version?: string;
+	/** event_raid: the game's event name, e.g. "army_theelder". */
+	raid?: string;
+	owner?: string;
+	tag?: string;
+	paired?: boolean;
+	species?: string;
+	pieces?: number;
+	grew?: number;
+	boss?: string;
+	biome?: string;
+	/** A known location near the place: "a sunken crypt". */
+	near?: string;
+	/** Set only for a place in explored ground ("Show on map →"). */
+	x?: number;
+	z?: number;
 }
 
 export interface Boss {
@@ -81,6 +111,8 @@ export interface Card {
 	players: number;
 	joinCode?: string;
 	joinCodeAt?: string;
+	/** The server's log time zone (IANA): local days and clock times in profiles and the timeline. */
+	timeZone?: string;
 	online: OnlinePlayer[];
 	recent: RecentSession[];
 	activity: Activity[];
@@ -99,6 +131,8 @@ export interface Marker {
 	species?: string;
 	type?: string;
 	pair?: string;
+	/** A tame's namer: their platform user ID ("Steam_…"). */
+	namer?: string;
 }
 
 export interface Builder {
@@ -141,4 +175,56 @@ export interface SnapshotView {
 	locations: Marker[];
 	bases: Base[];
 	players: { id: number; name: string }[];
+}
+
+/** GET /api/servers/{id}/players/{player} (Plan 7). Times are RFC 3339 UTC. */
+export interface Profile {
+	/** The platform ID (the sessions' platformId). */
+	id: string;
+	name: string;
+	platform: string;
+	timeZone: string;
+	online: boolean;
+	/** The open session's start, when online. */
+	since?: string;
+	/** The latest session's end, when offline. */
+	lastSeen?: string;
+	firstSeen: string;
+	trackedSince: string;
+	weekSeconds: number;
+	allSeconds: number;
+	sessions: number;
+	/** Seven local days, oldest first, today last. */
+	days: { date: string; seconds: number }[];
+	beds: { count: number; near: string[] };
+	bases: { id: string; name: string; pieces: number; biome: string; x: number; z: number }[];
+	portals: { id: string; tag: string; paired: boolean; x: number; z: number }[];
+	tames: { id: string; name: string; species: string; x: number; z: number }[];
+	deaths: {
+		spotted: number;
+		week: number;
+		tombstones: { id: string; biome: string; firstSeen: string; x: number; z: number }[];
+	};
+}
+
+/** GET /api/servers/{id}/activity: events in [from, until), newest first. */
+export interface ActivityPage {
+	timeZone: string;
+	from: string;
+	until: string;
+	/** When tracking began; absent before any event. */
+	earliest?: string;
+	events: Activity[];
+	counts: Record<Category, number>;
+	/** Every player seen: online first, then most recently seen. */
+	people: { id: string; name: string; online: boolean }[];
+}
+
+/** GET /api/servers/{id}/sessions/today: today's sessions in the server's zone. */
+export interface TodaySessions {
+	timeZone: string;
+	dayStart: string;
+	dayEnd: string;
+	now: string;
+	players: { id: string; name: string; online: boolean; spans: { since: string; until?: string }[] }[];
 }

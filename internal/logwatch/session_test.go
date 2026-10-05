@@ -128,3 +128,19 @@ func TestEventIDDeterministic(t *testing.T) {
 		}
 	}
 }
+
+func TestRaidEvent(t *testing.T) {
+	at := time.Date(2026, 10, 3, 19, 14, 5, 0, time.UTC)
+	s := NewSessionizer()
+	evs := s.Feed(Raw{Kind: RawRaid, At: at, Raid: "army_theelder"})
+	if len(evs) != 1 {
+		t.Fatalf("events = %+v", evs)
+	}
+	e := evs[0]
+	if e.Type != EvRaid || e.Raid != "army_theelder" || !e.At.Equal(at) || e.ID == "" {
+		t.Fatalf("raid event = %+v", e)
+	}
+	if again := s.Feed(Raw{Kind: RawRaid, At: at, Raid: "army_theelder"}); again[0].ID != e.ID {
+		t.Fatalf("raid IDs differ on replay: %s vs %s", again[0].ID, e.ID)
+	}
+}

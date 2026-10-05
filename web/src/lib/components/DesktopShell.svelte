@@ -16,7 +16,7 @@
 -->
 <script lang="ts">
 	import type L from 'leaflet';
-	import { onDestroy, untrack } from 'svelte';
+	import { onDestroy, tick, untrack } from 'svelte';
 	import { toLatLng } from '$lib/geo';
 	import { mapView } from '$lib/derive';
 	import {
@@ -24,6 +24,7 @@
 		defaultLayers,
 		enabledLayerCount,
 		layerCounts,
+		markerAt,
 		markersKey,
 		visibleMarkers,
 		type LayerKey,
@@ -31,6 +32,7 @@
 	} from '$lib/markers';
 	import { app } from '$lib/state.svelte';
 	import type { Marker } from '$lib/types';
+	import ActivityPanel from './ActivityPanel.svelte';
 	import AtlasMap from './AtlasMap.svelte';
 	import ChartingCard from './ChartingCard.svelte';
 	import CollapsedPill from './CollapsedPill.svelte';
@@ -40,6 +42,7 @@
 	import MapUpdatedPill from './MapUpdatedPill.svelte';
 	import MarkerCard from './MarkerCard.svelte';
 	import MarkerLayer from './MarkerLayer.svelte';
+	import ProfilePanel from './ProfilePanel.svelte';
 	import ScaleReadout from './ScaleReadout.svelte';
 	import SearchBox from './SearchBox.svelte';
 	import SidePanel from './SidePanel.svelte';
@@ -48,6 +51,7 @@
 	import ZoomControls from './ZoomControls.svelte';
 
 	const PANEL_W = 376; // 16 + 344 + 16
+	const ACTIVITY_W = 552; // 16 + 520 + 16
 	const POPOVER_W = 312;
 	const CULL = 40;
 
@@ -78,13 +82,16 @@
 	const card = $derived(app.card?.id === app.currentId ? app.card : undefined);
 	/** The decoded 12 m explored mask, for the cursor readout's "Unexplored". */
 	const mask = $derived(app.snapshot?.mask);
-	const padLeft = $derived(panelOpen ? PANEL_W : 0);
+	/** A profile or the Activity view (Plan 7) takes the panel's place, open or collapsed. */
+	const profilePlayer = $derived(app.view?.kind === 'profile' ? app.view.player : undefined);
+	const activityOpen = $derived(app.view?.kind === 'activity');
+	const padLeft = $derived(activityOpen ? ACTIVITY_W : panelOpen || profilePlayer !== undefined ? PANEL_W : 0);
 
 	// The state treatment (§3.22): overlay, tile filter and pin opacity.
 	// `app.tileSamples` is replaced together with `app.card`, so reading it
 	// here stays current.
 	const view = $derived(card ? mapView(card, app.now, app.tileSamples, layers.biomes) : undefined);
-	const pillL = $derived(panelOpen ? PANEL_W : 190);
+	const pillL = $derived(padLeft > 0 ? padLeft : 190);
 
 	// Markers are hidden while waiting for a save and while charting.
 	const markersOn = $derived(!!view?.markersOn);
@@ -176,6 +183,48 @@
 		lastServer = id;
 	});
 
+	/**
+	 * Desktop focus (fix round 1; extended for the Activity view, Plan 7):
+	 * opening a profile or the timeline unmounts the SidePanel (and
+	 * whatever row had focus — a "Profile →" row, or the "Full timeline →"
+	 * link) in favour of ProfilePanel/ActivityPanel, which focus their own
+	 * Back button on mount. Closing it remounts the SidePanel, but as a
+	 * fresh instance — a captured element reference would just be
+	 * disconnected — so once that settles (tick(), since the panel's own
+	 * effects and PlayersTab's fetch-free render still need a beat) this
+	 * looks up the row that opened it (by name for a profile, falling back
+	 * to the Online tab when that row is gone — e.g. the player left and
+	 * dropped off "Recently online" by the time the profile closed — or the
+	 * "Full timeline →" link for the activity view) and focuses it.
+	 */
+	let closingFocusKind: 'profile' | 'activity' | undefined;
+	let closingFocusName: string | undefined;
+	$effect(() => {
+		if (profilePlayer !== undefined || activityOpen) {
+			untrack(() => {
+				closingFocusKind = activityOpen ? 'activity' : 'profile';
+				closingFocusName = app.viewOpenerName;
+			});
+			return;
+		}
+		if (closingFocusKind === undefined) return;
+		const kind = closingFocusKind;
+		const name = closingFocusName;
+		closingFocusKind = undefined;
+		closingFocusName = undefined;
+		untrack(() => {
+			void tick().then(() => {
+				if (kind === 'activity') {
+					(document.querySelector<HTMLElement>('.panel .full') ?? document.getElementById('tab-players'))?.focus();
+					return;
+				}
+				const rows = document.querySelectorAll<HTMLButtonElement>('.panel .profile');
+				const row = Array.from(rows).find((b) => b.getAttribute('aria-label') === `Profile of ${name}`);
+				(row ?? document.getElementById('tab-players'))?.focus();
+			});
+		});
+	});
+
 	/** §5.9: right of the pin (or left when it would overflow), clamped vertically. */
 	function placePopover(): void {
 		frame = 0;
@@ -250,6 +299,19 @@
 		select(altar.id);
 	}
 
+	/** A profile's "Map →": centre on the item at zoom 4, selecting its marker when it's on the map. */
+	function mapTo(x: number, z: number, id: string): void {
+		atlas?.centerOn(x, z, 4);
+		if (all.some((m) => m.id === id)) select(id);
+	}
+
+	/** The timeline's "Show on map →": centre at zoom 4, selecting the marker there if any. */
+	function showOnMap(x: number, z: number): void {
+		atlas?.centerOn(x, z, 4);
+		const m = markerAt(all, x, z);
+		if (m) select(m.id);
+	}
+
 	/** Search pick (§5.2): centre on the marker at zoom 4.25 and select it. */
 	function pickResult(m: MapMarker): void {
 		atlas?.centerOn(m.x, m.z, 4.25);
@@ -275,7 +337,11 @@
 			closeLayers();
 			return;
 		}
-		if (selectedId !== undefined) select(undefined);
+		if (selectedId !== undefined) {
+			select(undefined);
+			return;
+		}
+		if (app.view) app.closeView();
 	}
 </script>
 
@@ -300,7 +366,11 @@
 		<MarkerLayer {map} {all} {layers} {portalLinks} {selectedId} onselect={select} />
 	{/if}
 
-	{#if panelOpen}
+	{#if profilePlayer !== undefined && app.currentId}
+		<ProfilePanel serverId={app.currentId} player={profilePlayer} onback={() => app.closeView()} onmap={mapTo} />
+	{:else if activityOpen && app.currentId}
+		<ActivityPanel serverId={app.currentId} gameDay={card?.world?.day} onback={() => app.closeView()} onmap={showOnMap} />
+	{:else if panelOpen}
 		<SidePanel bind:tab oncollapse={() => (panelOpen = false)} onjoin={openJoin} onshowaltar={showAltar} />
 	{:else}
 		<CollapsedPill onopen={() => (panelOpen = true)} />
@@ -356,7 +426,7 @@
 		</div>
 	{/if}
 
-	<ScaleReadout {map} {mask} left={panelOpen ? PANEL_W : 16} />
+	<ScaleReadout {map} {mask} left={padLeft > 0 ? padLeft : 16} />
 	<ZoomControls
 		onzoomin={() => atlas?.zoomBy(0.75)}
 		onzoomout={() => atlas?.zoomBy(-0.75)}
