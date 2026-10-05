@@ -29,9 +29,9 @@ func world(saveID string, at time.Time) *extract.Snapshot {
 		ServerID: "srv", SaveID: saveID, SavedAt: at,
 		GlobalKeys: []string{"defeated_eikthyr"},
 		Locations: []extract.Marker{
-			{ID: "loc-1", Kind: "dungeon", Label: "Sunken crypt", X: -1000, Z: -900},
-			{ID: "loc-2", Kind: "dungeon", Label: "Burial chambers", X: 500, Z: 500},
-			{ID: "loc-3", Kind: "trader", Label: "Haldor", X: -6000, Z: 0}, // unexplored
+			{ID: "loc-1", Kind: "dungeon", Type: "SunkenCrypt4", Label: "Sunken crypt", X: -1000, Z: -900},
+			{ID: "loc-2", Kind: "dungeon", Type: "Crypt2", Label: "Burial chambers", X: 500, Z: 500},
+			{ID: "loc-3", Kind: "trader", Type: "Vendor_BlackForest", Label: "Haldor", X: -6000, Z: 0}, // unexplored
 		},
 		Markers: []extract.Marker{
 			{ID: "portal-1", Kind: "portal", Label: "home", X: 10, Z: 10, Pair: "portal-2", Owner: "Astrid"},
@@ -93,6 +93,35 @@ func TestDiffNewTombstoneWithPlace(t *testing.T) {
 	}
 	if again := Diff(a, b, fakeGeo{}); again[0].ID != e.ID || again[1].ID != evs[1].ID {
 		t.Fatal("ids differ between runs")
+	}
+}
+
+// Task 2: Diff classifies cur's locations before computing Near, so a
+// raw agent location (Kind "location", not yet classified by the agent)
+// still names the known site a new event is near, not nothing. cur's own
+// Locations slice is left untouched (a shallow copy is diffed).
+func TestDiffNearClassifiesRawLocations(t *testing.T) {
+	a := world("chunked:1", t0)
+	b := world("chunked:2", t0.Add(20*time.Minute))
+	b.Locations = []extract.Marker{
+		{ID: "loc-haldor", Kind: "location", Type: "Vendor_BlackForest", X: 100, Z: 100},
+	}
+	b.Markers = append(b.Markers, extract.Marker{ID: "tombstone-new", Kind: "tombstone", Owner: "Astrid", X: 150, Z: 100})
+	evs := Diff(a, b, fakeGeo{})
+	var got *Event
+	for i := range evs {
+		if evs[i].Type == TypeTombstone && evs[i].Owner == "Astrid" {
+			got = &evs[i]
+		}
+	}
+	if got == nil {
+		t.Fatalf("no Astrid tombstone event: %+v", evs)
+	}
+	if got.Near != "Haldor" {
+		t.Errorf("near = %q, want Haldor", got.Near)
+	}
+	if b.Locations[0].Kind != "location" {
+		t.Errorf("caller's snapshot was mutated: %+v", b.Locations[0])
 	}
 }
 

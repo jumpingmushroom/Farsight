@@ -18,6 +18,7 @@ import (
 type worldState struct {
 	saveID string
 	snap   *extract.Snapshot
+	locs   []extract.Marker // extract.ClassifyLocations(snap.Locations)
 	mask   *explored.Mask
 	enc    explored.Encoded // mask as the snapshot API returns it
 	fogKey string
@@ -53,7 +54,7 @@ func (f *fogLazy) get() (*fog.Field, *fog.ClassMap) {
 // predates the explored mask has only exploredZones; those are rasterised
 // onto the same 12 m grid, so both formats feed one code path.
 func newWorldState(snap *extract.Snapshot, log *slog.Logger) *worldState {
-	w := &worldState{saveID: snap.SaveID, snap: snap}
+	w := &worldState{saveID: snap.SaveID, snap: snap, locs: extract.ClassifyLocations(snap.Locations)}
 	if snap.Explored != nil {
 		m, err := explored.Decode(*snap.Explored)
 		if err == nil {

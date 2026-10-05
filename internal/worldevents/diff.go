@@ -16,7 +16,12 @@ func Diff(prev, cur *extract.Snapshot, geo Geo) []Event {
 	if prev == nil {
 		return nil
 	}
-	d := differ{prev: prev, cur: cur, geo: geo}
+	// A shallow copy: cur's own Locations slice is left untouched, so an
+	// agent snapshot that classified its own locations (or didn't) isn't
+	// mutated by the caller's Diff call.
+	cur2 := *cur
+	cur2.Locations = extract.ClassifyLocations(cur.Locations)
+	d := differ{prev: prev, cur: &cur2, geo: geo}
 	d.tombstones()
 	d.portals()
 	d.tames()
@@ -348,7 +353,9 @@ func (d *differ) bosses() {
 // "" if there is none, or if (x, z) itself isn't explored: an event in
 // unexplored ground must not read as being near a landmark the map
 // doesn't show there, even when that landmark is itself explored and
-// within range. The caller falls back to the biome.
+// within range. The caller falls back to the biome. locs must already be
+// classified (extract.ClassifyLocations): Near reads Kind and Label, which
+// a raw agent location (Kind "location") doesn't carry.
 func Near(locs []extract.Marker, geo Geo, x, z float32) string {
 	if !geo.Explored(x, z) {
 		return ""
