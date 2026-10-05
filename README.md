@@ -15,6 +15,8 @@ Farsight has two parts:
 - **`farsight-agent`** runs as a sidecar next to the Valheim server. It reads the world save and the server log, and pushes snapshots and events to the central app.
 - **`farsight`** stores the pushed data (SQLite), renders map tiles, and serves the web UI and JSON API.
 
+When upgrading a live deployment, roll out `farsight` before `farsight-agent`: an agent ahead of the app can send a snapshot shape the app doesn't classify yet, which the app would otherwise pass straight through and, for some event wording, store permanently malformed; the other order (a new app with an old agent) is always safe, just missing whatever that older agent build can't yet send.
+
 ## Building
 
 You need Go 1.27+ and Node 24+.
@@ -31,7 +33,7 @@ Without the `webui` build tag, `farsight` serves a placeholder page instead of t
 
 Each server in `farsight.json` may set `timeZone`, an IANA name such as `"Europe/Oslo"` (default `"UTC"`). Set it to the same zone as that server's agent's `FARSIGHT_LOG_TZ`: profiles and the activity timeline count days in it.
 
-The agent now ships every world location raw (prefab name, unplaced flag); `farsight` classifies them into the location layers, server-side. An agent still on an older build keeps working — the entries it already classified itself are re-labelled by the same table — but it dropped anything outside the old boss altar/trader/dungeon set before it ever reached `Snapshot.Locations`, so new location kinds (e.g. the Forge of Potential, or any Landmarks/Minor places site) need that agent rolled out to a current build before they can appear.
+The agent sends a world's locations raw (prefab name, unplaced flag), filtered to its own explored mask so the snapshot doesn't carry locations nobody has found; `farsight` classifies them into the location layers, server-side. An agent on an older build keeps working — the entries it already classified itself are re-labelled by the same table — but it drops anything outside the old boss altar/trader/dungeon set before it ever reaches `Snapshot.Locations`, so new location kinds (e.g. the Forge of Potential, or any Landmarks/Minor places site) need that agent rolled out to a current build before they can appear.
 
 ## Not affiliated with Iron Gate
 
