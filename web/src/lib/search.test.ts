@@ -108,16 +108,60 @@ describe('search', () => {
 		expect(search(all, 'copper')[0]).toMatchObject({ sub: 'Portal · unpaired' });
 	});
 
-	test('beds, tombstones and dungeons are never returned', () => {
+	test('beds, tombstones, and a dungeons/minor-layer dungeon, are never returned', () => {
 		for (const q of ['bjorn', 'bed', 'unknown', 'tombstone', 'crypt', 'troll', 'dungeon']) {
 			const ids = search(all, q).map((r) => r.id);
 			expect(ids.filter((id) => /^(bed|tombstone)/.test(id) || id === 'loc-4' || id === 'loc-5'), q).toEqual([]);
 		}
 	});
 
+	test('a landmarks-layer dungeon (Hildir’s three sites) is searchable like a trader', () => {
+		const ms = buildMarkers(
+			mini([], {
+				locations: [
+					{
+						id: 'hc-1',
+						kind: 'dungeon',
+						x: 0,
+						y: 0,
+						z: 0,
+						type: 'Hildir_crypt',
+						label: 'Smouldering tomb',
+						group: 'landmarks'
+					}
+				]
+			})
+		);
+		const r = search(ms, 'smouldering');
+		expect(r.map((x) => x.id)).toEqual(['hc-1']);
+		expect(r[0]).toMatchObject({ title: 'Smouldering tomb', sub: 'Dungeon' });
+	});
+
 	test('every searchable marker is a candidate (the server already dropped unexplored ones)', () => {
 		expect(search(all, 'haldor')[0]).toMatchObject({ id: 'loc-3', sub: 'Trader', icon: 'coins' });
 		expect(search(all, 'trader').map((r) => r.id)).toEqual(['loc-3']);
+	});
+
+	test('a landmark is searchable like a trader: sub-line = kicker (its own label)', () => {
+		const ms = buildMarkers(
+			mini([], {
+				locations: [
+					{
+						id: 'lm-1',
+						kind: 'landmark',
+						x: 0,
+						y: 0,
+						z: 0,
+						type: 'AncientUpgradeStation',
+						label: 'Forge of Potential',
+						group: 'landmarks'
+					}
+				]
+			})
+		);
+		const r = search(ms, 'forge');
+		expect(r.map((x) => x.id)).toEqual(['lm-1']);
+		expect(r[0]).toMatchObject({ title: 'Forge of Potential', sub: 'Forge of Potential', icon: 'anvil' });
 	});
 });
 

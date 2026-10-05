@@ -29,9 +29,9 @@ func world(saveID string, at time.Time) *extract.Snapshot {
 		ServerID: "srv", SaveID: saveID, SavedAt: at,
 		GlobalKeys: []string{"defeated_eikthyr"},
 		Locations: []extract.Marker{
-			{ID: "loc-1", Kind: "dungeon", Label: "Sunken crypt", X: -1000, Z: -900},
-			{ID: "loc-2", Kind: "dungeon", Label: "Burial chambers", X: 500, Z: 500},
-			{ID: "loc-3", Kind: "trader", Label: "Haldor", X: -6000, Z: 0}, // unexplored
+			{ID: "loc-1", Kind: "dungeon", Type: "SunkenCrypt4", Label: "Sunken crypt", X: -1000, Z: -900},
+			{ID: "loc-2", Kind: "dungeon", Type: "Crypt2", Label: "Burial chambers", X: 500, Z: 500},
+			{ID: "loc-3", Kind: "trader", Type: "Vendor_BlackForest", Label: "Haldor", X: -6000, Z: 0}, // unexplored
 		},
 		Markers: []extract.Marker{
 			{ID: "portal-1", Kind: "portal", Label: "home", X: 10, Z: 10, Pair: "portal-2", Owner: "Astrid"},
@@ -93,6 +93,35 @@ func TestDiffNewTombstoneWithPlace(t *testing.T) {
 	}
 	if again := Diff(a, b, fakeGeo{}); again[0].ID != e.ID || again[1].ID != evs[1].ID {
 		t.Fatal("ids differ between runs")
+	}
+}
+
+// Task 2: Diff classifies cur's locations before computing Near, so a
+// raw agent location (Kind "location", not yet classified by the agent)
+// still names the known site a new event is near, not nothing. cur's own
+// Locations slice is left untouched (a shallow copy is diffed).
+func TestDiffNearClassifiesRawLocations(t *testing.T) {
+	a := world("chunked:1", t0)
+	b := world("chunked:2", t0.Add(20*time.Minute))
+	b.Locations = []extract.Marker{
+		{ID: "loc-haldor", Kind: "location", Type: "Vendor_BlackForest", X: 100, Z: 100},
+	}
+	b.Markers = append(b.Markers, extract.Marker{ID: "tombstone-new", Kind: "tombstone", Owner: "Astrid", X: 150, Z: 100})
+	evs := Diff(a, b, fakeGeo{})
+	var got *Event
+	for i := range evs {
+		if evs[i].Type == TypeTombstone && evs[i].Owner == "Astrid" {
+			got = &evs[i]
+		}
+	}
+	if got == nil {
+		t.Fatalf("no Astrid tombstone event: %+v", evs)
+	}
+	if got.Near != "Haldor" {
+		t.Errorf("near = %q, want Haldor", got.Near)
+	}
+	if b.Locations[0].Kind != "location" {
+		t.Errorf("caller's snapshot was mutated: %+v", b.Locations[0])
 	}
 }
 
@@ -329,14 +358,27 @@ func TestDiffBossesBothPredateGlobalKeys(t *testing.T) {
 	}
 }
 
+// TestNearWording is the I2 fix: Near's wording comes from each entry's
+// explicit extract.NearPhrase (looked up by Type), not a "a "+lower(Label)
+// heuristic. The old heuristic read "abandoned village" and "infested
+// mine" (vowel-initial) as "a abandoned village"/"a infested mine",
+// "Mörkhalla" (a proper noun) as "a mörkhalla", "Forge of Potential" (a
+// unique site) as "a forge of potential" instead of "the Forge of
+// Potential", and "Charred fortress" as a plural, like "burial chambers",
+// because of its trailing "s" ("near charred fortress" with no article).
 func TestNearWording(t *testing.T) {
 	locs := world("x", t0).Locations
 	locs = append(locs,
-		extract.Marker{Kind: "boss_altar", Label: "Moder", X: 5000, Z: 5000},
-		extract.Marker{Kind: "trader", Label: "Hildir", X: -4000, Z: 4000},
+		extract.Marker{Kind: "boss_altar", Type: "Dragonqueen", Label: "Moder", X: 5000, Z: 5000},
+		extract.Marker{Kind: "trader", Type: "Hildir_camp", Label: "Hildir", X: -4000, Z: 4000},
 		// Fix round 1 (M5): explored itself, close to the unexplored
 		// boundary, so it can be "near" a point just the other side of it.
-		extract.Marker{Kind: "trader", Label: "Hildir2", X: -4800, Z: 0},
+		extract.Marker{Kind: "trader", Type: "Hildir_camp", Label: "Hildir2", X: -4800, Z: 0},
+		extract.Marker{Kind: "landmark", Type: "NorthVillage", Label: "Abandoned village", X: 1000, Z: 1000},
+		extract.Marker{Kind: "dungeon", Type: "Mistlands_DvergrTownEntrance1", Label: "Infested mine", X: 1100, Z: 1100},
+		extract.Marker{Kind: "dungeon", Type: "MorkBorg", Label: "Mörkhalla", X: 1200, Z: 1200},
+		extract.Marker{Kind: "landmark", Type: "AncientUpgradeStation", Label: "Forge of Potential", X: 1300, Z: 1300},
+		extract.Marker{Kind: "landmark", Type: "CharredFortress", Label: "Charred fortress", X: 1400, Z: 1400},
 	)
 	for _, c := range []struct {
 		x, z float32
@@ -352,6 +394,12 @@ func TestNearWording(t *testing.T) {
 		// just the nearby location: Hildir2 is explored and 250 m away,
 		// but the point itself (x = -5050) isn't.
 		{-5050, 0, ""},
+		// I2 regressions: these used to come out wrong (see doc comment).
+		{1000, 1000, "an abandoned village"},
+		{1100, 1100, "an infested mine"},
+		{1200, 1200, "Mörkhalla"},
+		{1300, 1300, "the Forge of Potential"},
+		{1400, 1400, "a charred fortress"},
 	} {
 		if got := Near(locs, fakeGeo{}, c.x, c.z); got != c.want {
 			t.Errorf("Near(%v, %v) = %q, want %q", c.x, c.z, got, c.want)

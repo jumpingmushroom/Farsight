@@ -62,6 +62,12 @@ type Marker struct {
 	// Namer is a tame's TamedNameAuthor: the platform user ID ("Steam_…")
 	// of whoever named it. Empty when unnamed or named by the host.
 	Namer string `json:"namer,omitempty"`
+	// Group picks a location's map layer: "landmarks", "dungeons" or
+	// "minor" (ClassifyLocations). Empty for everything else.
+	Group string `json:"group,omitempty"`
+	// Unplaced marks a location the game has planned but not yet built:
+	// nobody has loaded its zone. Omitted (false) in older snapshots.
+	Unplaced bool `json:"unplaced,omitempty"`
 }
 
 type Base struct {

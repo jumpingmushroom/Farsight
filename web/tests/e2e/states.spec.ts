@@ -60,9 +60,12 @@ test('tiles refused: "Can’t draw this world’s map yet"', async ({ page }) =>
 // Fog is the core promise: the tiles carry it, and no tile is requested
 // before the snapshot names its fog key.
 test('fog guard: no tiles while the snapshot is loading, then fog tiles', async ({ page }) => {
+	// .png only: the biome grid (Task 4) is a single /tiles/{id}/{key}/biomes
+	// fetch keyed by the card's tile key, not gated by the snapshot's fog
+	// key, so it isn't part of this fog-key guard.
 	const tileRequests: string[] = [];
 	page.on('request', (r) => {
-		if (r.url().includes('/tiles/')) tileRequests.push(r.url());
+		if (r.url().includes('/tiles/') && r.url().endsWith('.png')) tileRequests.push(r.url());
 	});
 	let release!: () => void;
 	const held = new Promise<void>((r) => (release = r));

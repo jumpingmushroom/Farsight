@@ -1,32 +1,30 @@
 <!--
   Scale and cursor readout (DESIGN-NOTES §3.14, §5.7, §5.8): the scale-bar
   bracket and label for the map's zoom, then the world coordinates under the
-  pointer (rAF-throttled), then a status slot: "World edge" outside the disc,
-  "Unexplored" when the 12 m cell isn't in the explored mask, otherwise
-  empty (the client has no biome data, [GAP]). Hidden on coarse pointers.
+  pointer (rAF-throttled), then a status slot (placeLabel, biomes.ts):
+  "World edge" outside the disc, "Unexplored" when the 12 m cell isn't in
+  the explored mask, otherwise the biome under the cursor from the server's
+  grid (Task 4), or empty while that grid hasn't loaded. Hidden on coarse
+  pointers.
 -->
 <script lang="ts">
 	import type L from 'leaflet';
-	import { isExplored } from '$lib/explored';
+	import { placeLabel } from '$lib/biomes';
 	import { fmtN } from '$lib/format';
-	import { fromLatLng, insideWorld, scaleBar } from '$lib/geo';
+	import { fromLatLng, scaleBar } from '$lib/geo';
 
 	let {
 		map,
 		mask,
+		grid,
 		left = 16
-	}: { map: L.Map | undefined; mask?: Uint8Array; left?: number } = $props();
+	}: { map: L.Map | undefined; mask?: Uint8Array; grid?: Uint8Array; left?: number } = $props();
 
 	let zoom = $state(1.75);
 	let cursor = $state<{ x: number; z: number } | undefined>(undefined);
 
 	const bar = $derived(scaleBar(zoom));
-	const place = $derived.by(() => {
-		if (!cursor) return 'Hover the map';
-		if (!insideWorld(cursor.x, cursor.z)) return 'World edge';
-		if (mask && !isExplored(mask, cursor.x, cursor.z)) return 'Unexplored';
-		return '';
-	});
+	const place = $derived(placeLabel(cursor, { mask, grid }));
 
 	$effect(() => {
 		const m = map;

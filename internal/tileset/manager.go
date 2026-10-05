@@ -130,7 +130,7 @@ func (m *Manager) Key(seed, gen int32) string {
 // A genVersion outside [0, worldgen.MaxGenVersion] is refused immediately,
 // without enqueueing or touching disk.
 func (m *Manager) Ensure(seed, gen int32) Status {
-	if refused(gen) {
+	if Refused(gen) {
 		return Status{State: StateRefused}
 	}
 	key := m.Key(seed, gen)
@@ -178,7 +178,7 @@ func (m *Manager) Ensure(seed, gen int32) Status {
 // StateComplete (Done/Total 0, since no progress was observed). A key that
 // is neither known nor complete on disk reports StateNone.
 func (m *Manager) Status(seed, gen int32) Status {
-	if refused(gen) {
+	if Refused(gen) {
 		return Status{State: StateRefused}
 	}
 	key := m.Key(seed, gen)
@@ -245,8 +245,11 @@ func (m *Manager) Run(ctx context.Context) error {
 	}
 }
 
-// refused reports whether gen is outside the range worldgen can generate.
-func refused(gen int32) bool {
+// Refused reports whether gen is outside the range worldgen can generate.
+// Exported so other handlers that key on (seed, gen) without going through
+// Ensure (e.g. the biome grid endpoint) can refuse the same way, instead of
+// duplicating the bound.
+func Refused(gen int32) bool {
 	return gen < 0 || gen > worldgen.MaxGenVersion
 }
 

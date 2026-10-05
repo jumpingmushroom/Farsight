@@ -4,7 +4,7 @@ import { ICON_NAMES, ICON_PATHS, iconSvg } from './paths';
 // The installed lucide-svelte sources, read raw (its `exports` hide the files
 // from a normal import).
 const LUCIDE = import.meta.glob<string>(
-	'/node_modules/lucide-svelte/dist/icons/{bed,skull,paw-print,signpost,flame,coins,mountain}.svelte',
+	'/node_modules/lucide-svelte/dist/icons/{bed,skull,paw-print,signpost,flame,coins,mountain,anvil,sparkles,circle-dot,castle,landmark}.svelte',
 	{ query: '?raw', import: 'default', eager: true }
 );
 
@@ -35,7 +35,12 @@ describe('ICON_PATHS', () => {
 			'flame',
 			'coins',
 			'arch',
-			'mountain'
+			'mountain',
+			'anvil',
+			'sparkles',
+			'circle-dot',
+			'castle',
+			'landmark'
 		]);
 		for (const name of ICON_NAMES) {
 			const els = ICON_PATHS[name];
@@ -45,7 +50,20 @@ describe('ICON_PATHS', () => {
 	});
 
 	test('Lucide icons match the installed lucide-svelte geometry', () => {
-		for (const name of ['bed', 'skull', 'paw-print', 'signpost', 'flame', 'coins', 'mountain'] as const) {
+		for (const name of [
+			'bed',
+			'skull',
+			'paw-print',
+			'signpost',
+			'flame',
+			'coins',
+			'mountain',
+			'anvil',
+			'sparkles',
+			'circle-dot',
+			'castle',
+			'landmark'
+		] as const) {
 			expect(ICON_PATHS[name], name).toEqual(lucideElements(name));
 		}
 	});

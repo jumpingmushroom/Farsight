@@ -376,7 +376,7 @@ Formulas:
 
 ### 3.13 Layers button and panel (`:360-385`)
 
-- **Button**: `height:46px; gap:8px; padding:0 18px; border-radius:999px; border:1px solid {divider, or --cold when open}; background:var(--glass); box-shadow:var(--shadow-md); font-size:14px; font-weight:700`, containing an 18 px layers icon, "Layers", and a count badge (`min-width:22px; height:22px; padding:0 7px; border-radius:999px; background:var(--cold); color:var(--color-bg); font-size:12px`). The count is the number of enabled layers among the 10 (portal links excluded); the default is 7.
+- **Button**: `height:46px; gap:8px; padding:0 18px; border-radius:999px; border:1px solid {divider, or --cold when open}; background:var(--glass); box-shadow:var(--shadow-md); font-size:14px; font-weight:700`, containing an 18 px layers icon, "Layers", and a count badge (`min-width:22px; height:22px; padding:0 7px; border-radius:999px; background:var(--cold); color:var(--color-bg); font-size:12px`). The count is the number of enabled layers among the 10 (portal links excluded); the default is 6.
 - **Panel**: `position:absolute; top:54px; right:0; width:318px; padding:12px; border-radius:26px; background:var(--color-surface); border:1px solid var(--color-divider); box-shadow:var(--shadow-lg); gap:2px`.
   - **Title**: "Map layers" (heading, 17 px, `padding:4px 10px 8px`).
   - **Layer row** (a button): `gap:12px; padding:7px 10px; border-radius:16px`, hover text 6%. It contains:
@@ -399,10 +399,13 @@ Formulas:
 | vehicles | Ships & carts | Ships & carts | ship | on | [OUT: not emitted] |
 | wards | Wards | Wards | shield | **off** | [OUT: not emitted] |
 | signs | Signs | Signs | sign | **off** | — |
-| locations | Dungeons & locations | Locations | arch | on | "Only where someone has been" (muted) |
+| landmarks | Landmarks | Landmarks | flame | on | — |
+| dungeons | Dungeons | Dungeons | arch | **off** | — |
+| minor | Minor places | Minor places | mountain | **off** | — |
 | portalLinks | (sub-row) Show connections | Show portal connections | check | on | "{n} pairs" |
 
 - For the MVP, drop `vehicles` and `wards`, keeping 8 rows. The portals sub-line becomes "`{n} unpaired`" (portals without `pair`), hidden when n = 0. [AMBIG] Should zero-count layers be hidden? Proposal: show them with count 0.
+- **2026-10-05 update (cursor biome and locations spec)**: the design's single `locations` row ("Dungeons & locations", on, "Only where someone has been") is replaced by the three rows above, from the server's new per-location `group` (landmarks/dungeons/minor, `internal/extract/locations.go`'s `locationTable`) instead of one combined kind. Landmarks keeps the old row's default (on) and covers what it covered (boss altars, traders) plus the new `landmark` kind (Forge of Potential, Sacrificial stones, Mysterious location, Hildir's sites, …); Dungeons and Minor places are new, both off by default. Net layer count is unchanged (still 10, now 6 on by default instead of 7 under the pre-MVP vehicles/wards count — see the button note above).
 - Turning "Biomes & terrain" **off** does not hide the map. It greys it out: `mapFilter` = `grayscale(1) contrast(.85) brightness(1.08)` (`:1447`).
 
 ### 3.14 Scale and cursor readout (`:394-399`)
@@ -411,9 +414,11 @@ Pill: `left:{readL}px; bottom:16px; gap:14px; padding:9px 16px; border-radius:99
 - the scale bar: a `height:6px; width:{scale.w}px; border:2px solid var(--color-text); border-top:0` bracket over its label (11 px, muted);
 - a 1 px divider;
 - the coordinates (`<b>`, `min-width:170px`), default "X — · Z —";
-- the biome (muted, `min-width:90px`), default "Hover the map". Other values: "World edge" (outside the disc), "Unexplored" (fog on and zone unexplored), or the biome name.
+- the biome (muted, `min-width:90px`), default "Hover the map". Other values: "World edge" (outside the disc), "Unexplored" (fog on and the 12 m cell unexplored), or the biome name under the cursor.
 
-[GAP] The client has no biome data. The spec's API serves tiles only. Proposal: show "Unexplored" or nothing in that slot, or drop the biome column. Coordinates come from the Leaflet mouse position (§7.3). Hide the readout on touch devices (the design's mobile has none).
+**2026-10-05 update (cursor biome and locations spec)**: the [GAP] below is closed. The server builds a 1024×1024, 20 m-per-cell base-biome grid per `(seed, genVersion)` (`internal/biomegrid`, built on first request, gzip'd in memory, never written to disk) and serves it at `GET /tiles/{id}/{key}/biomes`; the client decodes it once per tile-set key (`AppState.syncBiomes`) and looks up the cell under the cursor (`biomeAt`, `web/src/lib/biomes.ts`). Limitation: this is the base biome only — Valheim 1.0's alt-biome sector modifiers (which can rename or restyle a region) aren't computed, so the readout can show the wrong name for a sector the game itself has renamed. Coordinates come from the Leaflet mouse position (§7.3). Hidden on touch devices (`@media (pointer: coarse)`; the design's mobile has none).
+
+~~[GAP] The client has no biome data. The spec's API serves tiles only. Proposal: show "Unexplored" or nothing in that slot, or drop the biome column.~~ (superseded above).
 
 Scale algorithm: §5.7.
 
@@ -712,7 +717,7 @@ Every icon in `IC` (`:966-997`), identified by its path data. Use `lucide-svelte
 ### 5.2 Search (`:1368-1380`)
 
 - The query is `q.toLowerCase().trim()`. It runs only when the query is non-empty and the map is ready.
-- **Searchable types**: `portal`, `sign`, `tame`, `base`, `altar` and `trader` only. Not beds, tombstones, dungeons, ships, wards or chests.
+- **Searchable types**: `portal`, `sign`, `tame`, `base`, `altar`, `trader` and, since 2026-10-05, `landmark` (terms = `[lc(label)]`, §8). Not beds, tombstones, dungeons (still not searchable, the plan ruling stands), ships, wards or chests.
 - Markers in unexplored zones are skipped when fog is on.
 - **Match**: `m.terms.some(t => t && t.includes(q))`, a case-insensitive **substring** match on pre-lowercased terms:
   - portal: `[tag]`
@@ -931,8 +936,9 @@ There is no gesture logic in the design (§3.18). The implied snaps are peek (ab
 | Signs | `markers[kind=sign] {label (text)}` | |
 | Tames | `markers[kind=tame] {species, label (TamedName)}` | |
 | Bases | `snapshot.bases[] {id, name, x, z, radius, pieces, builders[{id, name?, pieces}]}` | |
-| Altars, traders, dungeons | `snapshot.locations[] {id, kind, type, label, x, y, z}` | already filtered to explored zones |
+| Altars, traders, dungeons, landmarks | `snapshot.locations[] {id, kind, type, label, group, x, y, z}` | already classified (§8's `locationTable`) and filtered to explored zones |
 | Fog | drawn into the server's tiles (`snapshot.fogKey` names them); `snapshot.explored` is the 12 m mask, for the cursor readout | markers, locations and bases already filtered to it (fog spec 2026-10-01) |
+| Biome under the cursor | `GET /tiles/{id}/{tiles.key}/biomes` → a 1024×1024 byte grid, decoded client-side (`biomeAt`, §3.14) | base biome only, no 1.0 alt-biomes (spec 2026-10-05) |
 | Player id → name | `snapshot.players[] {id, name}` | from beds and tombstones; used by bases' builders |
 | Per-player base count (mobile) | `bases[].builders[0].name === online.name` | [AMBIG] the log name and the character name should match, but unverified |
 
@@ -989,22 +995,15 @@ Grounded in `internal/extract/extract.go` (`Add`, `Finish`) and `tables.go`.
 | `sign` | prefab `sign` | `label` = text | sign | signs (**off**) | INK 26 |
 | `tame` | TamedName set or `tamed == 1`, excluding `Skeleton_Friendly` | `species` = prefab name, `label` = TamedName (may be empty) | tame | tames (on) | INK 26 |
 
-**`snapshot.locations[].kind`** (from the world's location list, filtered server-side to explored zones):
+**`snapshot.locations[].kind`** (from the world's full location plan — placed and unplaced — filtered server-side to explored zones):
 
-| backend kind | `type` (prefab) → `label` | design type / icon | layer |
-|---|---|---|---|
-| `boss_altar` | Eikthyrnir → Eikthyr, GDKing → The Elder, Bonemass → Bonemass, Dragonqueen → Moder, GoblinKing → Yagluth, Mistlands_DvergrBossEntrance1 → The Queen, FaderLocation → Fader, DN_Bossroom → Kall Fimbulbringer | altar / flame; SAGE disc if defeated, else INK; 30 px | locations (on) |
-| `trader` | Vendor_BlackForest → Haldor, Hildir_camp → Hildir, BogWitch_Camp → Bog Witch | trader / coins | locations |
-| `dungeon` | SunkenCrypt4 → Sunken crypt | crypt / arch | locations |
-| `dungeon` | Crypt2, Crypt3, Crypt4 → Burial chambers | burial / arch | locations |
-| `dungeon` | MountainCave02 → Frost cave | cave / mountain | locations |
-| `dungeon` | TrollCave02 → Troll cave, BearCave → Bear cave, Hildir_cave → Howling cavern | cave-like / mountain (proposal) | locations |
-| `dungeon` | Hildir_crypt → Smouldering tomb | crypt-like / arch (proposal) | locations |
-| `dungeon` | Hildir_plainsfortress → Sealed tower, GoblinCamp2 → Fuling village | no design type / arch (the design's default location icon) [AMBIG] | locations |
+**2026-10-05 update (cursor biome and locations spec)**: this table is superseded by `internal/extract/tables.go`'s `locationTable`, the single source of truth for the prefab → (`kind`, `label`, `group`) mapping, applied by `extract.ClassifyLocations` (`internal/extract/locations.go`). The pipeline changed too: the agent now ships every `w.Locations` entry raw (`kind: "location"`, `type` = prefab, `unplaced` when the save hasn't placed it), and the server classifies on each stored snapshot (`newWorldState`) and before `worldevents`' "near a location" lookup — so prefab → label/kind/group changes no longer need an agent rollout (README, "Building"). Unmapped prefabs (runestones, ruins, houses, shipwrecks, …) are still dropped, and an unplaced unique site (Haldor, Hildir, Bog Witch, Forge of Potential) is dropped until placed.
 
-For dungeons, kicker = `label` and title = `label`, the design's pattern for crypts, e.g. "Sunken crypt" / "Sunken crypt". [AMBIG] Proposal: kicker "Dungeon", title = `label`, to avoid the duplication.
+`kind` is `boss_altar`, `trader` or `dungeon` as before, plus the new `landmark` (everything else mapped: the three traders' own unique dungeon-like sites are still `dungeon`; Hildir's camp is `trader`; the rest of what used to be lumped into one `locations` layer — Forge of Potential, Sacrificial stones, Mysterious location, Charred fortress, Memorial site, Fuling village, Bear cave, Abandoned village, Putrid hole, … — is `landmark`). `group` (`landmarks`/`dungeons`/`minor`) picks the layer directly, replacing the design's single `locations` layer — see §3.13's 2026-10-05 update for the table and defaults.
 
-The spec says dungeons are "zoom-gated". The design has no zoom gating (it clusters instead). [AMBIG] Proposal: hide `dungeon` locations below Leaflet zoom 3 (design z ≈ 2), and keep altars and traders at all zooms.
+For dungeons and landmarks, kicker = `label` and title = `label`, the design's pattern for crypts, e.g. "Sunken crypt" / "Sunken crypt" (landmark's card note is the same `DUNGEON_NOTE`). [AMBIG, pre-existing] Proposal: kicker "Dungeon" (or "Landmark"), title = `label`, to avoid the duplication.
+
+The spec says dungeons (and, since 2026-10-05, minor places) are "zoom-gated"; landmarks are not. Implemented as `locationMinZoom` (`web/src/lib/markers.ts`): hidden below Leaflet zoom 3 for `dungeons`/`minor`, no gating for `landmarks`.
 
 **`snapshot.bases[]`** (not a marker kind) → design type `base` / home, layer **structures** (on), CREAM 36 px disc with an INK border, and a name label at Leaflet zoom ≥ 1.5.
 
@@ -1021,7 +1020,9 @@ The spec says dungeons are "zoom-gated". The design has no zoom gating (it clust
 | tombstones | markers with `kind==='tombstone'` |
 | tames | markers with `kind==='tame'` |
 | signs | markers with `kind==='sign'` |
-| locations | `locations.length` |
+| landmarks | locations with `group==='landmarks'` |
+| dungeons | locations with `group==='dungeons'` |
+| minor | locations with `group==='minor'` |
 | biomes | the design shows the constant `9` |
 
 [AMBIG] Should counts include fogged-out items? Player-placed markers are almost always in explored zones, and the backend already filters locations, so the difference is negligible. Proposal: count what is visible.

@@ -133,6 +133,10 @@ export interface Marker {
 	pair?: string;
 	/** A tame's namer: their platform user ID ("Steam_…"). */
 	namer?: string;
+	/** A classified location's layer (boss_altar/trader/dungeon/landmark only); absent on older snapshots. */
+	group?: 'landmarks' | 'dungeons' | 'minor';
+	/** A location the game has planned but not yet built; the server already drops unique sites' unplaced candidates. */
+	unplaced?: boolean;
 }
 
 export interface Builder {

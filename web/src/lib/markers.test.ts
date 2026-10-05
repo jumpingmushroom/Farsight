@@ -17,6 +17,7 @@ import {
 	type MapMarker
 } from './markers';
 import { fixtureSnapshot, fixtureWorld } from './testing/markers-fixture';
+import type { SnapshotView } from './types';
 
 const INK = '#26231f';
 const CREAM = '#f5ead8';
@@ -32,7 +33,9 @@ const ALL_ON: Record<LayerKey, boolean> = {
 	tombstones: true,
 	tames: true,
 	signs: true,
-	locations: true
+	landmarks: true,
+	dungeons: true,
+	minor: true
 };
 
 function build(): MapMarker[] {
@@ -57,7 +60,9 @@ describe('LAYERS', () => {
 			['tombstones', 'Tombstones', 'Tombstones', 'skull', true],
 			['tames', 'Tamed creatures', 'Tames', 'paw-print', true],
 			['signs', 'Signs', 'Signs', 'signpost', false],
-			['locations', 'Dungeons & locations', 'Locations', 'arch', true]
+			['landmarks', 'Landmarks', 'Landmarks', 'flame', true],
+			['dungeons', 'Dungeons', 'Dungeons', 'arch', false],
+			['minor', 'Minor places', 'Minor places', 'mountain', false]
 		]);
 	});
 });
@@ -98,14 +103,14 @@ describe('buildMarkers: kinds, types, layers and pins (§4.1, §8)', () => {
 			{ size: 28, bg: COLD, border: CREAM, icon: 'portal', iconColor: CREAM, iconPx: 15, ring: true }
 		],
 		['tombstone-1', 'tomb', 'tombstones', { size: 28, bg: EMBER, border: CREAM, icon: 'skull', iconColor: CREAM, iconPx: 15 }],
-		['loc-1', 'altar', 'locations', { size: 30, bg: SAGE, border: CREAM, icon: 'flame', iconColor: CREAM, iconPx: 16 }],
-		['loc-2', 'altar', 'locations', { size: 30, bg: INK, border: CREAM, icon: 'flame', iconColor: CREAM, iconPx: 16 }],
+		['loc-1', 'altar', 'landmarks', { size: 30, bg: SAGE, border: CREAM, icon: 'flame', iconColor: CREAM, iconPx: 16 }],
+		['loc-2', 'altar', 'landmarks', { size: 30, bg: INK, border: CREAM, icon: 'flame', iconColor: CREAM, iconPx: 16 }],
 		['bed-1', 'bed', 'beds', { size: 26, bg: INK, border: CREAM, icon: 'bed', iconColor: CREAM, iconPx: 14 }],
 		['tame-1', 'tame', 'tames', { size: 26, bg: INK, border: CREAM, icon: 'paw-print', iconColor: CREAM, iconPx: 14 }],
 		['sign-1', 'sign', 'signs', { size: 26, bg: INK, border: CREAM, icon: 'signpost', iconColor: CREAM, iconPx: 14 }],
-		['loc-3', 'trader', 'locations', { size: 26, bg: INK, border: CREAM, icon: 'coins', iconColor: CREAM, iconPx: 14 }],
-		['loc-4', 'dungeon', 'locations', { size: 26, bg: INK, border: CREAM, icon: 'arch', iconColor: CREAM, iconPx: 14 }],
-		['loc-5', 'dungeon', 'locations', { size: 26, bg: INK, border: CREAM, icon: 'mountain', iconColor: CREAM, iconPx: 14 }]
+		['loc-3', 'trader', 'landmarks', { size: 26, bg: INK, border: CREAM, icon: 'coins', iconColor: CREAM, iconPx: 14 }],
+		['loc-4', 'dungeon', 'dungeons', { size: 26, bg: INK, border: CREAM, icon: 'arch', iconColor: CREAM, iconPx: 14 }],
+		['loc-5', 'dungeon', 'dungeons', { size: 26, bg: INK, border: CREAM, icon: 'mountain', iconColor: CREAM, iconPx: 14 }]
 	])('%s → %s on %s', (id, type, layer, pin) => {
 		const m = byId(build(), id);
 		expect(m.type).toBe(type);
@@ -312,6 +317,103 @@ describe('buildMarkers: card content (§4.2 with MVP adaptations)', () => {
 	});
 });
 
+describe('classified locations: layer from group, landmark pins (Plan 8, Task 5)', () => {
+	function withLocations(locations: SnapshotView['locations']): MapMarker[] {
+		const snap = fixtureSnapshot();
+		snap.locations = locations;
+		return buildMarkers(snap, fixtureWorld());
+	}
+
+	test('a landmark builds a landmark pin: icon by type, kicker and title both the label, no zoom gate', () => {
+		const all = withLocations([
+			{
+				id: 'lm-1',
+				kind: 'landmark',
+				x: 10,
+				y: 0,
+				z: 20,
+				type: 'AncientUpgradeStation',
+				label: 'Forge of Potential',
+				group: 'landmarks'
+			}
+		]);
+		const m = byId(all, 'lm-1');
+		expect(m.type).toBe('landmark');
+		expect(m.layer).toBe('landmarks');
+		expect(m.pin).toEqual({ size: 26, bg: INK, border: CREAM, icon: 'anvil', iconColor: CREAM, iconPx: 14 });
+		expect(m.minZoom).toBeUndefined();
+		expect(m.title).toBe('Forge of Potential');
+		expect(m.card.kicker).toBe('Forge of Potential');
+		expect(m.card.title).toBe('Forge of Potential');
+	});
+
+	test('a dungeon with group "dungeons" is on the dungeons layer, zoom-gated at 3', () => {
+		const all = withLocations([
+			{ id: 'dg-1', kind: 'dungeon', x: 0, y: 0, z: 0, type: 'Crypt2', label: 'Burial chambers', group: 'dungeons' }
+		]);
+		const m = byId(all, 'dg-1');
+		expect(m.layer).toBe('dungeons');
+		expect(m.minZoom).toBe(3);
+	});
+
+	test('Hildir_crypt is kind dungeon but group landmarks: on landmarks, no zoom gate', () => {
+		const all = withLocations([
+			{
+				id: 'hc-1',
+				kind: 'dungeon',
+				x: 0,
+				y: 0,
+				z: 0,
+				type: 'Hildir_crypt',
+				label: 'Smouldering tomb',
+				group: 'landmarks'
+			}
+		]);
+		const m = byId(all, 'hc-1');
+		expect(m.layer).toBe('landmarks');
+		expect(m.minZoom).toBeUndefined();
+		// M4: so it's searchable (search.ts) like a trader or landmark.
+		expect(m.terms).toEqual(['smouldering tomb']);
+	});
+
+	test('a group "minor" entry is on the minor layer, zoom-gated at 3; BearCave keeps the cave icon', () => {
+		const all = withLocations([
+			{ id: 'mn-1', kind: 'landmark', x: 0, y: 0, z: 0, type: 'BearCave', label: 'Bear cave', group: 'minor' }
+		]);
+		const m = byId(all, 'mn-1');
+		expect(m.layer).toBe('minor');
+		expect(m.minZoom).toBe(3);
+		expect(m.pin.icon).toBe('mountain');
+	});
+
+	test('a location with no group (older server) falls back by kind: boss_altar/trader → landmarks, dungeon → dungeons', () => {
+		const all = withLocations([
+			{ id: 'alt-1', kind: 'boss_altar', x: 0, y: 0, z: 0, type: 'Eikthyrnir', label: 'Eikthyr' },
+			{ id: 'tr-1', kind: 'trader', x: 0, y: 0, z: 0, type: 'Vendor_BlackForest', label: 'Haldor' },
+			{ id: 'dg-2', kind: 'dungeon', x: 0, y: 0, z: 0, type: 'TrollCave02', label: 'Troll cave' }
+		]);
+		expect(byId(all, 'alt-1').layer).toBe('landmarks');
+		expect(byId(all, 'tr-1').layer).toBe('landmarks');
+		expect(byId(all, 'dg-2').layer).toBe('dungeons');
+	});
+
+	test.each([
+		['AncientUpgradeStation', 'anvil'],
+		['PlaceofMystery1', 'sparkles'],
+		['PlaceofMystery2', 'sparkles'],
+		['PlaceofMystery3', 'sparkles'],
+		['StartTemple', 'circle-dot'],
+		['CharredFortress', 'castle'],
+		['NorthMemorialPlace', 'landmark'],
+		['BearCave', 'mountain'],
+		['GoblinCamp2', 'arch'],
+		['NorthVillage', 'arch']
+	])('landmark icon for %s is %s', (type, icon) => {
+		const all = withLocations([{ id: 'x', kind: 'landmark', x: 0, y: 0, z: 0, type, label: 'X', group: 'minor' }]);
+		expect(byId(all, 'x').pin.icon).toBe(icon);
+	});
+});
+
 describe('visibleMarkers', () => {
 	test('every marker shows with all layers on (the server already dropped unexplored ones)', () => {
 		const all = build();
@@ -346,10 +448,17 @@ describe('layerCounts', () => {
 			tombstones: 1,
 			tames: 2,
 			signs: 2,
-			locations: 5,
+			landmarks: 3,
+			dungeons: 2,
+			minor: 0,
 			unpaired: 5,
 			pairs: 1
 		});
+	});
+
+	test('has the three classified-location keys', () => {
+		const c = layerCounts(build());
+		expect(Object.keys(c)).toEqual(expect.arrayContaining(['landmarks', 'dungeons', 'minor']));
 	});
 });
 
@@ -402,12 +511,12 @@ describe('pin HTML', () => {
 });
 
 describe('enabledLayerCount (the Layers badge)', () => {
-	test('defaults: 6 of the 8 main layers', () => {
+	test('defaults: 6 of the 10 main layers', () => {
 		expect(enabledLayerCount(defaultLayers())).toBe(6);
 	});
-	test('all on -> 8; biomes off -> 7', () => {
-		expect(enabledLayerCount(ALL_ON)).toBe(8);
-		expect(enabledLayerCount({ ...ALL_ON, biomes: false })).toBe(7);
+	test('all on -> 10; biomes off -> 9', () => {
+		expect(enabledLayerCount(ALL_ON)).toBe(10);
+		expect(enabledLayerCount({ ...ALL_ON, biomes: false })).toBe(9);
 	});
 });
 

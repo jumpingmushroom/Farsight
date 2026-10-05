@@ -3,7 +3,6 @@ package worldevents
 import (
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/jumpingmushroom/farsight/internal/extract"
 )
@@ -16,7 +15,12 @@ func Diff(prev, cur *extract.Snapshot, geo Geo) []Event {
 	if prev == nil {
 		return nil
 	}
-	d := differ{prev: prev, cur: cur, geo: geo}
+	// A shallow copy: cur's own Locations slice is left untouched, so an
+	// agent snapshot that classified its own locations (or didn't) isn't
+	// mutated by the caller's Diff call.
+	cur2 := *cur
+	cur2.Locations = extract.ClassifyLocations(cur.Locations)
+	d := differ{prev: prev, cur: &cur2, geo: geo}
 	d.tombstones()
 	d.portals()
 	d.tames()
@@ -348,7 +352,13 @@ func (d *differ) bosses() {
 // "" if there is none, or if (x, z) itself isn't explored: an event in
 // unexplored ground must not read as being near a landmark the map
 // doesn't show there, even when that landmark is itself explored and
-// within range. The caller falls back to the biome.
+// within range. The caller falls back to the biome. The wording itself is
+// extract.NearPhrase's table entry (by Type, the raw prefab name), not a
+// one-size heuristic over Label: that read "the Forge of Potential" as "a
+// forge of potential" and "a charred fortress" as plural ("charred
+// fortress", trailing "s" mistaken for one). locs must already be
+// classified (extract.ClassifyLocations): Near reads Kind, which a raw
+// agent location (Kind "location") doesn't carry.
 func Near(locs []extract.Marker, geo Geo, x, z float32) string {
 	if !geo.Explored(x, z) {
 		return ""
@@ -368,15 +378,5 @@ func Near(locs []extract.Marker, geo Geo, x, z float32) string {
 	if best == nil {
 		return ""
 	}
-	switch best.Kind {
-	case "trader":
-		return best.Label
-	case "boss_altar":
-		return best.Label + "’s altar"
-	}
-	name := strings.ToLower(best.Label)
-	if strings.HasSuffix(name, "s") { // "burial chambers"
-		return name
-	}
-	return "a " + name
+	return extract.NearPhrase(*best)
 }

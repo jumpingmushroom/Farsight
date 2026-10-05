@@ -82,6 +82,11 @@
 	const card = $derived(app.card?.id === app.currentId ? app.card : undefined);
 	/** The decoded 12 m explored mask, for the cursor readout's "Unexplored". */
 	const mask = $derived(app.snapshot?.mask);
+	/** The biome grid for the current tile set, once loaded (Task 4); stale once `card.tiles.key` has moved on. */
+	const grid = $derived.by(() => {
+		const b = app.biomes;
+		return b && b.key === card?.tiles.key ? b.grid : undefined;
+	});
 	/** A profile or the Activity view (Plan 7) takes the panel's place, open or collapsed. */
 	const profilePlayer = $derived(app.view?.kind === 'profile' ? app.view.player : undefined);
 	const activityOpen = $derived(app.view?.kind === 'activity');
@@ -426,7 +431,7 @@
 		</div>
 	{/if}
 
-	<ScaleReadout {map} {mask} left={padLeft > 0 ? padLeft : 16} />
+	<ScaleReadout {map} {mask} {grid} left={padLeft > 0 ? padLeft : 16} />
 	<ZoomControls
 		onzoomin={() => atlas?.zoomBy(0.75)}
 		onzoomout={() => atlas?.zoomBy(-0.75)}

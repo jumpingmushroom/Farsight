@@ -619,6 +619,59 @@ func TestSnapshotAPIFiltersToTheExploredMask(t *testing.T) {
 	}
 }
 
+// Task 2: the snapshot API classifies raw agent locations (Kind
+// "location") before filtering to the explored mask: an unmapped prefab
+// and an unplaced unique candidate are dropped alongside the unexplored
+// one, leaving only the real, mapped, explored site.
+func TestSnapshotAPIClassifiesRawLocations(t *testing.T) {
+	e := newEnv(t)
+	snap := testSnapshot("s1", at(-time.Minute))
+	snap.Locations = []extract.Marker{
+		{ID: "loc-forge", Kind: "location", Type: "AncientUpgradeStation", X: 70, Z: 20},            // explored, mapped: kept
+		{ID: "loc-bogwitch", Kind: "location", Type: "BogWitch_Camp", Unplaced: true, X: 70, Z: 20}, // explored, unplaced unique: dropped
+		{ID: "loc-rune", Kind: "location", Type: "Runestone_Meadows", X: 70, Z: 20},                 // explored, unmapped: dropped
+		{ID: "loc-crypt2", Kind: "location", Type: "Crypt2", X: -5000, Z: -5000},                    // mapped, unexplored: dropped
+	}
+	if err := e.post("alpha", "alpha-token", "snapshot", snap); err != nil {
+		t.Fatal(err)
+	}
+	cookie := e.mustUnlock("alpha")
+	var s struct {
+		Locations []extract.Marker `json:"locations"`
+	}
+	e.get("/api/servers/alpha/snapshot", cookie).json(t, &s)
+	if len(s.Locations) != 1 {
+		t.Fatalf("locations = %+v, want exactly 1", s.Locations)
+	}
+	if got := s.Locations[0]; got.Kind != "landmark" || got.Label != "Forge of Potential" || got.Group != "landmarks" {
+		t.Errorf("location = %+v, want kind landmark label %q group landmarks", got, "Forge of Potential")
+	}
+}
+
+// Task 2: a legacy, already-classified location (an older agent, before
+// Group existed) still gets its group filled in from the location table.
+func TestSnapshotAPIFillsGroupForLegacyClassifiedLocations(t *testing.T) {
+	e := newEnv(t)
+	snap := testSnapshot("s1", at(-time.Minute))
+	snap.Locations = []extract.Marker{
+		{ID: "loc-legacy", Kind: "dungeon", Type: "SunkenCrypt4", Label: "Sunken crypt", X: 70, Z: 20},
+	}
+	if err := e.post("alpha", "alpha-token", "snapshot", snap); err != nil {
+		t.Fatal(err)
+	}
+	cookie := e.mustUnlock("alpha")
+	var s struct {
+		Locations []extract.Marker `json:"locations"`
+	}
+	e.get("/api/servers/alpha/snapshot", cookie).json(t, &s)
+	if len(s.Locations) != 1 {
+		t.Fatalf("locations = %+v, want exactly 1", s.Locations)
+	}
+	if got := s.Locations[0]; got.Kind != "dungeon" || got.Label != "Sunken crypt" || got.Group != "dungeons" {
+		t.Errorf("location = %+v, want kind dungeon label %q group dungeons", got, "Sunken crypt")
+	}
+}
+
 // Fix 4: a kept portal whose pair names a partner that was filtered out
 // as unexplored must have its own pair blanked, so the response reveals
 // only that the kept portal exists, not that an unexplored partner does.

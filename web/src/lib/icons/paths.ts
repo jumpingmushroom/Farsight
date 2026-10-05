@@ -1,4 +1,5 @@
-// The ten marker icons (DESIGN-NOTES §4.3) as SVG element strings: one
+// The marker icons (DESIGN-NOTES §4.3, extended by the 2026-10-05 cursor/
+// locations spec for landmarks) as SVG element strings: one
 // source of truth for pin HTML (Leaflet divIcons need strings) and for
 // MarkerIcon.svelte (real SVG in the DOM). The Lucide entries copy the
 // installed lucide-svelte geometry (paths.test.ts checks they match); portal,
@@ -14,7 +15,12 @@ export const ICON_NAMES = [
 	'flame',
 	'coins',
 	'arch',
-	'mountain'
+	'mountain',
+	'anvil',
+	'sparkles',
+	'circle-dot',
+	'castle',
+	'landmark'
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -54,7 +60,39 @@ export const ICON_PATHS: Record<IconName, string[]> = {
 	],
 	// Custom: an arched gateway.
 	arch: ['<path d="M4 22V10a8 8 0 0 1 16 0v12"/>', '<path d="M2 22h20"/>', '<path d="M9 22v-6a3 3 0 0 1 6 0v6"/>'],
-	mountain: ['<path d="m8 3 4 8 5-5 5 15H2L8 3z"/>']
+	mountain: ['<path d="m8 3 4 8 5-5 5 15H2L8 3z"/>'],
+	anvil: [
+		'<path d="M7 10H6a4 4 0 0 1-4-4 1 1 0 0 1 1-1h4"/>',
+		'<path d="M7 5a1 1 0 0 1 1-1h13a1 1 0 0 1 1 1 7 7 0 0 1-7 7H8a1 1 0 0 1-1-1z"/>',
+		'<path d="M9 12v5"/>',
+		'<path d="M15 12v5"/>',
+		'<path d="M5 20a3 3 0 0 1 3-3h8a3 3 0 0 1 3 3 1 1 0 0 1-1 1H6a1 1 0 0 1-1-1"/>'
+	],
+	sparkles: [
+		'<path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/>',
+		'<path d="M20 2v4"/>',
+		'<path d="M22 4h-4"/>',
+		'<circle cx="4" cy="20" r="2"/>'
+	],
+	'circle-dot': ['<circle cx="12" cy="12" r="10"/>', '<circle cx="12" cy="12" r="1"/>'],
+	castle: [
+		'<path d="M10 5V3"/>',
+		'<path d="M14 5V3"/>',
+		'<path d="M15 21v-3a3 3 0 0 0-6 0v3"/>',
+		'<path d="M18 3v8"/>',
+		'<path d="M18 5H6"/>',
+		'<path d="M22 11H2"/>',
+		'<path d="M22 9v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9"/>',
+		'<path d="M6 3v8"/>'
+	],
+	landmark: [
+		'<path d="M10 18v-7"/>',
+		'<path d="M11.12 2.198a2 2 0 0 1 1.76.006l7.866 3.847c.476.233.31.949-.22.949H3.474c-.53 0-.695-.716-.22-.949z"/>',
+		'<path d="M14 18v-7"/>',
+		'<path d="M18 18v-7"/>',
+		'<path d="M3 22h18"/>',
+		'<path d="M6 18v-7"/>'
+	]
 };
 
 export const STROKE_WIDTH = 2.75;

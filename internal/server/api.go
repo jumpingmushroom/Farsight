@@ -410,7 +410,7 @@ func (s *server) snapshot(w http.ResponseWriter, r *http.Request) {
 		FogKey:    ws.fogKey,
 		Explored:  ws.enc,
 		Markers:   markers,
-		Locations: keep(snap.Locations, inMarker),
+		Locations: keep(ws.locs, inMarker),
 		Bases:     keep(snap.Bases, func(b extract.Base) bool { return in(b.X, b.Z) }),
 		Players:   orEmpty(snap.Players),
 	})

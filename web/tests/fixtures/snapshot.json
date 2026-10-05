@@ -71,57 +71,67 @@
   "locations": [
     {
       "id": "loc-12",
-      "kind": "boss_altar",
+      "kind": "location",
       "x": -600.0,
       "y": 40.0,
       "z": 900.0,
-      "label": "Eikthyr",
       "type": "Eikthyrnir"
     },
     {
       "id": "loc-57",
-      "kind": "boss_altar",
+      "kind": "location",
       "x": 4200.0,
       "y": 40.0,
       "z": -120.0,
-      "label": "Yagluth",
       "type": "GoblinKing"
     },
     {
       "id": "loc-88",
-      "kind": "trader",
+      "kind": "location",
       "x": 1300.0,
       "y": 40.0,
       "z": 600.0,
-      "label": "Haldor",
       "type": "Vendor_BlackForest"
     },
     {
       "id": "loc-140",
-      "kind": "dungeon",
+      "kind": "location",
       "x": -1000.0,
       "y": 40.0,
       "z": -900.0,
-      "label": "Sunken crypt",
       "type": "SunkenCrypt4"
     },
     {
       "id": "loc-203",
-      "kind": "dungeon",
+      "kind": "location",
       "x": 700.0,
       "y": 40.0,
       "z": 1200.0,
-      "label": "Troll cave",
       "type": "TrollCave02"
     },
     {
       "id": "loc-311",
-      "kind": "dungeon",
+      "kind": "location",
       "x": -4500.0,
       "y": 40.0,
       "z": 3000.0,
-      "label": "Sunken crypt",
       "type": "SunkenCrypt4"
+    },
+    {
+      "id": "loc-420",
+      "kind": "location",
+      "x": 200.0,
+      "y": 40.0,
+      "z": 300.0,
+      "type": "AncientUpgradeStation"
+    },
+    {
+      "id": "loc-421",
+      "kind": "location",
+      "x": 650.0,
+      "y": 40.0,
+      "z": 1100.0,
+      "type": "BearCave"
     }
   ],
   "markers": [

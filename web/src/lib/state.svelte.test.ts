@@ -1,3 +1,4 @@
+import './testing/leaflet-node';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { filters } from './filters.svelte';
 import { AppState, CARD_EVERY_MS, unlockMessage, type Visibility } from './state.svelte';
@@ -120,6 +121,8 @@ class FakeServer {
 	cards: Record<string, Card | number> = { a: makeCard('a'), b: makeCard('b') };
 	/** Keyed "server/player"; a number is a status to fail with, undefined -> 404. */
 	profiles: Record<string, Profile | number> = {};
+	/** Keyed "server/key"; a number is a status to fail with, undefined -> 404 (a stale key). */
+	biomes: Record<string, Uint8Array<ArrayBuffer> | number> = {};
 	/** Keyed by server id; a number is a status to fail with, undefined -> 404. */
 	activity: Record<string, ActivityPage | number> = {};
 	today: Record<string, TodaySessions | number> = {};
@@ -155,6 +158,14 @@ class FakeServer {
 			if (p === undefined) return new Response('not found', { status: 404 });
 			if (typeof p === 'number') return new Response('err', { status: p });
 			return json(p);
+		}
+		const biomes = path.match(/^\/tiles\/([^/]+)\/([^/]+)\/biomes$/);
+		if (biomes) {
+			const key = `${decodeURIComponent(biomes[1])}/${decodeURIComponent(biomes[2])}`;
+			const b = this.biomes[key];
+			if (b === undefined) return new Response('not found', { status: 404 });
+			if (typeof b === 'number') return new Response('err', { status: b });
+			return new Response(b, { status: 200 });
 		}
 		const today = path.match(/^\/api\/servers\/([^/]+)\/sessions\/today$/);
 		if (today) {
@@ -724,6 +735,104 @@ describe('polling', () => {
 		server.cards.a = makeCard('a', { tiles: { state: 'complete', done: 100, total: 100, key: 'k' } });
 		await vi.advanceTimersByTimeAsync(15_000);
 		expect(app.tileSamples).toEqual([]);
+		stop();
+	});
+});
+
+describe('biomes grid (Task 4)', () => {
+	test('loads once a tile-set key is known, and is not refetched on later polls', async () => {
+		const { app, server } = setup('');
+		server.biomes['a/k1'] = new Uint8Array(1024 * 1024);
+		const stop = app.start();
+		await flush();
+		expect(server.count('/tiles/a/k1/biomes')).toBe(1);
+		// Not toEqual: Vitest's deep-equality over a 1 MB typed array is slow.
+		expect(app.biomes?.key).toBe('k1');
+		expect(app.biomes?.grid.length).toBe(1024 * 1024);
+		await vi.advanceTimersByTimeAsync(15_000);
+		expect(server.count('/tiles/a/k1/biomes')).toBe(1);
+		stop();
+	});
+
+	test('a new tiles.key (the world was rebuilt) is fetched again', async () => {
+		const { app, server } = setup('');
+		server.biomes['a/k1'] = new Uint8Array(1024 * 1024);
+		server.biomes['a/k2'] = new Uint8Array(1024 * 1024);
+		const stop = app.start();
+		await flush();
+		expect(app.biomes?.key).toBe('k1');
+		server.cards.a = makeCard('a', { tiles: { state: 'complete', done: 10, total: 10, key: 'k2' } });
+		await vi.advanceTimersByTimeAsync(15_000);
+		expect(server.count('/tiles/a/k2/biomes')).toBe(1);
+		expect(app.biomes?.key).toBe('k2');
+		stop();
+	});
+
+	test('a 404 (stale key) leaves biomes undefined, retried the moment the key changes', async () => {
+		const { app, server } = setup(''); // server.biomes is empty -> every request 404s
+		const stop = app.start();
+		await flush();
+		expect(server.count('/tiles/a/k1/biomes')).toBe(1);
+		expect(app.biomes).toBeUndefined();
+		server.biomes['a/k2'] = new Uint8Array(1024 * 1024);
+		server.cards.a = makeCard('a', { tiles: { state: 'complete', done: 10, total: 10, key: 'k2' } });
+		await vi.advanceTimersByTimeAsync(15_000);
+		expect(server.count('/tiles/a/k2/biomes')).toBe(1);
+		expect(app.biomes?.key).toBe('k2');
+		stop();
+	});
+
+	// M2 (round 2): a failed fetch used to need `card.tiles.key` to change
+	// before it was retried, which could be never (e.g. a transient 502).
+	// It must now also be retried on a later card poll, at most once a
+	// minute, without the key changing.
+	test('a failed fetch for the same key is retried on a later card poll, at most once a minute', async () => {
+		const { app, server } = setup(''); // server.biomes is empty -> every request 404s
+		const stop = app.start();
+		await flush();
+		expect(server.count('/tiles/a/k1/biomes')).toBe(1);
+		expect(app.biomes).toBeUndefined();
+		await vi.advanceTimersByTimeAsync(15_000); // 15 s since the failure: too soon
+		await vi.advanceTimersByTimeAsync(15_000); // 30 s: still too soon
+		expect(server.count('/tiles/a/k1/biomes')).toBe(1);
+		await vi.advanceTimersByTimeAsync(15_000); // 45 s
+		await vi.advanceTimersByTimeAsync(15_000); // 60 s: a card poll retries it
+		expect(server.count('/tiles/a/k1/biomes')).toBe(2);
+		expect(app.biomes).toBeUndefined(); // still 404
+		// The server recovers; the next scheduled retry (another minute
+		// later) picks it up.
+		server.biomes['a/k1'] = new Uint8Array(1024 * 1024);
+		await vi.advanceTimersByTimeAsync(60_000);
+		expect(server.count('/tiles/a/k1/biomes')).toBe(3);
+		expect(app.biomes?.key).toBe('k1');
+		// Now that it has succeeded, later polls don't refetch it.
+		await vi.advanceTimersByTimeAsync(60_000);
+		expect(server.count('/tiles/a/k1/biomes')).toBe(3);
+		stop();
+	});
+
+	test('switching server clears the grid and loads the new server’s own key', async () => {
+		const { app, server } = setup('');
+		server.biomes['a/k1'] = new Uint8Array(1024 * 1024);
+		server.cards.b = makeCard('b', { tiles: { state: 'complete', done: 10, total: 10, key: 'k1' } });
+		server.biomes['b/k1'] = new Uint8Array(1024 * 1024);
+		const stop = app.start();
+		await flush();
+		expect(app.biomes?.key).toBe('k1');
+		app.select('b');
+		expect(app.biomes).toBeUndefined();
+		await flush();
+		expect(server.count('/tiles/b/k1/biomes')).toBe(1);
+		expect(app.biomes?.key).toBe('k1');
+		stop();
+	});
+
+	test('a 404 never logs: it is a cosmetic miss, not a connectivity failure', async () => {
+		const { app, log } = setup(''); // server.biomes is empty -> 404
+		const stop = app.start();
+		await flush();
+		expect(app.biomes).toBeUndefined();
+		expect(log).not.toHaveBeenCalled();
 		stop();
 	});
 });

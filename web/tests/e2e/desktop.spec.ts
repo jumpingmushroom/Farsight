@@ -119,9 +119,12 @@ test('fix · switching to a server with no tiles leaves none of the old server�
 });
 
 test('3 · fog tiles load with the snapshot’s fog key; no fog canvas; zoom animation on', async ({ page }) => {
+	// .png only: the biome grid (Task 4) also lives under /tiles/{id}/{key}/
+	// but is a single /biomes fetch, keyed by the card's tile key rather than
+	// the snapshot's fog key, so it doesn't belong in this fog-key check.
 	const tileUrls: string[] = [];
 	page.on('request', (r) => {
-		if (r.url().includes('/tiles/')) tileUrls.push(new URL(r.url()).pathname);
+		if (r.url().includes('/tiles/') && r.url().endsWith('.png')) tileUrls.push(new URL(r.url()).pathname);
 	});
 	const snapshot = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/servers/demo/snapshot');
 	await unlock(page);
@@ -495,11 +498,43 @@ test('11 · the crypt outside the explored cells never appears', async ({ page }
 	// sign, altar, trader), so neither crypt comes up.
 	await search(page).fill('Sunken');
 	await expect(page.getByRole('status').filter({ hasText: 'Nothing matches “Sunken”' })).toBeVisible();
-	// Layer counts: Eikthyr, Yagluth, Haldor, the inside crypt, the troll cave.
+	// Layer counts: Landmarks (Eikthyr, Yagluth, Haldor, the Forge of
+	// Potential), Dungeons (the inside crypt, the troll cave), Minor places
+	// (the bear cave) — the single "Dungeons & locations" layer is gone
+	// (spec 2026-10-05, cursor biome and locations).
 	await page.getByRole('button', { name: /^Layers ·/ }).click();
-	await expect(
-		page.getByRole('group', { name: 'Map layers' }).getByRole('switch', { name: /^Dungeons & locations/ }).locator('.count')
-	).toHaveText('5');
+	const layers = page.getByRole('group', { name: 'Map layers' });
+	await expect(layers.getByRole('switch', { name: /^Landmarks/ }).locator('.count')).toHaveText('4');
+	await expect(layers.getByRole('switch', { name: /^Dungeons/ }).locator('.count')).toHaveText('2');
+	await expect(layers.getByRole('switch', { name: /^Minor places/ }).locator('.count')).toHaveText('1');
+});
+
+test('12 · biome under the cursor, and the three location layers', async ({ page }) => {
+	await unlock(page);
+	await markersReady(page);
+
+	// Layers panel default state: Landmarks on, Dungeons and Minor places
+	// off (spec 2026-10-05).
+	await page.getByRole('button', { name: /^Layers ·/ }).click();
+	const layers = page.getByRole('group', { name: 'Map layers' });
+	await expect(layers.getByRole('switch', { name: /^Landmarks/ })).toHaveAttribute('aria-checked', 'true');
+	await expect(layers.getByRole('switch', { name: /^Dungeons/ })).toHaveAttribute('aria-checked', 'false');
+	await expect(layers.getByRole('switch', { name: /^Minor places/ })).toHaveAttribute('aria-checked', 'false');
+	await page.keyboard.press('Escape');
+
+	// The Forge of Potential (AncientUpgradeStation, loc-420, explored):
+	// Landmarks has no zoom gating, so it shows at the default zoom — here
+	// inside the spawn cluster alongside the base and the home portal, so
+	// this reads its kicker off the cluster's own tooltip, same as test 7's
+	// bed-in-a-cluster check.
+	await expect(page.locator('.leaflet-marker-icon[title*="Forge of Potential"]')).toBeVisible();
+
+	// Hovering explored ground (world origin, Meadows for the seeded demo
+	// world — checked with a throwaway worldgen.NewBase(12345, 2).Biome
+	// call) shows the biome name in the readout's place slot.
+	const origin = await worldToScreen(page, 0, 0);
+	await page.mouse.move(origin.x, origin.y);
+	await expect(page.locator('.readout .place')).toHaveText('Meadows');
 });
 
 // --- Carried from reviews ----------------------------------------------------

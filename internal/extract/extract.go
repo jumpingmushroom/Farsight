@@ -117,8 +117,12 @@ func (e *Extractor) addTable(z *save.ZDO) {
 // exploredMask is the snapshot's explored mask: the tables' union, or
 // without one the generated zones eroded by explored.ZoneShrinkCells, plus
 // the game's 100 m reveal around every player-built piece (someone stood
-// there; it also covers what was built after the last "Record").
-func (e *Extractor) exploredMask(w *save.World) *explored.Encoded {
+// there; it also covers what was built after the last "Record"). Finish
+// reuses the returned mask (rather than rebuilding it) to drop raw
+// locations nobody has explored, with the server's own cell test
+// (explored.Mask.At), so the agent doesn't ship the ~90% of a save's
+// locations that are unplaced candidates or in ground nobody has visited.
+func (e *Extractor) exploredMask(w *save.World) (*explored.Mask, string) {
 	m, source := e.tables, explored.SourceTables
 	if m == nil {
 		m, source = explored.FromZones(w.Zones).Erode(explored.ZoneShrinkCells), explored.SourceZones
@@ -131,41 +135,49 @@ func (e *Extractor) exploredMask(w *save.World) *explored.Encoded {
 	for c := range cells {
 		m.Reveal(c[0], c[1])
 	}
-	enc := explored.Encode(m, source)
-	return &enc
+	return m, source
+}
+
+// keepExplored filters locs to those whose position is explored per mask,
+// using the same cell test the server uses (explored.Mask.At) so the
+// snapshot already carries only what the server would keep anyway.
+// mask == nil (exploredMask never actually returns one, but Finish checks
+// defensively) keeps every location rather than dropping all of them.
+func keepExplored(locs []save.Location, mask *explored.Mask) []save.Location {
+	if mask == nil {
+		return locs
+	}
+	out := make([]save.Location, 0, len(locs))
+	for _, l := range locs {
+		if mask.At(float64(l.Pos[0]), float64(l.Pos[2])) {
+			out = append(out, l)
+		}
+	}
+	return out
 }
 
 // Finish builds the Snapshot for world w. readAt is when this process
 // extracted the snapshot (Snapshot.ReadAt); the snapshot's SavedAt is the
 // game's own save time, w.SavedAt.
 func (e *Extractor) Finish(w *save.World, serverID string, readAt time.Time) *Snapshot {
+	mask, source := e.exploredMask(w)
+	enc := explored.Encode(mask, source)
 	s := &Snapshot{
 		ServerID: serverID, SaveID: w.SaveID, SavedAt: w.SavedAt.UTC(), ReadAt: readAt, Format: string(w.Format),
 		WorldVersion: w.Version,
 		GlobalKeys:   w.GlobalKeys, ExploredZones: w.Zones, Markers: e.markers,
 		World:    worldInfo(w),
-		Explored: e.exploredMask(w),
+		Explored: &enc,
 		Stats:    Stats{ZDOs: w.ZDOCount, Pieces: len(e.pieces), UnknownPrefabs: len(e.unknown)},
 	}
 	pairPortals(s.Markers)
 	for i, id := range e.portalCreator {
 		s.Markers[i].Owner = e.players[id]
 	}
-	for i, l := range w.Locations {
-		name := names.Name(l.Hash)
-		kind, label := "", ""
-		if v, ok := bossAltars[name]; ok {
-			kind, label = "boss_altar", v
-		} else if v, ok := traders[name]; ok {
-			kind, label = "trader", v
-		} else if v, ok := dungeons[name]; ok {
-			kind, label = "dungeon", v
-		} else {
-			continue
-		}
+	for i, l := range keepExplored(w.Locations, mask) {
 		s.Locations = append(s.Locations, Marker{
-			ID: fmt.Sprintf("loc-%d", i+1), Kind: kind, Type: name, Label: label,
-			X: l.Pos[0], Y: l.Pos[1], Z: l.Pos[2],
+			ID: fmt.Sprintf("loc-%d", i+1), Kind: "location", Type: names.Name(l.Hash),
+			X: l.Pos[0], Y: l.Pos[1], Z: l.Pos[2], Unplaced: !l.Placed,
 		})
 	}
 	s.Bosses = BossesFromKeys(w.GlobalKeys)
