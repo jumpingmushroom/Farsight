@@ -1,9 +1,12 @@
 // Marker search (DESIGN-NOTES §5.2 with the plan ruling): a case-insensitive
 // substring match on each searchable marker's terms, ranked exact, then
 // prefix, then substring; within a rank by kind (portal, base, tame, sign,
-// altar, trader, landmark), then marker order. Beds, tombstones and dungeons
-// are never returned. Unexplored markers never get here: the server filters
-// the snapshot to the explored mask.
+// altar, trader, landmark), then marker order. Beds and tombstones are
+// never returned, and neither is a dungeon in the dungeons or minor layer
+// (M4: Hildir's three sites — Howling cavern, Smouldering tomb, Sealed
+// tower — are kind `dungeon` but layer `landmarks`, so they search like a
+// trader or landmark instead). Unexplored markers never get here: the
+// server filters the snapshot to the explored mask.
 
 import type { IconName, MapMarker, Pin, PinType } from './markers';
 
@@ -16,6 +19,10 @@ export interface SearchResult {
 }
 
 const SEARCHABLE = new Set<PinType>(['portal', 'base', 'tame', 'sign', 'altar', 'trader', 'landmark']);
+
+function searchable(m: MapMarker): boolean {
+	return SEARCHABLE.has(m.type) || (m.type === 'dungeon' && m.layer === 'landmarks');
+}
 
 function normalise(q: string): string {
 	return q.toLowerCase().trim().replace(/[’‘]/g, "'");
@@ -59,7 +66,7 @@ export function search(all: MapMarker[], q: string, limit = 8): SearchResult[] {
 	if (!query) return [];
 	const hits: { m: MapMarker; r: number; i: number }[] = [];
 	all.forEach((m, i) => {
-		if (!SEARCHABLE.has(m.type)) return;
+		if (!searchable(m)) return;
 		const r = rank(m.terms, query);
 		if (r !== undefined) hits.push({ m, r, i });
 	});

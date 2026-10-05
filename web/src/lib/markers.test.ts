@@ -372,6 +372,8 @@ describe('classified locations: layer from group, landmark pins (Plan 8, Task 5)
 		const m = byId(all, 'hc-1');
 		expect(m.layer).toBe('landmarks');
 		expect(m.minZoom).toBeUndefined();
+		// M4: so it's searchable (search.ts) like a trader or landmark.
+		expect(m.terms).toEqual(['smouldering tomb']);
 	});
 
 	test('a group "minor" entry is on the minor layer, zoom-gated at 3; BearCave keeps the cave icon', () => {

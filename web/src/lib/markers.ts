@@ -516,14 +516,20 @@ function markerFor(
 		}
 		case 'dungeon': {
 			const layer = locationLayer('dungeon', m.group);
+			const label = m.label || m.type || 'Dungeon';
 			return finish({
 				id: m.id,
 				type: 'dungeon',
 				x: m.x,
 				z: m.z,
-				title: m.label || m.type || 'Dungeon',
+				title: label,
 				icon: m.type && CAVE_TYPES.has(m.type) ? 'mountain' : 'arch',
 				note: DUNGEON_NOTE,
+				// Only read when layer is 'landmarks' (search.ts): Hildir's
+				// three sites are kind `dungeon` but show in the Landmarks
+				// layer, so they search like a trader or landmark. A
+				// dungeons/minor-layer dungeon stays unsearchable regardless.
+				terms: [lc(label)],
 				layer,
 				minZoom: locationMinZoom(layer)
 			});
