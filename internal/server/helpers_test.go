@@ -94,7 +94,7 @@ func newEnvBurst(t *testing.T, burst int) *env {
 	cfg := &config.Config{
 		Servers: []config.Server{
 			{ID: "alpha", Name: "Alpha", Address: "alpha.example:2456", Crossplay: true, DiscordHint: "#alpha", MaxPlayers: 10,
-				PassphraseHash: mustHash(t, "alpha-pass"), AgentTokenHash: mustHash(t, "alpha-token")},
+				PassphraseHash: mustHash(t, "alpha-pass"), AgentTokenHash: mustHash(t, "alpha-token"), TimeZone: "Europe/Oslo"},
 			{ID: "beta", Name: "Beta", MaxPlayers: 5,
 				PassphraseHash: mustHash(t, "beta-pass"), AgentTokenHash: mustHash(t, "beta-token")},
 		},

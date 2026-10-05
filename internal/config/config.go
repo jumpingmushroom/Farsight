@@ -9,6 +9,8 @@ import (
 	"net"
 	"os"
 	"regexp"
+	"time"
+	_ "time/tzdata" // timeZone names must load without a system zoneinfo
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -25,6 +27,28 @@ type Server struct {
 	MaxPlayers     int    `json:"maxPlayers"`     // default 10
 	PassphraseHash string `json:"passphraseHash"` // bcrypt
 	AgentTokenHash string `json:"agentTokenHash"` // bcrypt
+	// TimeZone is the IANA zone the game server logs in: the same value as
+	// its agent's FARSIGHT_LOG_TZ. Profiles and the activity timeline count
+	// days in it. Default "UTC".
+	TimeZone string `json:"timeZone,omitempty"`
+
+	loc *time.Location
+}
+
+// Location is the server's TimeZone, loaded (UTC when it is unset, or
+// can't be loaded in a Server built without Load).
+func (s *Server) Location() *time.Location {
+	if s.loc != nil {
+		return s.loc
+	}
+	if s.TimeZone == "" {
+		return time.UTC
+	}
+	loc, err := time.LoadLocation(s.TimeZone)
+	if err != nil {
+		return time.UTC
+	}
+	return loc
 }
 
 // Config is the top-level farsight configuration.
@@ -90,6 +114,14 @@ func Load(path string, getenv func(string) string) (*Config, error) {
 		if s.MaxPlayers == 0 {
 			s.MaxPlayers = 10
 		}
+		if s.TimeZone == "" {
+			s.TimeZone = "UTC"
+		}
+		loc, err := time.LoadLocation(s.TimeZone)
+		if err != nil {
+			return nil, fmt.Errorf("config: server %q: timeZone: %w", s.ID, err)
+		}
+		s.loc = loc
 
 		if _, err := bcrypt.Cost([]byte(s.PassphraseHash)); err != nil {
 			return nil, fmt.Errorf("config: server %q: passphraseHash is not a bcrypt hash: %w", s.ID, err)
