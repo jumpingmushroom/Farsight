@@ -103,6 +103,26 @@ func (s *Store) EarliestEvent(ctx context.Context, serverID string) (at time.Tim
 	return fromMillis(v), true, nil
 }
 
+// LatestEventOfType returns serverID's newest event of type typ (ties by
+// id, descending). ok is false if there is none.
+func (s *Store) LatestEventOfType(ctx context.Context, serverID, typ string) (StoredEvent, bool, error) {
+	var e StoredEvent
+	var at int64
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, type, at, body FROM events
+		WHERE server_id = ? AND type = ?
+		ORDER BY at DESC, id DESC
+		LIMIT 1`, serverID, typ).Scan(&e.ID, &e.Type, &at, &e.Body)
+	switch {
+	case err == sql.ErrNoRows:
+		return StoredEvent{}, false, nil
+	case err != nil:
+		return StoredEvent{}, false, fmt.Errorf("store: latest %s event: %w", typ, err)
+	}
+	e.At = fromMillis(at)
+	return e, true, nil
+}
+
 func scanEvents(rows *sql.Rows) ([]StoredEvent, error) {
 	var out []StoredEvent
 	for rows.Next() {

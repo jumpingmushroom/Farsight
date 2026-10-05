@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"sync"
@@ -759,5 +760,38 @@ func TestTxCommitsOnSuccessAndRollsBackOnError(t *testing.T) {
 	online, err = s.Online(ctx, "srv")
 	if err != nil || len(online) != 1 {
 		t.Fatalf("online after rollback = %+v err=%v, want still 1 row (Bob rolled back)", online, err)
+	}
+}
+
+func TestLatestEventOfType(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	if _, ok, err := s.LatestEventOfType(ctx, "srv", logwatch.EvTimeSkip); err != nil || ok {
+		t.Fatalf("empty: ok=%v err=%v, want none", ok, err)
+	}
+	for _, e := range []logwatch.Event{
+		{ID: "a", Type: logwatch.EvTimeSkip, At: ms("2026-01-01T00:00:01Z"), To: 100},
+		{ID: "b", Type: logwatch.EvTimeSkip, At: ms("2026-01-01T00:00:03Z"), To: 300},
+		{ID: "c", Type: logwatch.EvTimeSkip, At: ms("2026-01-01T00:00:02Z"), To: 200},
+		{ID: "d", Type: logwatch.EvWorldSaved, At: ms("2026-01-01T00:00:09Z")},
+	} {
+		if _, err := s.InsertEventIfNew(ctx, nil, "srv", e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.InsertEventIfNew(ctx, nil, "other", logwatch.Event{ID: "x", Type: logwatch.EvTimeSkip, At: ms("2026-01-01T00:00:05Z")}); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := s.LatestEventOfType(ctx, "srv", logwatch.EvTimeSkip)
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	var e logwatch.Event
+	if err := json.Unmarshal(got.Body, &e); err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "b" || got.Type != logwatch.EvTimeSkip || !got.At.Equal(ms("2026-01-01T00:00:03Z")) || e.To != 300 {
+		t.Fatalf("latest = %+v (to %v), want b", got, e.To)
 	}
 }

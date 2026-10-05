@@ -6,10 +6,13 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/jumpingmushroom/farsight/internal/biomegrid"
 	"github.com/jumpingmushroom/farsight/internal/explored"
 	"github.com/jumpingmushroom/farsight/internal/extract"
 	"github.com/jumpingmushroom/farsight/internal/fog"
 	"github.com/jumpingmushroom/farsight/internal/store"
+	"github.com/jumpingmushroom/farsight/internal/tileset"
+	"github.com/jumpingmushroom/farsight/internal/worldgen"
 )
 
 // worldState is everything derived from one stored snapshot, built once
@@ -25,6 +28,91 @@ type worldState struct {
 	pct    float64
 
 	fog *fogLazy // shared with the previous state when fogKey is unchanged
+
+	biomesMu   sync.Mutex
+	biomesDone bool
+	biomes     []worldgen.Biome // explored, in legend order
+	home       worldgen.Biome
+}
+
+// legendOrder is the map legend's biome order, which the card's weather
+// follows.
+var legendOrder = []worldgen.Biome{
+	worldgen.Ocean, worldgen.Meadows, worldgen.BlackForest, worldgen.Swamp, worldgen.Mountain,
+	worldgen.Plains, worldgen.Mistlands, worldgen.AshLands, worldgen.DeepNorth,
+}
+
+// minBiomeCells is how many explored 12 m cells make a biome explored
+// for the weather table.
+const minBiomeCells = 50
+
+// exploredBiomes are the biomes under at least minBiomeCells of mask's
+// explored cells (each sampled at its centre on the biome grid), in
+// legend order.
+func exploredBiomes(mask *explored.Mask, grid []byte) []worldgen.Biome {
+	var counts [256]int
+	for i, by := range mask.Bits() { // row-major, LSB first
+		for j := 0; by != 0; j, by = j+1, by>>1 {
+			if by&1 == 0 {
+				continue
+			}
+			px, py := (i*8+j)%explored.Size, (i*8+j)/explored.Size
+			x := float64((px - explored.Size/2) * explored.CellMetres)
+			z := float64((py - explored.Size/2) * explored.CellMetres)
+			counts[biomegrid.Lookup(grid, x, z)]++
+		}
+	}
+	var out []worldgen.Biome
+	for _, b := range legendOrder {
+		if counts[biomegrid.Index(b)] >= minBiomeCells {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// homeBiome is the biome under the explored base with the most pieces;
+// Meadows when there is none.
+func homeBiome(bases []extract.Base, mask *explored.Mask, grid []byte) worldgen.Biome {
+	best := -1
+	for i, b := range bases {
+		if mask.At(float64(b.X), float64(b.Z)) && (best < 0 || b.Pieces > bases[best].Pieces) {
+			best = i
+		}
+	}
+	if best < 0 {
+		return worldgen.Meadows
+	}
+	idx := biomegrid.Lookup(grid, float64(bases[best].X), float64(bases[best].Z))
+	for _, b := range legendOrder {
+		if biomegrid.Index(b) == idx {
+			return b
+		}
+	}
+	return worldgen.Meadows
+}
+
+// biomeSummary returns the explored biomes and the home biome, computed
+// once per state from the world's biome grid. A grid error isn't kept:
+// the next call tries again, and this one gets no biomes and a Meadows
+// home. A world worldgen can't generate has no grid: no biomes, Meadows.
+func (w *worldState) biomeSummary(grids *biomegrid.Cache) ([]worldgen.Biome, worldgen.Biome, error) {
+	w.biomesMu.Lock()
+	defer w.biomesMu.Unlock()
+	if w.biomesDone {
+		return w.biomes, w.home, nil
+	}
+	w.home = worldgen.Meadows
+	if seed, gen := w.snap.World.Seed, w.snap.World.GenVersion; !tileset.Refused(gen) {
+		grid, err := grids.Grid(seed, gen)
+		if err != nil {
+			return nil, worldgen.Meadows, err
+		}
+		w.biomes = exploredBiomes(w.mask, grid)
+		w.home = homeBiome(w.snap.Bases, w.mask, grid)
+	}
+	w.biomesDone = true
+	return w.biomes, w.home, nil
 }
 
 // fogLazy builds a mask's distance field and tile classes once, on first

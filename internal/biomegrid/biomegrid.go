@@ -9,6 +9,7 @@ import (
 	"compress/gzip"
 	"container/list"
 	"fmt"
+	"math"
 	"sync"
 
 	"github.com/jumpingmushroom/farsight/internal/worldgen"
@@ -52,18 +53,30 @@ func Gzip(grid []byte) []byte {
 
 type key struct{ seed, gen int32 }
 
+// Lookup is the grid byte under world point (x, z); 0 off the grid.
+func Lookup(grid []byte, x, z float64) byte {
+	gx := int(math.Floor(x/Cell)) + Size/2
+	gz := int(math.Floor(z/Cell)) + Size/2
+	if gx < 0 || gx >= Size || gz < 0 || gz >= Size {
+		return 0
+	}
+	return grid[gz*Size+gx]
+}
+
 type entry struct {
 	k    key
 	done chan struct{}
+	grid []byte
 	gz   []byte
 	err  error
 }
 
-// Cache keeps the gzip'd grids of the max most recently used worlds. A
-// build takes about a second; concurrent callers for one world share it.
+// Cache keeps the grids (raw and gzip'd) of the max most recently used
+// worlds. A build takes about a second; concurrent callers for one world
+// share it.
 type Cache struct {
 	max   int
-	build func(seed, gen int32) []byte
+	build func(seed, gen int32) []byte // the raw grid
 
 	mu      sync.Mutex
 	order   *list.List // of *entry, most recent first
@@ -73,19 +86,32 @@ type Cache struct {
 func NewCache(max int) *Cache {
 	return &Cache{
 		max:     max,
-		build:   func(seed, gen int32) []byte { return Gzip(Build(worldgen.NewBase(seed, gen).Biome)) },
+		build:   func(seed, gen int32) []byte { return Build(worldgen.NewBase(seed, gen).Biome) },
 		order:   list.New(),
 		entries: map[key]*list.Element{},
 	}
 }
 
-// Get returns (seed, gen)'s gzip'd grid, building it on a miss. If build
-// panics, every waiter (concurrent and future, until the next Get for the
+// Get returns (seed, gen)'s gzip'd grid, building it on a miss.
+func (c *Cache) Get(seed, gen int32) ([]byte, error) {
+	e := c.fetch(seed, gen)
+	return e.gz, e.err
+}
+
+// Grid returns (seed, gen)'s raw grid (Size² bytes, read-only), building
+// it on a miss; it shares Get's entry.
+func (c *Cache) Grid(seed, gen int32) ([]byte, error) {
+	e := c.fetch(seed, gen)
+	return e.grid, e.err
+}
+
+// fetch returns (seed, gen)'s finished entry, building it on a miss. If build
+// panics, every waiter (concurrent and future, until the next call for the
 // same key retries) gets the panic back as err instead of blocking
 // forever on a done that never closes: the entry is removed before done
 // closes, so a retry always calls build again rather than reusing the
 // broken one.
-func (c *Cache) Get(seed, gen int32) ([]byte, error) {
+func (c *Cache) fetch(seed, gen int32) *entry {
 	k := key{seed, gen}
 	c.mu.Lock()
 	if el, ok := c.entries[k]; ok {
@@ -93,7 +119,7 @@ func (c *Cache) Get(seed, gen int32) ([]byte, error) {
 		e := el.Value.(*entry)
 		c.mu.Unlock()
 		<-e.done
-		return e.gz, e.err
+		return e
 	}
 	e := &entry{k: k, done: make(chan struct{})}
 	el := c.order.PushFront(e)
@@ -105,7 +131,7 @@ func (c *Cache) Get(seed, gen int32) ([]byte, error) {
 	}
 	c.mu.Unlock()
 
-	e.gz, e.err = safeBuild(c.build, seed, gen)
+	e.grid, e.gz, e.err = safeBuild(c.build, seed, gen)
 	if e.err != nil {
 		c.mu.Lock()
 		// Remove this entry only if it's still the one cached for k: while
@@ -120,16 +146,18 @@ func (c *Cache) Get(seed, gen int32) ([]byte, error) {
 		c.mu.Unlock()
 	}
 	close(e.done)
-	return e.gz, e.err
+	return e
 }
 
-// safeBuild turns a panic in build into an error, so every Get waiter is
-// always released instead of blocking on a done that never closes.
-func safeBuild(build func(seed, gen int32) []byte, seed, gen int32) (gz []byte, err error) {
+// safeBuild builds the grid and its gzip, turning a panic in build into an
+// error, so every waiter is always released instead of blocking on a done
+// that never closes.
+func safeBuild(build func(seed, gen int32) []byte, seed, gen int32) (grid, gz []byte, err error) {
 	defer func() {
 		if p := recover(); p != nil {
-			err = fmt.Errorf("biomegrid: build(%d, %d): panic: %v", seed, gen, p)
+			grid, gz, err = nil, nil, fmt.Errorf("biomegrid: build(%d, %d): panic: %v", seed, gen, p)
 		}
 	}()
-	return build(seed, gen), nil
+	grid = build(seed, gen)
+	return grid, Gzip(grid), nil
 }

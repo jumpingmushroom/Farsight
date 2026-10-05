@@ -66,6 +66,11 @@ type server struct {
 	dummyTokenHash func() []byte
 }
 
+// newBiomeGrids makes a server's biome-grid cache. Tests share one
+// across their many servers, so the card's weather builds each test
+// world's grid (about a second) once per run rather than once per test.
+var newBiomeGrids = func() *biomegrid.Cache { return biomegrid.NewCache(4) }
+
 // newServer fills in Deps defaults and builds the handler state.
 func newServer(d Deps) *server {
 	if d.Now == nil {
@@ -85,7 +90,7 @@ func newServer(d Deps) *server {
 		tokens:         newTokenCache(),
 		worlds:         newWorldCache(d.Store, d.Log),
 		fogTiles:       newTileCache(fogTileCacheBytes, runtime.GOMAXPROCS(0)),
-		biomeGrids:     biomegrid.NewCache(4),
+		biomeGrids:     newBiomeGrids(),
 		dummyHash:      newDummyHash(dummyCost(d.Config)),
 		dummyTokenHash: newDummyHash(dummyTokenCost(d.Config)),
 	}
