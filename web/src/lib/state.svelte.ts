@@ -21,6 +21,8 @@ export const THEME_KEY = 'farsight.theme';
 export const CARD_EVERY_MS = 15_000;
 export const SERVERS_EVERY_MS = 60_000;
 export const NOW_EVERY_MS = 30_000;
+/** M2: a failed biomes fetch is retried on a later card refresh at most this often. */
+export const BIOMES_RETRY_MS = 60_000;
 export const TOAST_MS = 2600;
 const MAX_TILE_SAMPLES = 5;
 // Mirrors internal/server/activity.go's maxActivityDays: the cap on how far
@@ -105,8 +107,8 @@ export class AppState {
 	/**
 	 * The current tile set's biome grid (Task 4), for the cursor readout.
 	 * Undefined while unloaded or after a failed fetch — a failed fetch is
-	 * retried only the next time `card.tiles.key` changes, never on the
-	 * next poll of the same key (see syncBiomes).
+	 * retried on a later card refresh, at most once a minute, as well as
+	 * whenever `card.tiles.key` changes (see syncBiomes).
 	 */
 	biomes = $state.raw<{ key: string; grid: Uint8Array } | undefined>(undefined);
 	theme = $state<Theme>('dark');
@@ -166,6 +168,8 @@ export class AppState {
 	private biomesFor: { id: string; key: string } | undefined;
 	/** Bumped on every (re)attempt or reset: discards a fetch that resolves after it. */
 	private biomesGen = 0;
+	/** When the current (id, key)'s last attempt failed (Date.now()), so syncBiomes can retry it a minute later; undefined once it has succeeded, or before the first attempt. */
+	private biomesFailedAt: number | undefined;
 	/** (id, player) the shown profile/profileFailed are for, or the one just requested. */
 	private profileFor: { id: string; player: string } | undefined;
 	/** Bumped on every (re)fetch, close or switch: a stale fetch's result is dropped, which is as close to "abort" as a plain fetch gets. */
@@ -287,6 +291,7 @@ export class AppState {
 		this.tileSamples = [];
 		this.biomes = undefined;
 		this.biomesFor = undefined;
+		this.biomesFailedAt = undefined;
 		this.biomesGen++;
 		// The timeline's shared filters (fix round 1): people are platform
 		// IDs from the old server, which mean nothing on the new one (and
@@ -647,18 +652,21 @@ export class AppState {
 
 	/**
 	 * Loads the biome grid for `key` (Task 4's `GET /tiles/{id}/{key}/biomes`)
-	 * when it names a tile set not already loaded or attempted for this
-	 * server. A failed fetch (e.g. a 404 while `key` is briefly not yet the
-	 * server's current tile set) clears `biomes` and sets nothing else up
-	 * for a retry: the next call with the same (id, key) is a no-op, so
-	 * retrying happens only when `key` changes again — until then the
-	 * readout just shows no biome. Not logged: unlike the card/profile/
-	 * activity fetches this augments, failing it is not a connectivity
-	 * signal worth a warning, just a cosmetic miss.
+	 * when it names a tile set not already loaded for this server, or when
+	 * its last attempt failed (e.g. a 404 while `key` is briefly not yet the
+	 * server's current tile set) and at least BIOMES_RETRY_MS has passed
+	 * since (M2 fix round 2: a transient failure, such as a 502 during the
+	 * app's own rolling deploy, used to need `key` to change before it was
+	 * tried again, which could be never). While that's still too soon, this
+	 * is a no-op — the readout just shows no biome until a later call, on
+	 * some later card poll, is far enough past the failure. Not logged:
+	 * unlike the card/profile/activity fetches this augments, failing it is
+	 * not a connectivity signal worth a warning, just a cosmetic miss.
 	 */
 	private syncBiomes(id: string, key: string | undefined): void {
 		if (key === undefined) return;
-		if (this.biomesFor?.id === id && this.biomesFor.key === key) return;
+		const unchanged = this.biomesFor?.id === id && this.biomesFor.key === key;
+		if (unchanged && (this.biomesFailedAt === undefined || Date.now() - this.biomesFailedAt < BIOMES_RETRY_MS)) return;
 		this.biomesFor = { id, key };
 		this.biomesGen++;
 		const g = this.biomesGen;
@@ -667,9 +675,11 @@ export class AppState {
 				const grid = await getBiomes(id, key, this.f);
 				if (g !== this.biomesGen) return;
 				this.biomes = { key, grid };
+				this.biomesFailedAt = undefined;
 			} catch {
 				if (g !== this.biomesGen) return;
 				this.biomes = undefined;
+				this.biomesFailedAt = Date.now();
 			}
 		})();
 	}
@@ -732,6 +742,7 @@ export class AppState {
 		this.tileSamples = [];
 		this.biomes = undefined;
 		this.biomesFor = undefined;
+		this.biomesFailedAt = undefined;
 		this.biomesGen++;
 		filters.reset();
 		this.syncProfile();

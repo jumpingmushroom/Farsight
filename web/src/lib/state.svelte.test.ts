@@ -768,21 +768,46 @@ describe('biomes grid (Task 4)', () => {
 		stop();
 	});
 
-	test('a 404 (stale key) leaves biomes undefined and is not retried until the key changes again', async () => {
+	test('a 404 (stale key) leaves biomes undefined, retried the moment the key changes', async () => {
 		const { app, server } = setup(''); // server.biomes is empty -> every request 404s
 		const stop = app.start();
 		await flush();
 		expect(server.count('/tiles/a/k1/biomes')).toBe(1);
 		expect(app.biomes).toBeUndefined();
-		await vi.advanceTimersByTimeAsync(15_000);
-		await vi.advanceTimersByTimeAsync(15_000);
-		// Same key every poll: no retry.
-		expect(server.count('/tiles/a/k1/biomes')).toBe(1);
 		server.biomes['a/k2'] = new Uint8Array(1024 * 1024);
 		server.cards.a = makeCard('a', { tiles: { state: 'complete', done: 10, total: 10, key: 'k2' } });
 		await vi.advanceTimersByTimeAsync(15_000);
 		expect(server.count('/tiles/a/k2/biomes')).toBe(1);
 		expect(app.biomes?.key).toBe('k2');
+		stop();
+	});
+
+	// M2 (round 2): a failed fetch used to need `card.tiles.key` to change
+	// before it was retried, which could be never (e.g. a transient 502).
+	// It must now also be retried on a later card poll, at most once a
+	// minute, without the key changing.
+	test('a failed fetch for the same key is retried on a later card poll, at most once a minute', async () => {
+		const { app, server } = setup(''); // server.biomes is empty -> every request 404s
+		const stop = app.start();
+		await flush();
+		expect(server.count('/tiles/a/k1/biomes')).toBe(1);
+		expect(app.biomes).toBeUndefined();
+		await vi.advanceTimersByTimeAsync(15_000); // 15 s since the failure: too soon
+		await vi.advanceTimersByTimeAsync(15_000); // 30 s: still too soon
+		expect(server.count('/tiles/a/k1/biomes')).toBe(1);
+		await vi.advanceTimersByTimeAsync(15_000); // 45 s
+		await vi.advanceTimersByTimeAsync(15_000); // 60 s: a card poll retries it
+		expect(server.count('/tiles/a/k1/biomes')).toBe(2);
+		expect(app.biomes).toBeUndefined(); // still 404
+		// The server recovers; the next scheduled retry (another minute
+		// later) picks it up.
+		server.biomes['a/k1'] = new Uint8Array(1024 * 1024);
+		await vi.advanceTimersByTimeAsync(60_000);
+		expect(server.count('/tiles/a/k1/biomes')).toBe(3);
+		expect(app.biomes?.key).toBe('k1');
+		// Now that it has succeeded, later polls don't refetch it.
+		await vi.advanceTimersByTimeAsync(60_000);
+		expect(server.count('/tiles/a/k1/biomes')).toBe(3);
 		stop();
 	});
 
