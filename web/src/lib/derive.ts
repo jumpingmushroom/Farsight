@@ -207,10 +207,16 @@ const TONE_FILTER: Record<'offline' | 'stale', string> = {
 	offline: 'grayscale(.55) brightness(.8)',
 	stale: 'sepia(.35) brightness(.9)'
 };
+const TINT_FILTER: Record<'night' | 'evening', string> = {
+	night: 'brightness(.8) saturate(.8) hue-rotate(-12deg)',
+	evening: 'brightness(.94) sepia(.15)'
+};
 
-/** The tile-pane filter: the biomes-off greyscale, then the offline or stale treatment. */
-export function mapFilter(biomes: boolean, tone: 'offline' | 'stale' | undefined): string {
-	return [biomes ? '' : BIOMES_OFF_FILTER, tone ? TONE_FILTER[tone] : ''].filter(Boolean).join(' ');
+/** The tile-pane filter: the biomes-off greyscale, then the offline or stale treatment, then the night/evening tint. */
+export function mapFilter(biomes: boolean, tone: 'offline' | 'stale' | undefined, tint?: 'night' | 'evening'): string {
+	return [biomes ? '' : BIOMES_OFF_FILTER, tone ? TONE_FILTER[tone] : '', tint ? TINT_FILTER[tint] : '']
+		.filter(Boolean)
+		.join(' ');
 }
 
 /** "Server offline · last seen online today 03:12 (11 h ago)", or "Server offline" without a heartbeat. */

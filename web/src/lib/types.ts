@@ -96,6 +96,34 @@ export interface Tiles {
 	key?: string;
 }
 
+/** `Card.clock`: the server's estimate of the game's world clock now (Plan 9). */
+export interface Clock {
+	/** The estimate at `at`. */
+	netTime: number;
+	at: string;
+	/** The client ticks `netTime` forward 1 s/s while true. */
+	running: boolean;
+	/** The anchor the estimate was built from. */
+	source: 'save' | 'sleep';
+}
+
+/** One of `Weather.periods`: the weather by biome for the 666 s period starting at `start` (a netTime). */
+export interface WeatherPeriod {
+	start: number;
+	byBiome: Record<string, string>;
+}
+
+/** `Card.weather`: the current weather period and the next two, by explored biome (Plan 9). */
+export interface Weather {
+	periodSec: number;
+	/** The current period and the next two. */
+	periods: WeatherPeriod[];
+	/** Explored biomes, in legend order. */
+	biomes: string[];
+	/** The pill's biome: under the base with the most pieces, else Meadows. */
+	home: string;
+}
+
 export interface Card {
 	id: string;
 	name: string;
@@ -118,6 +146,8 @@ export interface Card {
 	activity: Activity[];
 	world?: WorldCard;
 	tiles: Tiles;
+	clock?: Clock;
+	weather?: Weather;
 }
 
 export interface Marker {

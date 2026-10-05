@@ -500,6 +500,13 @@ describe('mapFilter', () => {
 		expect(mapFilter(false, 'offline')).toBe('grayscale(1) contrast(.85) brightness(1.08) grayscale(.55) brightness(.8)');
 		expect(mapFilter(false, 'stale')).toBe('grayscale(1) contrast(.85) brightness(1.08) sepia(.35) brightness(.9)');
 	});
+	test('night/evening tint is appended last', () => {
+		expect(mapFilter(true, undefined, 'night')).toBe('brightness(.8) saturate(.8) hue-rotate(-12deg)');
+		expect(mapFilter(true, undefined, 'evening')).toBe('brightness(.94) sepia(.15)');
+		expect(mapFilter(false, 'offline', 'night')).toBe(
+			'grayscale(1) contrast(.85) brightness(1.08) grayscale(.55) brightness(.8) brightness(.8) saturate(.8) hue-rotate(-12deg)'
+		);
+	});
 });
 
 describe('offlineTitle', () => {
