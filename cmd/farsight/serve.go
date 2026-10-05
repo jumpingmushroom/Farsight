@@ -22,6 +22,7 @@ import (
 	"github.com/jumpingmushroom/farsight/internal/server"
 	"github.com/jumpingmushroom/farsight/internal/store"
 	"github.com/jumpingmushroom/farsight/internal/tileset"
+	"github.com/jumpingmushroom/farsight/internal/worldevents"
 	"github.com/jumpingmushroom/farsight/web"
 )
 
@@ -78,6 +79,7 @@ func runServe(ctx context.Context, cfgPath string, getenv func(string) string, l
 	tiles := tileset.NewManager(filepath.Join(cfg.DataDir, "tiles"),
 		tileset.DefaultRender(max(1, runtime.GOMAXPROCS(0)-1)), log)
 	applier := &live.Applier{Store: st, Now: time.Now}
+	world := worldevents.NewDeriver(st, log)
 
 	splitIngest := cfg.IngestListen != ""
 	publicHandler, ingestHandler := server.NewHandlers(server.Deps{
@@ -85,6 +87,7 @@ func runServe(ctx context.Context, cfgPath string, getenv func(string) string, l
 		Store:         st,
 		Applier:       applier,
 		Tiles:         tiles,
+		World:         world,
 		Codec:         auth.Codec{Key: cfg.CookieKey},
 		Limiter:       auth.NewLimiter(5, 5, nil),
 		IngestLimiter: auth.NewLimiter(10, 10, nil),
@@ -144,6 +147,7 @@ func runServe(ctx context.Context, cfgPath string, getenv func(string) string, l
 	})
 	loop(func(ctx context.Context) { every(ctx, sweepInterval, false, func() { sweep(ctx, applier, log) }) })
 	loop(func(ctx context.Context) { every(ctx, pruneInterval, true, func() { prune(ctx, st, log) }) })
+	loop(func(ctx context.Context) { backfillWorldEvents(ctx, cfg, world, log) })
 
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Serve(ln) }()
@@ -262,6 +266,21 @@ func prune(ctx context.Context, st *store.Store, log *slog.Logger) {
 	}
 	if snaps > 0 || evs > 0 {
 		log.Info("pruned", "snapshots", snaps, "events", evs)
+	}
+}
+
+// backfillWorldEvents brings every configured server's world-save events
+// up to date once at startup: the first run for a server replays all its
+// stored snapshots, later runs only what arrived while farsight was down.
+// Errors are logged and the server skipped; ingest catches up later.
+func backfillWorldEvents(ctx context.Context, cfg *config.Config, world *worldevents.Deriver, log *slog.Logger) {
+	for _, s := range cfg.Servers {
+		if ctx.Err() != nil {
+			return
+		}
+		if _, err := world.CatchUp(ctx, s.ID); err != nil && ctx.Err() == nil {
+			log.Error("startup world events", "server", s.ID, "err", err)
+		}
 	}
 }
 

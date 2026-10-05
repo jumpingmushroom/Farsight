@@ -21,6 +21,7 @@ import (
 	"github.com/jumpingmushroom/farsight/internal/ingest"
 	"github.com/jumpingmushroom/farsight/internal/store"
 	"github.com/jumpingmushroom/farsight/internal/tileset"
+	"github.com/jumpingmushroom/farsight/internal/worldevents"
 )
 
 const testCookieKey = "0123456789abcdef0123456789abcdef"
@@ -344,5 +345,37 @@ func TestEnsureTilesOnStartup(t *testing.T) {
 	}
 	if s := tm.Status(8, 99); s.State != tileset.State("refused") {
 		t.Errorf("beta tiles = %+v, want refused", s)
+	}
+}
+
+func TestBackfillWorldEventsOnStartup(t *testing.T) {
+	st, err := store.Open("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	cfg := &config.Config{Servers: []config.Server{{ID: "alpha"}, {ID: "beta"}}}
+	t0 := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	// alpha: two saves, Eikthyr defeated in between; beta: none.
+	for i, keys := range []string{`[]`, `["defeated_eikthyr"]`} {
+		at := t0.Add(time.Duration(i) * 20 * time.Minute)
+		blob := fmt.Sprintf(`{"serverId":"alpha","saveId":"s%d","savedAt":%q,"world":{"seed":7,"genVersion":2},"globalKeys":%s}`, i, at.Format(time.RFC3339), keys)
+		if _, err := st.PutSnapshot(ctx, "alpha", fmt.Sprintf("s%d", i), at, at, []byte(blob)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	backfillWorldEvents(ctx, cfg, worldevents.NewDeriver(st, nil), slog.New(slog.DiscardHandler))
+
+	evs, err := st.EventsBetween(ctx, "alpha", t0, t0.Add(time.Hour))
+	if err != nil || len(evs) != 1 || evs[0].Type != worldevents.TypeBoss {
+		t.Fatalf("alpha events = %+v err=%v", evs, err)
+	}
+	if k, ok, err := st.WorldDiffState(ctx, nil, "alpha"); err != nil || !ok || k.SaveID != "s1" {
+		t.Fatalf("alpha state = %+v ok=%v err=%v", k, ok, err)
+	}
+	if _, ok, err := st.WorldDiffState(ctx, nil, "beta"); err != nil || ok {
+		t.Fatalf("beta has no snapshots, so no state: ok=%v err=%v", ok, err)
 	}
 }

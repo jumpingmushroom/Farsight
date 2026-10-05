@@ -80,9 +80,9 @@ func (s *Store) LatestSnapshotID(ctx context.Context, serverID string) (saveID s
 }
 
 // PruneSnapshots deletes snapshots saved before the given time, except
-// that it never deletes a snapshot the world-diff backfill (Task 4)
-// still needs: for a server with no world_diff row, nothing is pruned
-// (the backfill hasn't run yet); otherwise every snapshot at or after
+// that it never deletes a snapshot the world-save event deriver still
+// needs: for a server with no world_diff row, nothing is pruned (it
+// hasn't diffed any snapshot yet); otherwise every snapshot at or after
 // the one world_diff points to is kept regardless of age, and the age
 // limit applies only to the snapshots strictly before it. It returns the
 // number of rows deleted.
