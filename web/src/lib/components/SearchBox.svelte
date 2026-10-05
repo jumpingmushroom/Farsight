@@ -1,7 +1,7 @@
 <!--
   Desktop search (DESIGN-NOTES §3.12, §5.2): the 340 px glass input with
-  the results panel under it. Results are derived from the query, markers
-  and fog mask; hints from the markers.
+  the results panel under it. Results are derived from the query and the
+  (server-filtered) markers; hints from the markers.
 
   - Focus opens the panel (and calls `onopen`, which closes the layers
     panel); leaving the box closes it after 120 ms.
@@ -20,8 +20,6 @@
 
 	let {
 		all,
-		mask,
-		fog,
 		disabled = false,
 		disabledPlaceholder = 'Waiting for the first save…',
 		width = 340,
@@ -29,8 +27,6 @@
 		onopen
 	}: {
 		all: MapMarker[];
-		mask: Uint8Array | undefined;
-		fog: boolean;
 		disabled?: boolean;
 		disabledPlaceholder?: string;
 		/** Box width in px (340 per §3.12; the shell narrows it on small desktops). */
@@ -49,7 +45,7 @@
 	let wrap: HTMLDivElement;
 	let timer: ReturnType<typeof setTimeout> | undefined;
 
-	const results = $derived(search(all, q, mask, fog));
+	const results = $derived(search(all, q));
 	const hints = $derived(hintsFor(all));
 	const hasQuery = $derived(q.trim() !== '');
 	const showPanel = $derived(open && !disabled && (hasQuery || hints.length > 0));

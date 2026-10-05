@@ -9,7 +9,8 @@
   - `mobile`: the menu-sheet block. "Layers", a 2-column grid of tiles with
     the short labels and no counts, and the "Show portal connections" row.
 
-  Counts are what's visible after fog filtering (`layerCounts`).
+  Counts are of the markers the server sent, already filtered to the
+  explored mask (`layerCounts`).
 -->
 <script lang="ts">
 	import Check from 'lucide-svelte/icons/check';

@@ -2,8 +2,8 @@
 // grid, 12 m per cell. Cell (px, py) = (round(x/12) + 1024, round(z/12) +
 // 1024) with banker's rounding (Unity's Mathf.RoundToInt). The server sends
 // it gzip'd and base64'd; the fog itself is drawn into the tiles
-// server-side, so the browser only uses the mask for search, marker
-// filtering and the cursor readout.
+// server-side and the server filters the markers to it, so the browser
+// only uses the mask for the cursor readout's "Unexplored".
 
 import type { Explored } from './types';
 
@@ -50,7 +50,7 @@ export function isExplored(mask: Uint8Array, x: number, z: number): boolean {
  * Decodes the snapshot API's `explored` (base64 of gzip of the bitset).
  * Undefined when it is missing, malformed, or the browser lacks
  * DecompressionStream: the server has already filtered the pins, so the
- * mask only refines search and the cursor readout.
+ * mask only feeds the cursor readout.
  */
 export async function decodeExplored(e: Explored | undefined): Promise<Uint8Array | undefined> {
 	if (!e || e.cell !== CELL || e.size !== SIZE || !e.bits || typeof DecompressionStream !== 'function') return undefined;

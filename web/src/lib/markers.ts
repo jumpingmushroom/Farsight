@@ -6,7 +6,6 @@
 // for Leaflet divIcons.
 
 import { BOSS_BIOME } from './derive';
-import { isExplored } from './explored';
 import { fmtInt, fmtKm, fmtN } from './format';
 import { dir8, distance } from './geo';
 import { iconSvg, type IconName } from './icons/paths';
@@ -489,29 +488,16 @@ export function buildMarkers(snap: SnapshotView, world?: WorldCard): MapMarker[]
 	return out.sort((a, b) => SORT[a.type] - SORT[b.type]);
 }
 
-function fogVisible(m: MapMarker, mask: Uint8Array | undefined, fog: boolean): boolean {
-	return !fog || !mask || isExplored(mask, m.x, m.z);
+/**
+ * Markers whose layer is on and that are not zoom-gated. Unexplored markers
+ * never get here: the server filters the snapshot to the explored mask.
+ */
+export function visibleMarkers(all: MapMarker[], layers: Record<LayerKey, boolean>, zoom: number): MapMarker[] {
+	return all.filter((m) => layers[m.layer] && (m.minZoom === undefined || zoom >= m.minZoom));
 }
 
-/** Markers whose layer is on, that are explored (when fog is on), and not zoom-gated. */
-export function visibleMarkers(
-	all: MapMarker[],
-	layers: Record<LayerKey, boolean>,
-	mask: Uint8Array | undefined,
-	fog: boolean,
-	zoom: number
-): MapMarker[] {
-	return all.filter(
-		(m) => layers[m.layer] && (m.minZoom === undefined || zoom >= m.minZoom) && fogVisible(m, mask, fog)
-	);
-}
-
-/** Layer-row counts (§8) of what survives fog filtering; biomes is the constant 9. */
-export function layerCounts(
-	all: MapMarker[],
-	mask: Uint8Array | undefined,
-	fog: boolean
-): Record<LayerKey, number> & { unpaired: number; pairs: number } {
+/** Layer-row counts (§8) of the (server-filtered) markers; biomes is the constant 9. */
+export function layerCounts(all: MapMarker[]): Record<LayerKey, number> & { unpaired: number; pairs: number } {
 	const c = {
 		biomes: 9,
 		structures: 0,
@@ -524,12 +510,11 @@ export function layerCounts(
 		unpaired: 0,
 		pairs: 0
 	};
-	const vis = all.filter((m) => fogVisible(m, mask, fog));
-	for (const m of vis) {
+	for (const m of all) {
 		c[m.layer]++;
 		if (m.type === 'portal' && m.pin.ring) c.unpaired++;
 	}
-	c.pairs = portalPairs(vis).length;
+	c.pairs = portalPairs(all).length;
 	return c;
 }
 

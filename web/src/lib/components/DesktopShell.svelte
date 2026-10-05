@@ -50,7 +50,6 @@
 	const PANEL_W = 376; // 16 + 344 + 16
 	const POPOVER_W = 312;
 	const CULL = 40;
-	const fog = true;
 
 	// UI flags.
 	let panelOpen = $state(true);
@@ -77,6 +76,7 @@
 	let frame = 0;
 
 	const card = $derived(app.card?.id === app.currentId ? app.card : undefined);
+	/** The decoded 12 m explored mask, for the cursor readout's "Unexplored". */
 	const mask = $derived(app.snapshot?.mask);
 	const padLeft = $derived(panelOpen ? PANEL_W : 0);
 
@@ -99,7 +99,7 @@
 		if (built.key !== key) built = { key, all: buildMarkers(snap, card.world) };
 		return built.all;
 	});
-	const counts = $derived(layerCounts(all, mask, fog));
+	const counts = $derived(layerCounts(all));
 
 	// The search box is 340 px (§3.12), narrowed on small desktops with the
 	// panel open so the cluster clears it (376 + 16 + layers ≈ 137 + gaps).
@@ -126,7 +126,7 @@
 	});
 	const selected = $derived(selectedId === undefined ? undefined : all.find((m) => m.id === selectedId));
 	const selectedShown = $derived(
-		!!selected && visibleMarkers([selected], layers, mask, fog, zoom).length === 1
+		!!selected && visibleMarkers([selected], layers, zoom).length === 1
 	);
 
 	const keyOf = (m: MapMarker) => `${m.type}@${m.x},${m.z}`;
@@ -297,7 +297,7 @@
 		onmove={schedulePopover}
 	/>
 	{#if map}
-		<MarkerLayer {map} {all} {layers} {mask} {fog} {portalLinks} {selectedId} onselect={select} />
+		<MarkerLayer {map} {all} {layers} {portalLinks} {selectedId} onselect={select} />
 	{/if}
 
 	{#if panelOpen}
@@ -322,8 +322,6 @@
 		<SearchBox
 			bind:this={searchBox}
 			{all}
-			{mask}
-			{fog}
 			width={searchW}
 			disabled={!markersOn}
 			disabledPlaceholder={view?.overlay.kind === 'charting' ? 'Charting the map…' : 'Waiting for the first save…'}
@@ -358,7 +356,7 @@
 		</div>
 	{/if}
 
-	<ScaleReadout {map} {mask} {fog} left={panelOpen ? PANEL_W : 16} />
+	<ScaleReadout {map} {mask} left={panelOpen ? PANEL_W : 16} />
 	<ZoomControls
 		onzoomin={() => atlas?.zoomBy(0.75)}
 		onzoomout={() => atlas?.zoomBy(-0.75)}

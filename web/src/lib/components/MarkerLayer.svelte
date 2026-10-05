@@ -17,7 +17,7 @@
     nearest the view centre; a newer render drops the old queue. On a zoom
     that changes hundreds of pins this replaced one 400–600 ms task (4×
     CPU throttle) with frame-sized ones.
-  - The visible set (layers, fog, minZoom) and its portal pairs are cached
+  - The visible set (layers, minZoom) and its portal pairs are cached
     and only recomputed when an input changes or the zoom crosses a minZoom
     (createVisibleCache); a spatial grid over it means a render projects only
     the markers near the view (viewPoints), not every marker — on a large
@@ -47,8 +47,6 @@
 		map,
 		all,
 		layers,
-		mask,
-		fog,
 		selectedId,
 		clustering = true,
 		portalLinks = true,
@@ -57,8 +55,6 @@
 		map: L.Map;
 		all: MapMarker[];
 		layers: Record<LayerKey, boolean>;
-		mask: Uint8Array | undefined;
-		fog: boolean;
 		selectedId?: string;
 		clustering?: boolean;
 		portalLinks?: boolean;
@@ -133,7 +129,7 @@
 		if (frame) cancelAnimationFrame(frame);
 		frame = 0;
 		const zoom = map.getZoom();
-		const { byId, rank, pairs, grid } = getVisible(all, layers, mask, fog, zoom);
+		const { byId, rank, pairs, grid } = getVisible(all, layers, zoom);
 		const size = map.getSize();
 		const project = containerProjector(
 			zoom,
@@ -225,7 +221,7 @@
 		if (warmHandle) return;
 		const step = () => {
 			warmHandle = undefined;
-			if (getVisible.warm(all, layers, mask, fog)) scheduleWarm();
+			if (getVisible.warm(all, layers)) scheduleWarm();
 		};
 		if (typeof requestIdleCallback === 'function') {
 			const id = requestIdleCallback(step, { timeout: 2000 });
@@ -420,8 +416,6 @@
 	// Props: re-render when any input changes.
 	$effect(() => {
 		void all;
-		void mask;
-		void fog;
 		void selectedId;
 		void clustering;
 		void portalLinks;

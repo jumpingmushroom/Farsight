@@ -15,7 +15,7 @@ import {
 	type LayerKey,
 	type MapMarker
 } from './markers';
-import { fixtureMask, fixtureSnapshot, fixtureWorld } from './testing/markers-fixture';
+import { fixtureSnapshot, fixtureWorld } from './testing/markers-fixture';
 
 const INK = '#26231f';
 const CREAM = '#f5ead8';
@@ -312,53 +312,43 @@ describe('buildMarkers: card content (§4.2 with MVP adaptations)', () => {
 });
 
 describe('visibleMarkers', () => {
-	const mask = fixtureMask();
-
-	test('fog on hides fogged-out cells; fog off shows them', () => {
+	test('every marker shows with all layers on (the server already dropped unexplored ones)', () => {
 		const all = build();
-		const on = visibleMarkers(all, ALL_ON, mask, true, 4).map((m) => m.id);
-		expect(on).not.toContain('tombstone-1');
-		expect(on).not.toContain('loc-3');
-		expect(on.length).toBe(all.length - 2);
-		const off = visibleMarkers(all, ALL_ON, mask, false, 4).map((m) => m.id);
-		expect(off.length).toBe(all.length);
+		expect(visibleMarkers(all, ALL_ON, 4)).toEqual(all);
 	});
 
 	test('a layer that is off is hidden', () => {
-		const ids = visibleMarkers(build(), { ...ALL_ON, portals: false }, mask, true, 4).map((m) => m.id);
+		const ids = visibleMarkers(build(), { ...ALL_ON, portals: false }, 4).map((m) => m.id);
 		expect(ids.some((id) => id.startsWith('portal'))).toBe(false);
 		expect(ids).toContain('base-1');
 	});
 
 	test('dungeons are hidden below zoom 3; altars and traders are not', () => {
-		const below = visibleMarkers(build(), ALL_ON, mask, false, 2.75).map((m) => m.id);
+		const below = visibleMarkers(build(), ALL_ON, 2.75).map((m) => m.id);
 		expect(below).not.toContain('loc-4');
 		expect(below).not.toContain('loc-5');
 		expect(below).toContain('loc-1');
 		expect(below).toContain('loc-3');
-		const at = visibleMarkers(build(), ALL_ON, mask, false, 3).map((m) => m.id);
+		const at = visibleMarkers(build(), ALL_ON, 3).map((m) => m.id);
 		expect(at).toContain('loc-4');
 	});
 });
 
 describe('layerCounts', () => {
-	test('counts what is visible after fog filtering, with pairs and unpaired', () => {
-		const c = layerCounts(build(), fixtureMask(), true);
+	test('counts every marker per layer, with pairs and unpaired', () => {
+		const c = layerCounts(build());
 		expect(c).toEqual({
 			biomes: 9,
 			structures: 1,
 			portals: 7,
 			beds: 1,
-			tombstones: 0,
+			tombstones: 1,
 			tames: 2,
 			signs: 2,
-			locations: 4,
+			locations: 5,
 			unpaired: 5,
 			pairs: 1
 		});
-		const nofog = layerCounts(build(), fixtureMask(), false);
-		expect(nofog.tombstones).toBe(1);
-		expect(nofog.locations).toBe(5);
 	});
 });
 
@@ -371,9 +361,9 @@ describe('portalPairs', () => {
 
 	test('no pair when an end is hidden', () => {
 		const all = build();
-		const vis = visibleMarkers(all, ALL_ON, fixtureMask(['portal-2']), true, 4);
+		const vis = visibleMarkers(all.filter((m) => m.id !== 'portal-2'), ALL_ON, 4);
 		expect(portalPairs(vis)).toEqual([]);
-		expect(portalPairs(visibleMarkers(all, { ...ALL_ON, portals: false }, undefined, false, 4))).toEqual([]);
+		expect(portalPairs(visibleMarkers(all, { ...ALL_ON, portals: false }, 4))).toEqual([]);
 	});
 });
 

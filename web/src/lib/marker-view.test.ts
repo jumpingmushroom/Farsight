@@ -4,7 +4,7 @@ import L from 'leaflet';
 import { CRS } from './geo';
 import { MarkerGrid, containerProjector, createVisibleCache, viewPoints, type Projector } from './marker-view';
 import { buildMarkers, defaultLayers, portalPairs, visibleMarkers, type LayerKey, type MapMarker } from './markers';
-import { fixtureMask, fixtureSnapshot, fixtureWorld } from './testing/markers-fixture';
+import { fixtureSnapshot, fixtureWorld } from './testing/markers-fixture';
 
 // A deterministic PRNG (mulberry32): the synthetic sets are the same every run.
 function rng(seed: number): () => number {
@@ -157,90 +157,80 @@ describe('createVisibleCache', () => {
 
 	test('matches visibleMarkers and portalPairs for every input', () => {
 		const get = createVisibleCache();
-		const mask = fixtureMask();
 		for (const layers of [defaultLayers(), ALL_ON, { ...ALL_ON, portals: false }])
-			for (const fog of [true, false])
-				for (const zoom of [1, 2.75, 3, 4.5, 6]) {
-					const v = get(all, layers, mask, fog, zoom);
-					const want = visibleMarkers(all, layers, mask, fog, zoom);
-					expect(v.visible).toEqual(want);
-					expect(v.pairs).toEqual(portalPairs(want));
-					expect([...v.byId.keys()]).toEqual(want.map((m) => m.id));
-					expect([...v.rank]).toEqual(want.map((m, i) => [m.id, i]));
-					expect(v.grid.query(-1e9, -1e9, 1e9, 1e9)).toEqual(want);
-				}
+			for (const zoom of [1, 2.75, 3, 4.5, 6]) {
+				const v = get(all, layers, zoom);
+				const want = visibleMarkers(all, layers, zoom);
+				expect(v.visible).toEqual(want);
+				expect(v.pairs).toEqual(portalPairs(want));
+				expect([...v.byId.keys()]).toEqual(want.map((m) => m.id));
+				expect([...v.rank]).toEqual(want.map((m, i) => [m.id, i]));
+				expect(v.grid.query(-1e9, -1e9, 1e9, 1e9)).toEqual(want);
+			}
 	});
 
 	test('a pan, or a zoom that crosses no minZoom, reuses the cached set', () => {
 		const get = createVisibleCache();
-		const mask = fixtureMask();
 		const layers = defaultLayers();
-		const a = get(all, layers, mask, true, 1.75);
-		expect(get(all, layers, mask, true, 1.75)).toBe(a);
-		expect(get(all, layers, mask, true, 2.75)).toBe(a);
+		const a = get(all, layers, 1.75);
+		expect(get(all, layers, 1.75)).toBe(a);
+		expect(get(all, layers, 2.75)).toBe(a);
 		// A copy of the same layer values is the same filter.
-		expect(get(all, { ...layers }, mask, true, 2)).toBe(a);
+		expect(get(all, { ...layers }, 2)).toBe(a);
 	});
 
 	test('recomputes when an input changes or the zoom crosses a minZoom', () => {
 		const get = createVisibleCache();
-		const mask = fixtureMask();
 		const layers = defaultLayers();
-		const a = get(all, layers, mask, true, 2);
-		const b = get(all, layers, mask, true, 3); // crosses the dungeons' minZoom
+		const a = get(all, layers, 2);
+		const b = get(all, layers, 3); // crosses the dungeons' minZoom
 		expect(b).not.toBe(a);
-		expect(get(all, layers, mask, true, 2)).not.toBe(b);
-		const c = get(all, layers, mask, true, 2);
-		expect(get(all, layers, mask, false, 2)).not.toBe(c);
-		const d = get(all, layers, mask, false, 2);
-		expect(get(all, layers, fixtureMask(), false, 2)).not.toBe(d);
-		const e = get(all, layers, mask, false, 2);
-		expect(get(all, { ...layers, beds: !layers.beds }, mask, false, 2)).not.toBe(e);
-		const f = get(all, layers, mask, false, 2);
-		expect(get([...all], layers, mask, false, 2)).not.toBe(f);
+		expect(get(all, layers, 2)).not.toBe(b);
+		const e = get(all, layers, 2);
+		expect(get(all, { ...layers, beds: !layers.beds }, 2)).not.toBe(e);
+		const f = get(all, layers, 2);
+		expect(get([...all], layers, 2)).not.toBe(f);
 	});
 
 	test('a band computed once is kept while the other inputs stay the same', () => {
 		const get = createVisibleCache();
-		const mask = fixtureMask();
 		const layers = defaultLayers();
-		const low = get(all, layers, mask, true, 2);
-		const high = get(all, layers, mask, true, 4);
-		expect(get(all, layers, mask, true, 1)).toBe(low);
-		expect(get(all, layers, mask, true, 5)).toBe(high);
+		const low = get(all, layers, 2);
+		const high = get(all, layers, 4);
+		expect(get(all, layers, 1)).toBe(low);
+		expect(get(all, layers, 5)).toBe(high);
 		// Another input drops every band.
-		get(all, layers, mask, false, 2);
-		expect(get(all, layers, mask, true, 4)).not.toBe(high);
+		get(all, { ...layers, beds: !layers.beds }, 2);
+		expect(get(all, layers, 4)).not.toBe(high);
 	});
 
 	test('warm computes the other bands one per call, then a zoom into them is a hit', () => {
 		const get = createVisibleCache();
-		const mask = fixtureMask();
 		const layers = defaultLayers();
-		const low = get(all, layers, mask, true, 2);
+		const low = get(all, layers, 2);
 		// The fixture's only minZoom is the dungeons' 3: two bands.
-		expect(get.warm(all, layers, mask, true)).toBe(false);
-		const high = get(all, layers, mask, true, 3.5);
-		expect(high.visible).toEqual(visibleMarkers(all, layers, mask, true, 3.5));
-		expect(get(all, layers, mask, true, 6)).toBe(high);
-		expect(get(all, layers, mask, true, 1)).toBe(low);
-		expect(get.warm(all, layers, mask, true)).toBe(false);
+		expect(get.warm(all, layers)).toBe(false);
+		const high = get(all, layers, 3.5);
+		expect(high.visible).toEqual(visibleMarkers(all, layers, 3.5));
+		expect(get(all, layers, 6)).toBe(high);
+		expect(get(all, layers, 1)).toBe(low);
+		expect(get.warm(all, layers)).toBe(false);
 		// Cold: band 0 first (more to do), then band 1.
 		const cold = createVisibleCache();
-		expect(cold.warm(all, layers, mask, true)).toBe(true);
-		expect(cold.warm(all, layers, mask, true)).toBe(false);
-		expect(cold(all, layers, mask, true, 1).visible).toEqual(visibleMarkers(all, layers, mask, true, 1));
-		expect(cold(all, layers, mask, true, 3).visible).toEqual(visibleMarkers(all, layers, mask, true, 3));
+		expect(cold.warm(all, layers)).toBe(true);
+		expect(cold.warm(all, layers)).toBe(false);
+		expect(cold(all, layers, 1).visible).toEqual(visibleMarkers(all, layers, 1));
+		expect(cold(all, layers, 3).visible).toEqual(visibleMarkers(all, layers, 3));
 	});
 
 	test('a layer object mutated in place still recomputes', () => {
 		const get = createVisibleCache();
 		const layers = defaultLayers();
-		const a = get(all, layers, undefined, false, 2);
+		const a = get(all, layers, 2);
 		layers.beds = !layers.beds;
-		const b = get(all, layers, undefined, false, 2);
+		const b = get(all, layers, 2);
 		expect(b).not.toBe(a);
-		expect(b.visible).toEqual(visibleMarkers(all, layers, undefined, false, 2));
+		expect(b.visible).toEqual(visibleMarkers(all, layers, 2));
 	});
 });
 
