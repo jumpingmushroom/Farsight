@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -152,6 +154,37 @@ func TestPlayerSessionsAndOverlapping(t *testing.T) {
 	}
 	if !day[0].Since.Equal(ms("2026-10-01T23:00:00Z")) || day[1].Name != "Bjorn" || day[2].Until != nil {
 		t.Fatalf("2 Oct sessions = %+v", day)
+	}
+}
+
+// Each card poll asks for the sessions since the last save: the query
+// must range-scan the (server_id, until) index from the window's start
+// (plus the open sessions), not read the server's whole session history.
+func TestSessionsOverlappingUsesTheIndex(t *testing.T) {
+	s := newTestStore(t)
+	rows, err := s.db.Query("EXPLAIN QUERY PLAN "+sessionsOverlappingSQL, "srv", int64(1), "srv", int64(0), int64(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var searches []string
+	for rows.Next() {
+		var id, parent, notused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &notused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("plan: %s", detail)
+		if strings.HasPrefix(detail, "SCAN") || strings.HasPrefix(detail, "SEARCH") {
+			searches = append(searches, detail)
+		}
+	}
+	want := []string{
+		"SEARCH sessions USING INDEX idx_sessions_server_until (server_id=? AND until=?)",
+		"SEARCH sessions USING INDEX idx_sessions_server_until (server_id=? AND until>?)",
+	}
+	if !slices.Equal(searches, want) {
+		t.Fatalf("searches = %q, want %q", searches, want)
 	}
 }
 
