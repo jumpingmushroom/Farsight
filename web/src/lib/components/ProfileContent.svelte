@@ -144,7 +144,7 @@
 
 		<p class="foot">
 			Playtime comes from the server log. Bases, beds, portals and tames come from who placed or named them in the world
-			save. Deaths count tombstones seen in saves, so a death recovered between two saves is missed.
+			save. {v.deathNote}
 		</p>
 	{/if}
 </div>

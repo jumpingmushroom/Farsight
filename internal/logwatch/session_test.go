@@ -160,3 +160,79 @@ func TestTimeSkipEvent(t *testing.T) {
 		t.Fatalf("time skip IDs differ on replay: %s vs %s", again[0].ID, e.ID)
 	}
 }
+
+func TestDeathEvent(t *testing.T) {
+	s := NewSessionizer()
+	at := func(sec int) time.Time {
+		return time.Date(2026, 9, 29, 10, 0, 0, 0, time.UTC).Add(time.Duration(sec) * time.Second)
+	}
+	s.Feed(Raw{Kind: RawIdentity, At: at(0), Platform: "Steam", PlatformID: "1"})
+	s.Feed(Raw{Kind: RawSpawn, At: at(5), Name: "A", UID: 11})
+	s.Feed(Raw{Kind: RawIdentity, At: at(6), Platform: "Xbox", PlatformID: "2"})
+	s.Feed(Raw{Kind: RawSpawn, At: at(7), Name: "B", UID: 22})
+
+	evs := s.Feed(Raw{Kind: RawDeath, At: at(600), Name: "A"})
+	if len(evs) != 1 {
+		t.Fatalf("death events = %+v", evs)
+	}
+	e := evs[0]
+	if e.Type != EvPlayerDeath || e.Name != "A" || e.Platform != "Steam" || e.PlatformID != "1" || !e.At.Equal(at(600)) || len(e.ID) != 16 {
+		t.Fatalf("death = %+v", e)
+	}
+	// The respawn that follows neither opens nor closes anything.
+	if got := s.Feed(Raw{Kind: RawSpawn, At: at(604), Name: "A", UID: 11}); len(got) != 0 {
+		t.Fatalf("respawn after death = %+v", got)
+	}
+	if again := s.Feed(Raw{Kind: RawDeath, At: at(600), Name: "A"}); again[0].ID != e.ID {
+		t.Fatalf("same death, different id: %s vs %s", again[0].ID, e.ID)
+	}
+	if b := s.Feed(Raw{Kind: RawDeath, At: at(700), Name: "B"}); len(b) != 1 || b[0].Platform != "Xbox" || b[0].PlatformID != "2" {
+		t.Fatalf("B's death = %+v", b)
+	}
+}
+
+func TestDeathWithoutSessionKeepsTheName(t *testing.T) {
+	s := NewSessionizer()
+	at := time.Date(2026, 9, 29, 10, 0, 0, 0, time.UTC)
+	evs := s.Feed(Raw{Kind: RawDeath, At: at, Name: "Ghost"})
+	if len(evs) != 1 || evs[0].Type != EvPlayerDeath || evs[0].Name != "Ghost" || evs[0].PlatformID != "" {
+		t.Fatalf("death without session = %+v", evs)
+	}
+}
+
+func TestIntroSkipIsNotADeath(t *testing.T) {
+	// A new character riding the Valkyrie who skips the intro is respawned
+	// the same way a dead one is; that happens within the flight of joining.
+	s := NewSessionizer()
+	at := func(sec int) time.Time {
+		return time.Date(2026, 9, 29, 10, 0, 0, 0, time.UTC).Add(time.Duration(sec) * time.Second)
+	}
+	s.Feed(Raw{Kind: RawIdentity, At: at(0), Platform: "Steam", PlatformID: "1"})
+	s.Feed(Raw{Kind: RawSpawn, At: at(5), Name: "A", UID: 11})
+	if got := s.Feed(Raw{Kind: RawDeath, At: at(5 + 89), Name: "A"}); len(got) != 0 {
+		t.Fatalf("0:0 within the intro window = %+v", got)
+	}
+	if got := s.Feed(Raw{Kind: RawDeath, At: at(5 + 90), Name: "A"}); len(got) != 1 {
+		t.Fatalf("0:0 at the end of the intro window = %+v", got)
+	}
+}
+
+func TestSteamDeathMatchesSessionByName(t *testing.T) {
+	s := NewSessionizer()
+	at := func(sec int) time.Time {
+		return time.Date(2026, 9, 29, 10, 0, 0, 0, time.UTC).Add(time.Duration(sec) * time.Second)
+	}
+	s.Feed(Raw{Kind: RawSteamConnect, At: at(0), SteamID: "765"})
+	s.Feed(Raw{Kind: RawSpawn, At: at(5), Name: "Orm", UID: 9})
+	evs := s.Feed(Raw{Kind: RawDeath, At: at(500), Name: "Orm"})
+	if len(evs) != 1 || evs[0].Platform != "Steam" || evs[0].PlatformID != "765" {
+		t.Fatalf("steam death = %+v", evs)
+	}
+}
+
+func TestCrossplayFixtureEarlyZeroIsNotADeath(t *testing.T) {
+	// Thorvaldsson's 0:0 comes 72 s after joining: inside the intro window.
+	if d := ofType(feedFile(t, "testdata/valheim-crossplay.log"), EvPlayerDeath); len(d) != 0 {
+		t.Fatalf("deaths = %+v", d)
+	}
+}

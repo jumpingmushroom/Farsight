@@ -60,7 +60,7 @@ function makeProfile(over: Partial<Profile> = {}): Profile {
 		bases: [],
 		portals: [],
 		tames: [],
-		deaths: { spotted: 0, week: 0, tombstones: [] },
+		deaths: { spotted: 0, week: 0, logged: 0, loggedWeek: 0, tombstones: [] },
 		...over
 	};
 }

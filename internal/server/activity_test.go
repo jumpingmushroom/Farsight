@@ -274,3 +274,34 @@ func TestCardActivityHasWorldEvents(t *testing.T) {
 		t.Fatalf("activity[0] = %+v", top)
 	}
 }
+
+func TestActivityDeaths(t *testing.T) {
+	e := newEnv(t)
+	evs := append(testEvents(),
+		logwatch.Event{ID: "d1", Type: logwatch.EvPlayerDeath, At: at(-15 * time.Minute), Name: "Alice", Platform: "Steam", PlatformID: "111"},
+		// No open session when it died: only the name, resolved by name.
+		logwatch.Event{ID: "d2", Type: logwatch.EvPlayerDeath, At: at(-12 * time.Minute), Name: "Bob"},
+	)
+	if err := e.post("alpha", "alpha-token", "events", map[string]any{"events": evs}); err != nil {
+		t.Fatal(err)
+	}
+	cookie := e.mustUnlock("alpha")
+	var a activityJSONOut
+	e.get("/api/servers/alpha/activity", cookie).json(t, &a)
+	var deaths []eventJSON
+	for _, ev := range a.Events {
+		if ev.Type == logwatch.EvPlayerDeath {
+			deaths = append(deaths, ev)
+		}
+	}
+	if len(deaths) != 2 || a.Counts["death"] != 2 {
+		t.Fatalf("deaths = %+v, counts %v", deaths, a.Counts)
+	}
+	bob, alice := deaths[0], deaths[1]
+	if alice.Category != "death" || alice.Source != "log" || alice.Name != "Alice" || len(alice.Who) != 1 || alice.Who[0] != "111" {
+		t.Errorf("alice = %+v", alice)
+	}
+	if bob.Name != "Bob" || len(bob.Who) != 1 || bob.Who[0] != "222" {
+		t.Errorf("bob = %+v", bob)
+	}
+}

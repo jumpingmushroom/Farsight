@@ -45,8 +45,8 @@ func TestMigrationTwoUpgradesAVersionOneDatabase(t *testing.T) {
 	}
 	defer s.Close()
 	var v int
-	if err := s.db.QueryRowContext(ctx, `SELECT v FROM schema_version`).Scan(&v); err != nil || v != 2 {
-		t.Fatalf("schema version = %d (err %v), want 2", v, err)
+	if err := s.db.QueryRowContext(ctx, `SELECT v FROM schema_version`).Scan(&v); err != nil || v != len(migrations) {
+		t.Fatalf("schema version = %d (err %v), want %d", v, err, len(migrations))
 	}
 	if _, ok, err := s.WorldDiffState(ctx, nil, "srv"); err != nil || ok {
 		t.Fatalf("world_diff after upgrade: ok=%v err=%v", ok, err)
@@ -218,5 +218,53 @@ func TestPlayersNewestNameOnlineFirst(t *testing.T) {
 	if ps[1].Name != "Ulf" || ps[2].Name != "Astrid" || !ps[2].LastSeen.Equal(ms("2026-10-02T11:00:00Z")) ||
 		len(ps[2].Names) != 2 || ps[2].Names[0] != "OldName" {
 		t.Fatalf("players = %+v, want Ulf then Astrid (renamed from OldName)", ps)
+	}
+}
+
+func TestEventsOfTypeOldestFirst(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	for _, e := range []logwatch.Event{
+		{ID: "d2", Type: logwatch.EvPlayerDeath, At: ms("2026-10-02T12:00:00Z"), Name: "B"},
+		{ID: "j", Type: logwatch.EvPlayerJoin, At: ms("2026-10-02T11:00:00Z"), Name: "A"},
+		{ID: "d1", Type: logwatch.EvPlayerDeath, At: ms("2026-10-02T10:00:00Z"), Name: "A", PlatformID: "1"},
+	} {
+		if _, err := s.InsertEventIfNew(ctx, nil, "srv", e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.InsertEventIfNew(ctx, nil, "other", logwatch.Event{ID: "d3", Type: logwatch.EvPlayerDeath, At: ms("2026-10-02T10:00:00Z")}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.EventsOfType(ctx, "srv", logwatch.EvPlayerDeath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].ID != "d1" || got[1].ID != "d2" || !got[0].At.Equal(ms("2026-10-02T10:00:00Z")) || !strings.Contains(string(got[0].Body), `"platformId":"1"`) {
+		t.Fatalf("deaths = %+v", got)
+	}
+}
+
+// A profile asks for every death on the server: the query must search
+// the (server_id, type, at) index, not scan the server's whole history.
+func TestEventsOfTypeUsesTheIndex(t *testing.T) {
+	s := newTestStore(t)
+	rows, err := s.db.Query("EXPLAIN QUERY PLAN "+eventsOfTypeSQL, "srv", "player_death")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var plan []string
+	for rows.Next() {
+		var id, parent, notused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &notused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		plan = append(plan, detail)
+	}
+	want := []string{"SEARCH events USING INDEX idx_events_server_type_at (server_id=? AND type=?)"}
+	if !slices.Equal(plan, want) {
+		t.Fatalf("plan = %q, want %q", plan, want)
 	}
 }

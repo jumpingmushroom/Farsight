@@ -54,7 +54,14 @@ const (
 	EvHeartbeat      = "heartbeat"
 	EvRaid           = "event_raid"
 	EvTimeSkip       = "time_skip"
+	EvPlayerDeath    = "player_death"
 )
+
+// introWindow is how long after joining a 0:0 character line is taken for
+// a skipped intro rather than a death: a new character arrives riding the
+// Valkyrie (a flight of about 65 s), and skipping it respawns the player
+// exactly as dying does.
+const introWindow = 90 * time.Second
 
 // session is one open player session, keyed either "s:{steamID}" (Steam
 // mode) or "u:{uid}" (crossplay mode, keyed by the ZDO owner id).
@@ -120,6 +127,8 @@ func (s *Sessionizer) Feed(r Raw) []Event {
 		out = []Event{s.emit(EvRaid, r.At, Event{Raid: r.Raid})}
 	case RawTimeSkip:
 		out = []Event{s.emit(EvTimeSkip, r.At, Event{To: r.To})}
+	case RawDeath:
+		out = s.death(r)
 	}
 	return out
 }
@@ -161,6 +170,26 @@ func (s *Sessionizer) spawn(r Raw) []Event {
 	}
 	s.open(key, session{name: r.Name, platform: "Steam", platformID: s.lastSID, since: r.At})
 	return []Event{s.emit(EvPlayerJoin, r.At, Event{Name: r.Name, Platform: "Steam", PlatformID: s.lastSID})}
+}
+
+// death turns a 0:0 character line into a player_death. The line names the
+// character only, so the platform identity comes from the newest open
+// session under that name; with none open the event keeps just the name.
+// A 0:0 within introWindow of the session's start is a skipped intro.
+func (s *Sessionizer) death(r Raw) []Event {
+	ev := Event{Name: r.Name}
+	for i := len(s.order) - 1; i >= 0; i-- {
+		sess := s.sessions[s.order[i]]
+		if sess.name != r.Name {
+			continue
+		}
+		if r.At.Sub(sess.since) < introWindow {
+			return nil
+		}
+		ev.Platform, ev.PlatformID = sess.platform, sess.platformID
+		break
+	}
+	return []Event{s.emit(EvPlayerDeath, r.At, ev)}
 }
 
 // steamClose pairs a "Closing socket" line with its open Steam session.
