@@ -442,6 +442,17 @@ describe('polling', () => {
 		stop();
 	});
 
+	test("each card is stamped with its receipt on the viewer's clock (the world clock ticks from it)", async () => {
+		const { app } = setup('');
+		const stop = app.start();
+		await flush();
+		expect(app.card?.id).toBe('a');
+		expect(app.cardAt?.getTime()).toBe(Date.parse('2026-09-30T10:05:00Z'));
+		await vi.advanceTimersByTimeAsync(15_000);
+		expect(app.cardAt?.getTime()).toBe(Date.parse('2026-09-30T10:05:15Z'));
+		stop();
+	});
+
 	test('hidden visibility skips the tick; becoming visible refreshes at once', async () => {
 		const { app, server, visibility } = setup('');
 		const stop = app.start();

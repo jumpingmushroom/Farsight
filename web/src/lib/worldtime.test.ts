@@ -99,19 +99,29 @@ describe('dayOf', () => {
 });
 
 describe('netTimeNow', () => {
-	test('adds elapsed seconds only when running', () => {
+	test('adds elapsed seconds since receipt only when running', () => {
 		const at = new Date('2026-10-06T00:00:00Z');
 		const running = makeClock({ netTime: 1000, at: at.toISOString(), running: true });
 		const paused = makeClock({ netTime: 1000, at: at.toISOString(), running: false });
 		const now = new Date(at.getTime() + 60_000);
-		expect(netTimeNow(running, now)).toBe(1060);
-		expect(netTimeNow(paused, now)).toBe(1000);
+		expect(netTimeNow(running, at, now)).toBe(1060);
+		expect(netTimeNow(paused, at, now)).toBe(1000);
 	});
-	test('no negative elapsed when now is before at', () => {
+	test('no negative elapsed when now is before the receipt', () => {
 		const at = new Date('2026-10-06T00:00:00Z');
 		const clock = makeClock({ netTime: 1000, at: at.toISOString(), running: true });
 		const now = new Date(at.getTime() - 5000);
-		expect(netTimeNow(clock, now)).toBe(1000);
+		expect(netTimeNow(clock, at, now)).toBe(1000);
+	});
+	test("elapsed is measured on the viewer's clock, so its skew from the server's doesn't matter", () => {
+		const at = new Date('2026-10-06T00:00:00Z');
+		const clock = makeClock({ netTime: 1000, at: at.toISOString(), running: true });
+		// The viewer's clock is an hour ahead: received at its 01:00, 60 s on.
+		const ahead = new Date(at.getTime() + 3_600_000);
+		expect(netTimeNow(clock, ahead, new Date(ahead.getTime() + 60_000))).toBe(1060);
+		// An hour behind: no freeze until its clock passes `at`.
+		const behind = new Date(at.getTime() - 3_600_000);
+		expect(netTimeNow(clock, behind, new Date(behind.getTime() + 60_000))).toBe(1060);
 	});
 });
 
@@ -168,13 +178,19 @@ describe('timeView', () => {
 	const clock = (partial: Partial<Clock> = {}) => makeClock({ netTime: 741 * 666 + 100, at, ...partial });
 	const now = new Date(at);
 	const tv = (card: Pick<Card, 'clock' | 'weather'>, n: Date): TimeView => {
-		const v = timeView(card, n);
+		const v = timeView(card, new Date(at), n);
 		if (!v) throw new Error('no view');
 		return v;
 	};
 
 	test('no clock, no pill', () => {
-		expect(timeView({ weather }, now)).toBeUndefined();
+		expect(timeView({ weather }, now, now)).toBeUndefined();
+	});
+
+	test("ticks from the card's receipt on the viewer's clock, not the server's at", () => {
+		const received = new Date(Date.parse(at) + 3_600_000); // the viewer's clock is an hour ahead
+		const v = timeView({ clock: clock(), weather }, received, new Date(received.getTime() + 60_000));
+		expect(v?.clock).toBe(clockText(741 * 666 + 160));
 	});
 
 	test('title, line and chip from the home biome', () => {

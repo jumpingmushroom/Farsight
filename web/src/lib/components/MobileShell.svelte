@@ -103,7 +103,7 @@
 		const id = setInterval(() => (clockNow = new Date()), 1000);
 		return () => clearInterval(id);
 	});
-	const time = $derived(card ? timeView(card, clockNow) : undefined);
+	const time = $derived(card ? timeView(card, app.cardAt ?? clockNow, clockNow) : undefined);
 	const tint = $derived(time ? tintOf(time.phase) : undefined);
 	const view = $derived(card ? mapView(card, app.now, app.tileSamples, layers.biomes, tint) : undefined);
 	/** The chip: not while waiting or charting (like the desktop pill). */

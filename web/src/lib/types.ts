@@ -100,6 +100,7 @@ export interface Tiles {
 export interface Clock {
 	/** The estimate at `at`. */
 	netTime: number;
+	/** The server's time of the estimate; the client ticks from the card's receipt (`AppState.cardAt`) instead. */
 	at: string;
 	/** The client ticks `netTime` forward 1 s/s while true. */
 	running: boolean;

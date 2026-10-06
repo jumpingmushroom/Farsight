@@ -113,7 +113,7 @@
 		const id = setInterval(() => (clockNow = new Date()), 1000);
 		return () => clearInterval(id);
 	});
-	const time = $derived(card ? timeView(card, clockNow) : undefined);
+	const time = $derived(card ? timeView(card, app.cardAt ?? clockNow, clockNow) : undefined);
 	/** A primitive, so mapView only re-runs when the phase's tint changes. */
 	const tint = $derived(time ? tintOf(time.phase) : undefined);
 	const view = $derived(card ? mapView(card, app.now, app.tileSamples, layers.biomes, tint) : undefined);

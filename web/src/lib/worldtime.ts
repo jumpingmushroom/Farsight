@@ -13,10 +13,16 @@ const DAY_SEC = 1800;
 
 export type Phase = 'morning' | 'day' | 'evening' | 'night';
 
-/** netTime now: the anchor plus seconds elapsed since `at`, counted only while `clock.running`. */
-export function netTimeNow(clock: Clock, now: Date): number {
+/**
+ * netTime now: the anchor plus the seconds elapsed since the card was
+ * received (`receivedAt`, on the viewer's clock, like `now`), counted only
+ * while `clock.running`. Measuring from the receipt rather than the
+ * server's `clock.at` keeps the viewer's clock skew out of it; the
+ * request's latency (well under a game second's worth) is ignored.
+ */
+export function netTimeNow(clock: Clock, receivedAt: Date, now: Date): number {
 	if (!clock.running) return clock.netTime;
-	const elapsed = Math.max(0, (now.getTime() - new Date(clock.at).getTime()) / 1000);
+	const elapsed = Math.max(0, (now.getTime() - receivedAt.getTime()) / 1000);
 	return clock.netTime + elapsed;
 }
 
@@ -152,13 +158,13 @@ function weatherAt(weather: Weather, idx: number, offset: number, biome: string)
 
 /**
  * The pill/dropdown/chip view of the card's clock and weather at `now` (the
- * clock is frozen while paused); undefined when the card has no clock, so
- * there is no pill.
+ * clock is frozen while paused), for a card received at `receivedAt`;
+ * undefined when the card has no clock, so there is no pill.
  */
-export function timeView(card: Pick<Card, 'clock' | 'weather'>, now: Date): TimeView | undefined {
+export function timeView(card: Pick<Card, 'clock' | 'weather'>, receivedAt: Date, now: Date): TimeView | undefined {
 	const { clock, weather } = card;
 	if (!clock) return undefined;
-	const t = netTimeNow(clock, now);
+	const t = netTimeNow(clock, receivedAt, now);
 	const ph = phase(t);
 	const clk = clockText(t);
 	const paused = !clock.running;
