@@ -29,6 +29,7 @@ const (
 	RawDestroy      RawKind = "destroy"
 	RawRaid         RawKind = "raid"
 	RawTimeSkip     RawKind = "time_skip"
+	RawDeath        RawKind = "death"
 )
 
 // Raw is one fact read from one log line, before session pairing.
@@ -176,8 +177,11 @@ func (c *clock) serverLine(line string) []Raw {
 	case reSpawn.MatchString(msg):
 		v := reSpawn.FindStringSubmatch(msg)
 		uid, _ := strconv.ParseInt(v[2], 10, 64)
-		if uid == 0 { // "ZDOID from X : 0:0" is logged on death, not a spawn
-			return nil
+		if uid == 0 {
+			// "ZDOID from X : 0:0": the game dropped X's character to
+			// respawn it, almost always a death. The Sessionizer filters
+			// the one common exception, a new character skipping the intro.
+			return []Raw{{Kind: RawDeath, At: at, Name: v[1]}}
 		}
 		return []Raw{{Kind: RawSpawn, At: at, Name: v[1], UID: uid}}
 	case reDestroy.MatchString(msg):

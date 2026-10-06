@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"math"
 	"net/http"
 	"slices"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/jumpingmushroom/farsight/internal/config"
 	"github.com/jumpingmushroom/farsight/internal/extract"
+	"github.com/jumpingmushroom/farsight/internal/logwatch"
 	"github.com/jumpingmushroom/farsight/internal/store"
 	"github.com/jumpingmushroom/farsight/internal/worldevents"
 )
@@ -64,6 +66,13 @@ type profileDeathsJSON struct {
 	Spotted    int               `json:"spotted"` // distinct tombstones across every save seen
 	Week       int               `json:"week"`    // of those, first seen in the profile's 7 days
 	Tombstones []profileTombJSON `json:"tombstones"`
+	// Logged counts the player's deaths read from the server log, and
+	// LoggedWeek those in the profile's 7 days. LoggedSince is the
+	// server's first logged death of anyone: deaths before it went
+	// unlogged. Empty while the server has none.
+	Logged      int    `json:"logged"`
+	LoggedWeek  int    `json:"loggedWeek"`
+	LoggedSince string `json:"loggedSince,omitempty"`
 }
 
 // profileJSON is GET /api/servers/{id}/players/{player}. Save data (beds,
@@ -174,6 +183,10 @@ func (s *server) buildProfile(ctx context.Context, srv *config.Server, playerID 
 		}
 	}
 
+	if err := s.addLoggedDeaths(ctx, p, srv.ID, playerID, names, starts[0]); err != nil {
+		return nil, false, err
+	}
+
 	ws, ok, err := s.worlds.get(ctx, srv.ID)
 	if err != nil {
 		return nil, false, err
@@ -182,6 +195,31 @@ func (s *server) buildProfile(ctx context.Context, srv *config.Server, playerID 
 		s.addSaveData(p, ws, names, last.Platform+"_"+playerID, tombs)
 	}
 	return p, true, nil
+}
+
+// addLoggedDeaths counts the player's player_death events: theirs by
+// platform ID, or, for a death logged with no open session to take an
+// identity from, by any name they have played under.
+func (s *server) addLoggedDeaths(ctx context.Context, p *profileJSON, serverID, playerID string, names map[string]bool, weekStart time.Time) error {
+	evs, err := s.Store.EventsOfType(ctx, serverID, logwatch.EvPlayerDeath)
+	if err != nil || len(evs) == 0 {
+		return err
+	}
+	p.Deaths.LoggedSince = rfc3339(evs[0].At)
+	for _, se := range evs {
+		var e logwatch.Event
+		if json.Unmarshal(se.Body, &e) != nil {
+			continue
+		}
+		if e.PlatformID != playerID && (e.PlatformID != "" || !names[e.Name]) {
+			continue
+		}
+		p.Deaths.Logged++
+		if !se.At.Before(weekStart) {
+			p.Deaths.LoggedWeek++
+		}
+	}
+	return nil
 }
 
 // addSaveData fills in the profile's beds, bases, portals, tames and

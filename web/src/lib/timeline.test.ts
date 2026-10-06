@@ -19,6 +19,7 @@ const CATEGORY: Record<string, Activity['category']> = {
 	player_join: 'session',
 	player_leave: 'session',
 	event_raid: 'event',
+	player_death: 'death',
 	world_tombstone: 'death',
 	world_portal: 'portal',
 	world_portal_paired: 'portal',
@@ -44,6 +45,7 @@ describe('eventText', () => {
 		expect(eventText(ev('join_code', 'x', { code: '252289' }))).toBe('New join code 252 289');
 		expect(eventText(ev('event_raid', 'x', { raid: 'army_theelder' }))).toBe('Raid: The forest is moving');
 		expect(eventText(ev('event_raid', 'x', { raid: 'army_gjall' }))).toBe('Raid: army_gjall');
+		expect(eventText(ev('player_death', 'x', { name: 'Ragnar' }))).toBe('Ragnar died');
 	});
 	test('world save events', () => {
 		expect(eventText(ev('world_tombstone', 'x', { owner: 'Ragnar', near: 'a sunken crypt', biome: 'Swamp' }))).toBe(

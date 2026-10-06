@@ -35,6 +35,7 @@ var categoryOf = map[string]string{
 	logwatch.EvWorldSaved:        "server",
 	logwatch.EvJoinCode:          "server",
 	logwatch.EvRaid:              "event",
+	logwatch.EvPlayerDeath:       "death",
 	worldevents.TypeTombstone:    "death",
 	worldevents.TypePortal:       "portal",
 	worldevents.TypePortalPaired: "portal",
@@ -173,8 +174,12 @@ func toEventJSON(se store.StoredEvent, who *people, mask *explored.Mask) (eventJ
 	}
 	out.Name, out.Platform, out.PlatformID, out.Code = e.Name, e.Platform, e.PlatformID, e.Code
 	out.Players, out.Seconds, out.Version, out.Raid = e.Players, e.Seconds, e.Version, e.Raid
-	if e.PlatformID != "" {
+	switch {
+	case e.PlatformID != "":
 		out.Who = []string{e.PlatformID}
+	case e.Type == logwatch.EvPlayerDeath:
+		// A death with no open session to take an identity from.
+		out.Who = who.names(e.Name)
 	}
 	return out, true
 }

@@ -34,8 +34,13 @@ func TestParseServerLines(t *testing.T) {
 	if r.Kind != RawSpawn || r.Name != "John Doe" || r.UID != 100004242 {
 		t.Fatalf("spawn with spaces in name = %+v", r)
 	}
-	if got := ParseServerLine("09/15/2026 20:52:53: Got character ZDOID from Thorvaldsson : 0:0", loc); len(got) != 0 {
-		t.Fatalf("death line (uid 0) must be ignored: %+v", got)
+	r = one(t, ParseServerLine("09/15/2026 20:52:53: Got character ZDOID from Thorvaldsson : 0:0", loc))
+	if r.Kind != RawDeath || r.Name != "Thorvaldsson" || !r.At.Equal(time.Date(2026, 9, 15, 18, 52, 53, 0, time.UTC)) {
+		t.Fatalf("death (uid 0) = %+v", r)
+	}
+	r = one(t, ParseServerLine("09/15/2026 20:52:53: Got character ZDOID from John Doe : 0:0", loc))
+	if r.Kind != RawDeath || r.Name != "John Doe" {
+		t.Fatalf("death with spaces in name = %+v", r)
 	}
 	r = one(t, ParseServerLine("09/15/2026 09:39:17: PlayFab socket with remote ID playfab/F0000000000000A2 received local Platform ID Steam_76561190000000007", loc))
 	if r.Kind != RawIdentity || r.Platform != "Steam" || r.PlatformID != "76561190000000007" {

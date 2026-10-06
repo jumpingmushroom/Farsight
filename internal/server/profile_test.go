@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jumpingmushroom/farsight/internal/extract"
+	"github.com/jumpingmushroom/farsight/internal/logwatch"
 	"github.com/jumpingmushroom/farsight/internal/store"
 )
 
@@ -132,5 +133,42 @@ func TestProfileWithoutASave(t *testing.T) {
 	r.json(t, &p)
 	if r.code != http.StatusOK || p.WeekSeconds != 3600 || p.Bases == nil || p.Portals == nil || p.Tames == nil || p.Beds.Near == nil || p.Deaths.Tombstones == nil {
 		t.Fatalf("profile = %d %+v", r.code, p)
+	}
+}
+
+func TestProfileLoggedDeaths(t *testing.T) {
+	e := newEnv(t)
+	profileWorld(t, e)
+	evs := []logwatch.Event{
+		// Alice: one this week by platform ID, one before the week, one by
+		// name only (no session was open), and one of someone else.
+		{ID: "d1", Type: logwatch.EvPlayerDeath, At: at(-30 * time.Minute), Name: "Alice", Platform: "Steam", PlatformID: "111"},
+		{ID: "d2", Type: logwatch.EvPlayerDeath, At: mustTime("2026-09-20T12:00:00Z"), Name: "Alice", Platform: "Steam", PlatformID: "111"},
+		{ID: "d3", Type: logwatch.EvPlayerDeath, At: at(-20 * time.Minute), Name: "Alice"},
+		{ID: "d4", Type: logwatch.EvPlayerDeath, At: at(-10 * time.Minute), Name: "Bob", Platform: "Xbox", PlatformID: "222"},
+	}
+	if err := e.post("alpha", "alpha-token", "events", map[string]any{"events": evs}); err != nil {
+		t.Fatal(err)
+	}
+	cookie := e.mustUnlock("alpha")
+	var p profileJSON
+	e.get("/api/servers/alpha/players/111", cookie).json(t, &p)
+	if p.Deaths.Logged != 3 || p.Deaths.LoggedWeek != 2 || p.Deaths.LoggedSince != "2026-09-20T12:00:00Z" {
+		t.Fatalf("deaths = %+v", p.Deaths)
+	}
+	// Tombstones are still counted separately.
+	if p.Deaths.Spotted != 1 {
+		t.Fatalf("spotted = %d, want 1", p.Deaths.Spotted)
+	}
+}
+
+func TestProfileNoLoggedDeaths(t *testing.T) {
+	e := newEnv(t)
+	profileWorld(t, e)
+	cookie := e.mustUnlock("alpha")
+	var p profileJSON
+	e.get("/api/servers/alpha/players/111", cookie).json(t, &p)
+	if p.Deaths.Logged != 0 || p.Deaths.LoggedSince != "" {
+		t.Fatalf("deaths = %+v, want no log deaths and no loggedSince", p.Deaths)
 	}
 }

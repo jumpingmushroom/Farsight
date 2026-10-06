@@ -805,8 +805,8 @@ func TestLatestEventOfTypeSince(t *testing.T) {
 	}
 }
 
-// The bounded query must range-scan the (server_id, at) index, not walk
-// the server's whole history.
+// The bounded query must range-scan the (server_id, type, at) index, not
+// walk the server's whole history.
 func TestLatestEventOfTypeSinceUsesTheIndex(t *testing.T) {
 	s := newTestStore(t)
 	rows, err := s.db.Query("EXPLAIN QUERY PLAN "+latestEventOfTypeSinceSQL, "srv", logwatch.EvTimeSkip, int64(0))
@@ -824,7 +824,7 @@ func TestLatestEventOfTypeSinceUsesTheIndex(t *testing.T) {
 		plan = append(plan, detail)
 	}
 	t.Logf("plan: %q", plan)
-	if len(plan) == 0 || !strings.Contains(plan[0], "idx_events_server_at (server_id=? AND at>?)") {
-		t.Fatalf("plan = %q, want a range search of idx_events_server_at", plan)
+	if len(plan) == 0 || !strings.Contains(plan[0], "idx_events_server_type_at (server_id=? AND type=? AND at>?)") {
+		t.Fatalf("plan = %q, want a range search of idx_events_server_type_at", plan)
 	}
 }

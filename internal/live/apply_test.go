@@ -559,3 +559,25 @@ func TestApplyStoresTimeSkipEventsWithoutChangingLiveState(t *testing.T) {
 		t.Fatalf("live state changed by a time_skip event: %+v", live)
 	}
 }
+
+func TestApplyStoresDeathEvents(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	now := parseTime("2026-10-06T20:00:00Z")
+	a := &Applier{Store: s, Now: fixedNow(now)}
+	ev := logwatch.Event{ID: "d1", Type: logwatch.EvPlayerDeath, At: parseTime("2026-10-06T19:14:05Z"), Name: "Orm", Platform: "Steam", PlatformID: "765"}
+	applied, skipped, err := a.Apply(ctx, "srv", []logwatch.Event{ev})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied != 1 || skipped != 0 {
+		t.Fatalf("applied=%d skipped=%d, want 1,0", applied, skipped)
+	}
+	got, err := s.RecentActivity(ctx, "srv", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Type != logwatch.EvPlayerDeath || got[0].PlatformID != "765" {
+		t.Fatalf("stored = %+v", got)
+	}
+}

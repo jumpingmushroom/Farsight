@@ -209,6 +209,11 @@ var migrations = [][]string{
 		// index scan and no sort.
 		`CREATE INDEX IF NOT EXISTS idx_sessions_server_platform ON sessions (server_id, platform_id, since)`,
 	},
+	// 3: one event type's history (player deaths, for profiles) without
+	// reading the server's whole event log.
+	{
+		`CREATE INDEX IF NOT EXISTS idx_events_server_type_at ON events (server_id, type, at)`,
+	},
 }
 
 // migrate brings the database schema up to len(migrations), tracking the

@@ -238,6 +238,11 @@ export interface Profile {
 	deaths: {
 		spotted: number;
 		week: number;
+		/** Deaths read from the server log; loggedWeek those in the seven days. */
+		logged: number;
+		loggedWeek: number;
+		/** The server's first logged death; absent while it has none. */
+		loggedSince?: string;
 		tombstones: { id: string; biome: string; firstSeen: string; x: number; z: number }[];
 	};
 }

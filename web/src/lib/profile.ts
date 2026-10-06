@@ -30,6 +30,7 @@ export interface ProfileView {
 	portalCount: string;
 	tameCount: string;
 	deathLine: string;
+	deathNote: string;
 	tombs: { id: string; text: string; x: number; z: number }[];
 	bases: { id: string; name: string; sub: string; x: number; z: number }[];
 }
@@ -92,7 +93,12 @@ export function profileView(p: Profile, now: Date): ProfileView {
 		tracked: `All time and first seen count from ${zDate(p.trackedSince, tz)}, when tracking began.`,
 		portalCount: `${p.portals.length} ${p.portals.length === 1 ? 'portal' : 'portals'}`,
 		tameCount: p.tames.length ? String(p.tames.length) : '',
-		deathLine: `${p.deaths.spotted} spotted · ${p.deaths.week} this week`,
+		deathLine: p.deaths.loggedSince
+			? `${p.deaths.logged} ${p.deaths.logged === 1 ? 'death' : 'deaths'} · ${p.deaths.loggedWeek} this week`
+			: `${p.deaths.spotted} spotted · ${p.deaths.week} this week`,
+		deathNote: p.deaths.loggedSince
+			? `Deaths are counted from the server log since ${zDate(p.deaths.loggedSince, tz)}; tombstones come from the world save.`
+			: 'Deaths count tombstones seen in saves, so a death recovered between two saves is missed.',
 		tombs: p.deaths.tombstones.map((t) => ({
 			id: t.id,
 			text: `Tombstone in the ${t.biome} · since save ${zDayRef(t.firstSeen, tz, now).replace(/^today /, '')}`,

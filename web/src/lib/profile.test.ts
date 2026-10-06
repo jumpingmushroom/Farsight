@@ -33,6 +33,8 @@ function makeProfile(over: Partial<Profile> = {}): Profile {
 		deaths: {
 			spotted: 41,
 			week: 3,
+			logged: 0,
+			loggedWeek: 0,
 			tombstones: [{ id: 'tombstone-1', biome: 'Swamp', firstSeen: '2026-10-05T12:20:00Z', x: 3, z: 4 }]
 		},
 		...over
@@ -103,6 +105,20 @@ describe('profileView', () => {
 		expect(v.status).toBe('Last seen 2 h ago');
 		expect(v.last).toBe('today 12:00');
 		expect(v.beds).toBe('None placed');
+	});
+	test('deaths come from the server log once it has logged any', () => {
+		const p = makeProfile();
+		p.deaths = { ...p.deaths, logged: 12, loggedWeek: 1, loggedSince: '2026-10-06T06:00:00Z' };
+		const v = profileView(p, NOW);
+		expect(v.deathLine).toBe('12 deaths · 1 this week');
+		expect(v.deathNote).toBe('Deaths are counted from the server log since 6 Oct 2026; tombstones come from the world save.');
+		p.deaths = { ...p.deaths, logged: 1, loggedWeek: 1 };
+		expect(profileView(p, NOW).deathLine).toBe('1 death · 1 this week');
+	});
+	test('without logged deaths, tombstones stand in', () => {
+		expect(profileView(makeProfile(), NOW).deathNote).toBe(
+			'Deaths count tombstones seen in saves, so a death recovered between two saves is missed.'
+		);
 	});
 	test('an older tombstone names its day', () => {
 		const p = makeProfile();

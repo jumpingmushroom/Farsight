@@ -72,6 +72,8 @@ export function eventText(e: Activity): string {
 			return 'Autosave finished · map updated';
 		case 'join_code':
 			return `New join code ${e.code ? fmtCode(e.code) : ''}`;
+		case 'player_death':
+			return `${e.name} died`;
 		case 'event_raid':
 			return `Raid: ${RAID_MESSAGES[e.raid ?? ''] ?? e.raid ?? 'unknown event'}`;
 		case 'world_tombstone': {
