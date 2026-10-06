@@ -916,4 +916,3 @@ test('weather · the pill shows a phase and clock; the dropdown lists the seeded
 	await expect(button).toHaveAttribute('aria-expanded', 'false');
 	await expect(panel).toHaveCount(0);
 });
-
