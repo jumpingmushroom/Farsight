@@ -28,17 +28,17 @@ type interval struct{ from, until time.Time }
 // estimateClock is the world's netTime at now: anchorT at anchorAt plus
 // the seconds between anchorAt and now during which at least one player
 // was online (the world clock only runs then). Overlapping intervals
-// count once. Open intervals run until now when openNow (someone is
-// online now); otherwise they are stale and count nothing.
-func estimateClock(anchorT float64, anchorAt, now time.Time, online []interval, openNow bool) float64 {
+// count once. Open intervals run until openUntil (now, while someone is
+// online); a zero openUntil means they are stale and count nothing.
+func estimateClock(anchorT float64, anchorAt, now time.Time, online []interval, openUntil time.Time) float64 {
 	var spans []interval
 	for _, iv := range online {
 		until := iv.until
 		if until.IsZero() {
-			if !openNow {
+			if openUntil.IsZero() {
 				continue
 			}
-			until = now
+			until = openUntil
 		}
 		from := maxT(iv.from, anchorAt)
 		until = minT(until, now)
@@ -127,16 +127,25 @@ func weatherFor(netTime float64, biomes []worldgen.Biome, home worldgen.Biome) *
 // clockAndWeather is the card's clock and weather for server id's world
 // ws, with online its open sessions. The anchor is the save, or the
 // newest sleep if it woke the world after the save.
+//
+// A boot after the save (a crash, which has no shutdown save, or a
+// restart after a clean stop, whose shutdown save is the anchor) means
+// the world was reloaded from the save: online time before the boot
+// never reached it, and nor did a sleep before the boot.
 func (s *server) clockAndWeather(ctx context.Context, id string, ws *worldState, online []store.Session) (*clockJSON, *weatherJSON, error) {
 	now := s.Now()
 	anchorT, anchorAt, source := ws.snap.World.NetTime, ws.snap.SavedAt, "save"
+	boot, booted, err := s.latestBootSince(ctx, id, anchorAt)
+	if err != nil {
+		return nil, nil, err
+	}
 	// Only a sleep whose wake-up is after the save can win; bounding the
 	// query there keeps it off the server's older history.
 	se, ok, err := s.Store.LatestEventOfTypeSince(ctx, id, logwatch.EvTimeSkip, anchorAt.Add(-sleepWake))
 	if err != nil {
 		return nil, nil, err
 	}
-	if ok {
+	if ok && !(booted && se.At.Before(boot)) {
 		var ev logwatch.Event
 		if err := json.Unmarshal(se.Body, &ev); err != nil {
 			return nil, nil, err
@@ -145,11 +154,20 @@ func (s *server) clockAndWeather(ctx context.Context, id string, ws *worldState,
 			anchorT, anchorAt, source = ev.To, wake, "sleep"
 		}
 	}
+	// Online time counts from the anchor, or from the boot if that is
+	// later.
+	countFrom := anchorAt
+	if booted && boot.After(countFrom) {
+		countFrom = boot
+	}
 
-	running := len(online) > 0
+	running, openUntil, err := s.openSessionsUntil(ctx, id, online, now)
+	if err != nil {
+		return nil, nil, err
+	}
 	var ivs []interval
-	if now.After(anchorAt) {
-		sessions, err := s.Store.SessionsOverlapping(ctx, id, anchorAt, now)
+	if now.After(countFrom) {
+		sessions, err := s.Store.SessionsOverlapping(ctx, id, countFrom, now)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -161,14 +179,74 @@ func (s *server) clockAndWeather(ctx context.Context, id string, ws *worldState,
 			ivs = append(ivs, iv)
 		}
 	}
-	netTime := estimateClock(anchorT, anchorAt, now, ivs, running)
+	netTime := estimateClock(anchorT, countFrom, now, ivs, openUntil)
 	c := &clockJSON{NetTime: netTime, At: rfc3339(now), Running: running, Source: source}
 
 	biomes, home, err := ws.biomeSummary(s.biomeGrids)
 	if err != nil {
 		// No grid this time (it is retried on the next card): weather for
 		// the home fallback only, rather than failing the card.
-		s.Log.Warn("server: biome grid for the card's weather", "server", id, "err", err)
+		s.warnGridFailure(id, ws.snap.World.Seed, ws.snap.World.GenVersion, err)
 	}
 	return c, weatherFor(netTime, biomes, home), nil
+}
+
+// latestBootSince is the time of server id's newest server_boot or
+// server_starting event at or after since; ok is false if there is none.
+func (s *server) latestBootSince(ctx context.Context, id string, since time.Time) (time.Time, bool, error) {
+	var boot time.Time
+	found := false
+	for _, typ := range []string{logwatch.EvServerBoot, logwatch.EvServerStarting} {
+		e, ok, err := s.Store.LatestEventOfTypeSince(ctx, id, typ, since)
+		if err != nil {
+			return time.Time{}, false, err
+		}
+		if ok && (!found || e.At.After(boot)) {
+			boot, found = e.At, true
+		}
+	}
+	return boot, found, nil
+}
+
+// openSessionsUntil is whether the clock is running and until when the open
+// sessions count (zero: not at all). Open sessions alone run it until
+// now, unless a players_now reading newer than every one of them says
+// nobody is connected: then they are dangling (a missed leave line) and
+// count only until that reading. A reading from before the newest join
+// is ignored, as the count lags the join.
+func (s *server) openSessionsUntil(ctx context.Context, id string, online []store.Session, now time.Time) (bool, time.Time, error) {
+	if len(online) == 0 {
+		return false, time.Time{}, nil
+	}
+	newest := online[0].Since
+	for _, o := range online[1:] {
+		newest = maxT(newest, o.Since)
+	}
+	pe, ok, err := s.Store.LatestEventOfTypeSince(ctx, id, logwatch.EvPlayersNow, newest.Add(time.Millisecond))
+	if err != nil {
+		return false, time.Time{}, err
+	}
+	if !ok {
+		return true, now, nil
+	}
+	var ev logwatch.Event
+	if err := json.Unmarshal(pe.Body, &ev); err != nil {
+		return false, time.Time{}, err
+	}
+	if ev.Players != nil && *ev.Players == 0 {
+		return false, pe.At, nil
+	}
+	return true, now, nil
+}
+
+// gridKey names a world's biome grid.
+type gridKey struct{ seed, gen int32 }
+
+// warnGridFailure logs a biome grid that wouldn't build, once per world:
+// the card retries it on every poll.
+func (s *server) warnGridFailure(id string, seed, gen int32, err error) {
+	if _, seen := s.gridWarned.LoadOrStore(gridKey{seed, gen}, struct{}{}); seen {
+		return
+	}
+	s.Log.Warn("server: biome grid for the card's weather", "server", id, "seed", seed, "gen", gen, "err", err)
 }

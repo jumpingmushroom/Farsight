@@ -1,8 +1,12 @@
 package server
 
 import (
+	"bytes"
+	"errors"
+	"log/slog"
 	"math"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,31 +24,38 @@ func TestEstimateClock(t *testing.T) {
 	s := func(d int) time.Time { return a.Add(time.Duration(d) * time.Second) }
 	iv := func(from, until int) interval { return interval{from: s(from), until: s(until)} }
 	open := func(from int) interval { return interval{from: s(from)} }
+	const stale = math.MinInt
 	cases := []struct {
-		name    string
-		now     int
-		online  []interval
-		openNow bool
-		want    float64
+		name      string
+		now       int
+		online    []interval
+		openUntil int // when open sessions stop counting; stale: they count nothing
+		want      float64
 	}{
-		{"no online time", 600, nil, false, 1000},
-		{"one closed session", 600, []interval{iv(100, 200)}, false, 1100},
-		{"overlapping sessions count once", 600, []interval{iv(100, 300), iv(200, 400)}, false, 1300},
-		{"nested session counts once", 600, []interval{iv(100, 400), iv(200, 300)}, false, 1300},
-		{"unsorted sessions", 600, []interval{iv(300, 400), iv(100, 200)}, false, 1200},
-		{"started before the anchor counts from it", 600, []interval{iv(-500, 100)}, false, 1100},
-		{"ended before the anchor counts nothing", 600, []interval{iv(-500, -100)}, false, 1000},
-		{"open session counts until now", 600, []interval{open(100)}, true, 1500},
-		{"open session from before the anchor", 600, []interval{open(-100)}, true, 1600},
-		{"open session with the server not up counts nothing", 600, []interval{open(100)}, false, 1000},
-		{"closed session past now is cut at now", 600, []interval{iv(500, 900)}, false, 1100},
-		{"gaps with nobody online don't count", 600, []interval{iv(0, 100), iv(300, 350), open(550)}, true, 1200},
-		{"now before the anchor", -10, []interval{open(-100)}, true, 1000},
-		{"sub-second precision", 1, []interval{{from: a.Add(250 * time.Millisecond), until: a.Add(750 * time.Millisecond)}}, false, 1000.5},
+		{"no online time", 600, nil, stale, 1000},
+		{"one closed session", 600, []interval{iv(100, 200)}, stale, 1100},
+		{"overlapping sessions count once", 600, []interval{iv(100, 300), iv(200, 400)}, stale, 1300},
+		{"nested session counts once", 600, []interval{iv(100, 400), iv(200, 300)}, stale, 1300},
+		{"unsorted sessions", 600, []interval{iv(300, 400), iv(100, 200)}, stale, 1200},
+		{"started before the anchor counts from it", 600, []interval{iv(-500, 100)}, stale, 1100},
+		{"ended before the anchor counts nothing", 600, []interval{iv(-500, -100)}, stale, 1000},
+		{"open session counts until now", 600, []interval{open(100)}, 600, 1500},
+		{"open session from before the anchor", 600, []interval{open(-100)}, 600, 1600},
+		{"open session with the server not up counts nothing", 600, []interval{open(100)}, stale, 1000},
+		{"closed session past now is cut at now", 600, []interval{iv(500, 900)}, stale, 1100},
+		{"gaps with nobody online don't count", 600, []interval{iv(0, 100), iv(300, 350), open(550)}, 600, 1200},
+		{"now before the anchor", -10, []interval{open(-100)}, -10, 1000},
+		{"open session stops where players_now read 0", 600, []interval{open(100)}, 400, 1300},
+		{"open session stopped before the anchor", 600, []interval{open(-300)}, -100, 1000},
+		{"sub-second precision", 1, []interval{{from: a.Add(250 * time.Millisecond), until: a.Add(750 * time.Millisecond)}}, stale, 1000.5},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := estimateClock(1000, a, s(c.now), c.online, c.openNow); math.Abs(got-c.want) > 1e-9 {
+			var openUntil time.Time
+			if c.openUntil != stale {
+				openUntil = s(c.openUntil)
+			}
+			if got := estimateClock(1000, a, s(c.now), c.online, openUntil); math.Abs(got-c.want) > 1e-9 {
 				t.Errorf("estimateClock = %v, want %v", got, c.want)
 			}
 		})
@@ -275,5 +286,128 @@ func TestCardClockPausedWithNobodyOnline(t *testing.T) {
 	c := e.clockCard(e.mustUnlock("alpha"))
 	if c.Status != "online" || c.Clock == nil || c.Clock.NetTime != 493470 || c.Clock.Running {
 		t.Fatalf("status %q clock %+v, want a paused 493470", c.Status, c.Clock)
+	}
+}
+
+// TestCardClockAcrossRestarts: the save at −20 min (netTime 493470) is
+// the anchor; now is t0. A boot after the save means the world was
+// reloaded from it, so online time before the boot (and a sleep before
+// it) is lost. A players_now 0 newer than every open session stops the
+// clock where it was read.
+func TestCardClockAcrossRestarts(t *testing.T) {
+	const saved = 493470.0
+	ev := func(id, typ string, d time.Duration) logwatch.Event {
+		e := logwatch.Event{ID: id, Type: typ, At: at(d)}
+		switch typ {
+		case logwatch.EvPlayerJoin:
+			e.Name, e.Platform, e.PlatformID = "Alice", "Steam", "111"
+		case logwatch.EvServerBoot:
+			e.Version, e.NetworkVersion = "0.219.14", 34
+		}
+		return e
+	}
+	players := func(id string, d time.Duration, n int) logwatch.Event {
+		e := ev(id, logwatch.EvPlayersNow, d)
+		e.Players = ip(n)
+		return e
+	}
+	sleep := func(id string, d time.Duration, to float64) logwatch.Event {
+		e := ev(id, logwatch.EvTimeSkip, d)
+		e.To = to
+		return e
+	}
+	leave := func(id string, d time.Duration, since time.Duration) logwatch.Event {
+		e := ev(id, logwatch.EvPlayerLeave, d)
+		s := at(since)
+		e.Name, e.Platform, e.PlatformID, e.Since, e.Seconds = "Alice", "Steam", "111", &s, int64((d-since)/time.Second)
+		return e
+	}
+	// Up from −30 min, Alice on from −25 min.
+	up := []logwatch.Event{
+		ev("b1", logwatch.EvServerBoot, -30*time.Minute),
+		ev("r1", logwatch.EvServerReady, -29*time.Minute),
+		ev("j1", logwatch.EvPlayerJoin, -25*time.Minute),
+	}
+	// A crash after −11 min (the last heartbeat), back up at −10 min,
+	// Alice on again from −8 min.
+	crash := []logwatch.Event{
+		ev("h1", logwatch.EvHeartbeat, -11*time.Minute),
+		ev("b2", logwatch.EvServerBoot, -10*time.Minute),
+		ev("r2", logwatch.EvServerReady, -571*time.Second),
+		ev("j2", logwatch.EvPlayerJoin, -8*time.Minute),
+		players("p2", -7*time.Minute, 1),
+	}
+	// A clean stop at the save, back up at −10 min, Alice on from −8 min.
+	graceful := []logwatch.Event{
+		leave("l1", -21*time.Minute, -25*time.Minute),
+		ev("s1", logwatch.EvServerStopped, -20*time.Minute),
+		ev("b2", logwatch.EvServerBoot, -10*time.Minute),
+		ev("r2", logwatch.EvServerReady, -571*time.Second),
+		ev("j2", logwatch.EvPlayerJoin, -8*time.Minute),
+		players("p2", -7*time.Minute, 1),
+	}
+	hb := ev("h9", logwatch.EvHeartbeat, -time.Minute)
+	cat := func(parts ...[]logwatch.Event) []logwatch.Event {
+		var out []logwatch.Event
+		for _, p := range parts {
+			out = append(out, p...)
+		}
+		return append(out, hb)
+	}
+	cases := []struct {
+		name    string
+		events  []logwatch.Event
+		want    float64
+		source  string
+		running bool
+	}{
+		{"a crash after the save counts only from the boot", cat(up, crash), saved + 480, "save", true},
+		{"a sleep before the crash is lost with it",
+			cat(up, []logwatch.Event{sleep("t1", -15*time.Minute, 500000)}, crash), saved + 480, "save", true},
+		{"a graceful stop and restart", cat(up, graceful), saved + 480, "save", true},
+		{"a sleep after the restart still wins",
+			cat(up, crash, []logwatch.Event{sleep("t1", -5*time.Minute, 500000)}), 500000 + 288, "sleep", true},
+		{"a players_now 0 after every open session stops the clock there",
+			cat(up, []logwatch.Event{players("p1", -15*time.Minute, 0)}), saved + 300, "save", false},
+		{"a players_now 0 from before the join doesn't",
+			cat([]logwatch.Event{players("p0", -26*time.Minute, 0)}, up), saved + 1200, "save", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			e := newEnv(t)
+			if err := e.post("alpha", "alpha-token", "events", map[string]any{"events": c.events}); err != nil {
+				t.Fatal(err)
+			}
+			snap := testSnapshot("s1", at(-20*time.Minute))
+			snap.World.NetTime = saved
+			if err := e.post("alpha", "alpha-token", "snapshot", snap); err != nil {
+				t.Fatal(err)
+			}
+			got := e.clockCard(e.mustUnlock("alpha"))
+			if got.Clock == nil {
+				t.Fatalf("no clock (status %q)", got.Status)
+			}
+			if math.Abs(got.Clock.NetTime-c.want) > 1e-6 || got.Clock.Source != c.source || got.Clock.Running != c.running {
+				t.Errorf("clock = %+v, want %v from the %s, running %v", *got.Clock, c.want, c.source, c.running)
+			}
+		})
+	}
+}
+
+// A grid that won't build is logged once per world (seed, gen), not on
+// every card poll.
+func TestGridFailureLoggedOncePerWorld(t *testing.T) {
+	var buf bytes.Buffer
+	s := &server{Deps: Deps{Log: slog.New(slog.NewTextHandler(&buf, nil))}}
+	boom := errors.New("boom")
+	s.warnGridFailure("alpha", 1, 2, boom)
+	s.warnGridFailure("alpha", 1, 2, boom)
+	s.warnGridFailure("beta", 1, 2, boom)
+	if n := strings.Count(buf.String(), "level=WARN"); n != 1 {
+		t.Fatalf("%d warnings for one world, want 1:\n%s", n, buf.String())
+	}
+	s.warnGridFailure("alpha", 1, 3, boom)
+	if n := strings.Count(buf.String(), "level=WARN"); n != 2 {
+		t.Fatalf("%d warnings for two worlds, want 2:\n%s", n, buf.String())
 	}
 }

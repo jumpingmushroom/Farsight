@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jumpingmushroom/farsight/internal/auth"
@@ -57,6 +58,9 @@ type server struct {
 	worlds     *worldCache
 	fogTiles   *tileCache
 	biomeGrids *biomegrid.Cache
+	// gridWarned is the (seed, gen) pairs whose biome grid failure has
+	// been logged (gridKey → struct{}).
+	gridWarned sync.Map
 	// dummyHash is compared against for unlock attempts on an unknown
 	// server, so the response time doesn't reveal which ids exist. It is
 	// generated once, on first use, at the configured hashes' cost.
