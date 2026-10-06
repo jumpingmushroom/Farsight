@@ -20,7 +20,8 @@
 		left,
 		right,
 		top = 16,
-		mobile = false
+		mobile = false,
+		height = $bindable(0)
 	}: {
 		tone: BannerTone;
 		title: string;
@@ -29,6 +30,8 @@
 		right?: number;
 		top?: number;
 		mobile?: boolean;
+		/** The rendered height, for the time pill under it. */
+		height?: number;
 	} = $props();
 </script>
 
@@ -39,6 +42,7 @@
 	style:right={mobile ? undefined : `${right ?? 16}px`}
 	style:top={mobile ? undefined : `${top}px`}
 	data-testid="state-banner"
+	bind:clientHeight={height}
 >
 	<span class="sr-only" role="status">{ANNOUNCE[tone]}</span>
 	<span class="icon" aria-hidden="true">

@@ -530,3 +530,32 @@ func TestApplyStoresRaidEvents(t *testing.T) {
 		t.Fatalf("stored = %+v", got)
 	}
 }
+
+func TestApplyStoresTimeSkipEventsWithoutChangingLiveState(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	now := parseTime("2026-09-29T00:00:00Z")
+	a := &Applier{Store: s, Now: fixedNow(now)}
+	ev := logwatch.Event{ID: "ts1", Type: logwatch.EvTimeSkip, At: parseTime("2026-09-28T22:52:14Z"), To: 488070.000010729}
+	applied, skipped, err := a.Apply(ctx, "srv", []logwatch.Event{ev})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied != 1 || skipped != 0 {
+		t.Fatalf("applied=%d skipped=%d, want 1,0", applied, skipped)
+	}
+	got, err := s.RecentActivity(ctx, "srv", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Type != logwatch.EvTimeSkip || got[0].To != 488070.000010729 {
+		t.Fatalf("stored = %+v", got)
+	}
+	live, ok, err := s.GetLive(ctx, nil, "srv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || live.Status != "" || !live.UpSince.IsZero() {
+		t.Fatalf("live state changed by a time_skip event: %+v", live)
+	}
+}

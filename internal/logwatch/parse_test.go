@@ -142,3 +142,11 @@ func TestParseRandomEventSet(t *testing.T) {
 		t.Fatalf("a nameless event line must be ignored: %+v", got)
 	}
 }
+
+func TestParseTimeSkip(t *testing.T) {
+	loc := oslo(t)
+	r := one(t, ParseServerLine("09/29/2026 00:52:14: Time 487653.364537966, day:270    nextm:488070.000010729  skipspeed:34.7196227302775", loc))
+	if r.Kind != RawTimeSkip || r.To != 488070.000010729 || !r.At.Equal(time.Date(2026, 9, 28, 22, 52, 14, 0, time.UTC)) {
+		t.Fatalf("time skip = %+v", r)
+	}
+}

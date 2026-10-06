@@ -256,6 +256,8 @@ type cardJSONOut struct {
 	Activity       []eventJSON  `json:"activity"`
 	World          *worldJSON   `json:"world,omitempty"`
 	Tiles          tilesJSON    `json:"tiles"`
+	Clock          *clockJSON   `json:"clock,omitempty"`
+	Weather        *weatherJSON `json:"weather,omitempty"`
 }
 
 func (s *server) internalError(w http.ResponseWriter, what, id string, err error) {
@@ -363,6 +365,12 @@ func (s *server) buildCard(r *http.Request, srv *config.Server) (*cardJSONOut, e
 		wj.SaveIntervalSec = &n
 	}
 	c.World = wj
+
+	if status != "offline" {
+		if c.Clock, c.Weather, err = s.clockAndWeather(ctx, srv.ID, ws, online); err != nil {
+			return nil, err
+		}
+	}
 
 	st := s.Tiles.Status(snap.World.Seed, snap.World.GenVersion)
 	c.Tiles = tilesJSON{State: string(st.State), Done: st.Done, Total: st.Total, Key: st.Key}

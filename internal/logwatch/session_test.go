@@ -144,3 +144,19 @@ func TestRaidEvent(t *testing.T) {
 		t.Fatalf("raid IDs differ on replay: %s vs %s", again[0].ID, e.ID)
 	}
 }
+
+func TestTimeSkipEvent(t *testing.T) {
+	at := time.Date(2026, 9, 28, 22, 52, 14, 0, time.UTC)
+	s := NewSessionizer()
+	evs := s.Feed(Raw{Kind: RawTimeSkip, At: at, To: 488070.000010729})
+	if len(evs) != 1 {
+		t.Fatalf("events = %+v", evs)
+	}
+	e := evs[0]
+	if e.Type != EvTimeSkip || e.To != 488070.000010729 || !e.At.Equal(at) || e.ID == "" {
+		t.Fatalf("time skip event = %+v", e)
+	}
+	if again := s.Feed(Raw{Kind: RawTimeSkip, At: at, To: 488070.000010729}); again[0].ID != e.ID {
+		t.Fatalf("time skip IDs differ on replay: %s vs %s", again[0].ID, e.ID)
+	}
+}

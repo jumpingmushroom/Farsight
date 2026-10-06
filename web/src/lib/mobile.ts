@@ -6,7 +6,7 @@ import { mapPill, type BannerTone, type MapView } from './derive';
 import type { WorldCard } from './types';
 
 export type Snap = 'peek' | 'pulled';
-export type MobileOverlay = 'none' | 'menu' | 'join' | 'server';
+export type MobileOverlay = 'none' | 'menu' | 'join' | 'server' | 'weather';
 
 /** Movement (px) under which a pointer-down/up on the handle is a tap. */
 export const TAP_SLOP = 6;

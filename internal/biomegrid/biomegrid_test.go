@@ -143,3 +143,53 @@ func TestCacheGetPanicReleasesWaitersAndRetries(t *testing.T) {
 		t.Fatalf("build calls = %d, want 2 (one panicking, one retry)", calls.Load())
 	}
 }
+
+func TestLookup(t *testing.T) {
+	grid := make([]byte, Size*Size)
+	grid[(Size/2)*Size+Size/2] = 1     // cell [0,20)×[0,20)
+	grid[(Size/2-1)*Size+Size/2-1] = 2 // cell [-20,0)×[-20,0)
+	grid[0] = 3                        // the south-west corner cell
+	cases := []struct {
+		x, z float64
+		want byte
+	}{
+		{0, 0, 1}, {19.9, 19.9, 1}, {-0.1, -0.1, 2}, {-20, -20, 2}, {20, 0, 0},
+		{-Size / 2 * Cell, -Size / 2 * Cell, 3},
+		{Size / 2 * Cell, 0, 0}, {0, -Size/2*Cell - 1, 0}, // off the grid
+	}
+	for _, c := range cases {
+		if got := Lookup(grid, c.x, c.z); got != c.want {
+			t.Errorf("Lookup(%v, %v) = %d, want %d", c.x, c.z, got, c.want)
+		}
+	}
+}
+
+func TestCacheGridIsTheRawGrid(t *testing.T) {
+	var builds atomic.Int32
+	c := NewCache(2)
+	c.build = func(seed, gen int32) []byte { builds.Add(1); return []byte{byte(seed), 7, 7, 7} }
+	grid, err := c.Grid(5, 2)
+	if err != nil || !bytes.Equal(grid, []byte{5, 7, 7, 7}) {
+		t.Fatalf("Grid = %v, %v", grid, err)
+	}
+	gz, err := c.Get(5, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	z, _ := gzip.NewReader(bytes.NewReader(gz))
+	back, _ := io.ReadAll(z)
+	if !bytes.Equal(back, grid) {
+		t.Fatalf("Get gunzips to %v, want %v", back, grid)
+	}
+	if builds.Load() != 1 {
+		t.Fatalf("builds = %d, want 1 (Grid and Get share the entry)", builds.Load())
+	}
+}
+
+func TestCacheGridBuildPanicIsAnError(t *testing.T) {
+	c := NewCache(2)
+	c.build = func(seed, gen int32) []byte { panic("boom") }
+	if _, err := c.Grid(1, 2); err == nil {
+		t.Fatal("no error for a panicking build")
+	}
+}

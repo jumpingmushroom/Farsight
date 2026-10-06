@@ -1,0 +1,1080 @@
+0	Meadows	Clear
+0	BlackForest	DeepForest Mist
+0	Swamp	SwampRain
+0	Mountain	Snow
+0	Plains	Heath clear
+0	Ocean	Clear
+0	Mistlands	Mistlands_clear
+0	AshLands	Ashlands_ashrain
+0	DeepNorth	Twilight_Snow
+1	Meadows	Clear
+1	BlackForest	DeepForest Mist
+1	Swamp	SwampRain
+1	Mountain	SnowStorm
+1	Plains	Heath clear
+1	Ocean	Rain
+1	Mistlands	Mistlands_clear
+1	AshLands	Ashlands_ashrain
+1	DeepNorth	Twilight_SnowStorm
+2	Meadows	Clear
+2	BlackForest	DeepForest Mist
+2	Swamp	SwampRain
+2	Mountain	Snow
+2	Plains	Heath clear
+2	Ocean	Clear
+2	Mistlands	Mistlands_clear
+2	AshLands	Ashlands_ashrain
+2	DeepNorth	Twilight_Snow
+3	Meadows	Clear
+3	BlackForest	DeepForest Mist
+3	Swamp	SwampRain
+3	Mountain	Snow
+3	Plains	Heath clear
+3	Ocean	Misty
+3	Mistlands	Mistlands_clear
+3	AshLands	Ashlands_ashrain
+3	DeepNorth	Twilight_SnowStorm
+4	Meadows	Clear
+4	BlackForest	DeepForest Mist
+4	Swamp	SwampRain
+4	Mountain	Snow
+4	Plains	Misty
+4	Ocean	Clear
+4	Mistlands	Mistlands_clear
+4	AshLands	Ashlands_ashrain
+4	DeepNorth	Twilight_Clear
+5	Meadows	Clear
+5	BlackForest	DeepForest Mist
+5	Swamp	SwampRain
+5	Mountain	Snow
+5	Plains	Heath clear
+5	Ocean	Clear
+5	Mistlands	Mistlands_clear
+5	AshLands	Ashlands_ashrain
+5	DeepNorth	Twilight_Snow
+6	Meadows	Misty
+6	BlackForest	Misty
+6	Swamp	SwampRain
+6	Mountain	Snow
+6	Plains	LightRain
+6	Ocean	Clear
+6	Mistlands	Mistlands_rain
+6	AshLands	Ashlands_CinderRain
+6	DeepNorth	Twilight_Clear
+7	Meadows	Clear
+7	BlackForest	DeepForest Mist
+7	Swamp	SwampRain
+7	Mountain	Snow
+7	Plains	Heath clear
+7	Ocean	Clear
+7	Mistlands	Mistlands_clear
+7	AshLands	Ashlands_ashrain
+7	DeepNorth	Twilight_Snow
+8	Meadows	Clear
+8	BlackForest	DeepForest Mist
+8	Swamp	SwampRain
+8	Mountain	SnowStorm
+8	Plains	Heath clear
+8	Ocean	LightRain
+8	Mistlands	Mistlands_clear
+8	AshLands	Ashlands_ashrain
+8	DeepNorth	Twilight_SnowStorm
+9	Meadows	Clear
+9	BlackForest	DeepForest Mist
+9	Swamp	SwampRain
+9	Mountain	Snow
+9	Plains	Heath clear
+9	Ocean	Clear
+9	Mistlands	Mistlands_clear
+9	AshLands	Ashlands_ashrain
+9	DeepNorth	Twilight_Clear
+10	Meadows	Clear
+10	BlackForest	DeepForest Mist
+10	Swamp	SwampRain
+10	Mountain	Snow
+10	Plains	Heath clear
+10	Ocean	Clear
+10	Mistlands	Mistlands_clear
+10	AshLands	Ashlands_ashrain
+10	DeepNorth	Twilight_Snow
+11	Meadows	Clear
+11	BlackForest	DeepForest Mist
+11	Swamp	SwampRain
+11	Mountain	Snow
+11	Plains	Misty
+11	Ocean	Clear
+11	Mistlands	Mistlands_clear
+11	AshLands	Ashlands_misty
+11	DeepNorth	Twilight_Clear
+12	Meadows	Clear
+12	BlackForest	DeepForest Mist
+12	Swamp	SwampRain
+12	Mountain	Snow
+12	Plains	Heath clear
+12	Ocean	Clear
+12	Mistlands	Mistlands_clear
+12	AshLands	Ashlands_ashrain
+12	DeepNorth	Twilight_Snow
+13	Meadows	Clear
+13	BlackForest	DeepForest Mist
+13	Swamp	SwampRain
+13	Mountain	SnowStorm
+13	Plains	Heath clear
+13	Ocean	Rain
+13	Mistlands	Mistlands_clear
+13	AshLands	Ashlands_ashrain
+13	DeepNorth	Twilight_SnowStorm
+14	Meadows	Clear
+14	BlackForest	DeepForest Mist
+14	Swamp	SwampRain
+14	Mountain	Snow
+14	Plains	Heath clear
+14	Ocean	Clear
+14	Mistlands	Mistlands_clear
+14	AshLands	Ashlands_ashrain
+14	DeepNorth	Twilight_Clear
+15	Meadows	Clear
+15	BlackForest	DeepForest Mist
+15	Swamp	SwampRain
+15	Mountain	Snow
+15	Plains	Heath clear
+15	Ocean	Misty
+15	Mistlands	Mistlands_clear
+15	AshLands	Ashlands_ashrain
+15	DeepNorth	Twilight_SnowStorm
+16	Meadows	Clear
+16	BlackForest	DeepForest Mist
+16	Swamp	SwampRain
+16	Mountain	Snow
+16	Plains	Misty
+16	Ocean	Clear
+16	Mistlands	Mistlands_clear
+16	AshLands	Ashlands_ashrain
+16	DeepNorth	Twilight_Clear
+17	Meadows	Clear
+17	BlackForest	DeepForest Mist
+17	Swamp	SwampRain
+17	Mountain	Snow
+17	Plains	Heath clear
+17	Ocean	Clear
+17	Mistlands	Mistlands_clear
+17	AshLands	Ashlands_ashrain
+17	DeepNorth	Twilight_Snow
+18	Meadows	ThunderStorm
+18	BlackForest	Misty
+18	Swamp	SwampRain
+18	Mountain	Snow
+18	Plains	LightRain
+18	Ocean	ThunderStorm
+18	Mistlands	Mistlands_thunder
+18	AshLands	Ashlands_CinderRain
+18	DeepNorth	Twilight_Clear
+19	Meadows	Clear
+19	BlackForest	DeepForest Mist
+19	Swamp	SwampRain
+19	Mountain	Snow
+19	Plains	Heath clear
+19	Ocean	Clear
+19	Mistlands	Mistlands_clear
+19	AshLands	Ashlands_ashrain
+19	DeepNorth	Twilight_Snow
+20	Meadows	Clear
+20	BlackForest	DeepForest Mist
+20	Swamp	SwampRain
+20	Mountain	SnowStorm
+20	Plains	Heath clear
+20	Ocean	LightRain
+20	Mistlands	Mistlands_clear
+20	AshLands	Ashlands_ashrain
+20	DeepNorth	Twilight_SnowStorm
+21	Meadows	Clear
+21	BlackForest	DeepForest Mist
+21	Swamp	SwampRain
+21	Mountain	Snow
+21	Plains	Heath clear
+21	Ocean	Clear
+21	Mistlands	Mistlands_clear
+21	AshLands	Ashlands_ashrain
+21	DeepNorth	Twilight_Clear
+22	Meadows	Clear
+22	BlackForest	DeepForest Mist
+22	Swamp	SwampRain
+22	Mountain	Snow
+22	Plains	Heath clear
+22	Ocean	Clear
+22	Mistlands	Mistlands_clear
+22	AshLands	Ashlands_ashrain
+22	DeepNorth	Twilight_Snow
+23	Meadows	Rain
+23	BlackForest	DeepForest Mist
+23	Swamp	SwampRain
+23	Mountain	Snow
+23	Plains	LightRain
+23	Ocean	Clear
+23	Mistlands	Mistlands_clear
+23	AshLands	Ashlands_CinderRain
+23	DeepNorth	Twilight_Clear
+24	Meadows	Clear
+24	BlackForest	DeepForest Mist
+24	Swamp	SwampRain
+24	Mountain	Snow
+24	Plains	Heath clear
+24	Ocean	Clear
+24	Mistlands	Mistlands_clear
+24	AshLands	Ashlands_ashrain
+24	DeepNorth	Twilight_Snow
+25	Meadows	Clear
+25	BlackForest	DeepForest Mist
+25	Swamp	SwampRain
+25	Mountain	SnowStorm
+25	Plains	Heath clear
+25	Ocean	Rain
+25	Mistlands	Mistlands_clear
+25	AshLands	Ashlands_ashrain
+25	DeepNorth	Twilight_SnowStorm
+26	Meadows	Clear
+26	BlackForest	DeepForest Mist
+26	Swamp	SwampRain
+26	Mountain	Snow
+26	Plains	Heath clear
+26	Ocean	Clear
+26	Mistlands	Mistlands_clear
+26	AshLands	Ashlands_ashrain
+26	DeepNorth	Twilight_Clear
+27	Meadows	Clear
+27	BlackForest	DeepForest Mist
+27	Swamp	SwampRain
+27	Mountain	Snow
+27	Plains	Heath clear
+27	Ocean	Clear
+27	Mistlands	Mistlands_clear
+27	AshLands	Ashlands_ashrain
+27	DeepNorth	Twilight_Snow
+28	Meadows	Clear
+28	BlackForest	DeepForest Mist
+28	Swamp	SwampRain
+28	Mountain	Snow
+28	Plains	Misty
+28	Ocean	Clear
+28	Mistlands	Mistlands_clear
+28	AshLands	Ashlands_ashrain
+28	DeepNorth	Twilight_Clear
+29	Meadows	Clear
+29	BlackForest	DeepForest Mist
+29	Swamp	SwampRain
+29	Mountain	Snow
+29	Plains	Heath clear
+29	Ocean	Clear
+29	Mistlands	Mistlands_clear
+29	AshLands	Ashlands_ashrain
+29	DeepNorth	Twilight_Snow
+740	Meadows	Clear
+740	BlackForest	DeepForest Mist
+740	Swamp	SwampRain
+740	Mountain	Snow
+740	Plains	Heath clear
+740	Ocean	Clear
+740	Mistlands	Mistlands_clear
+740	AshLands	Ashlands_ashrain
+740	DeepNorth	Twilight_Snow
+741	Meadows	Clear
+741	BlackForest	DeepForest Mist
+741	Swamp	SwampRain
+741	Mountain	Snow
+741	Plains	Misty
+741	Ocean	Clear
+741	Mistlands	Mistlands_clear
+741	AshLands	Ashlands_misty
+741	DeepNorth	Twilight_Clear
+742	Meadows	Clear
+742	BlackForest	DeepForest Mist
+742	Swamp	SwampRain
+742	Mountain	Snow
+742	Plains	Heath clear
+742	Ocean	Clear
+742	Mistlands	Mistlands_clear
+742	AshLands	Ashlands_ashrain
+742	DeepNorth	Twilight_Clear
+743	Meadows	Clear
+743	BlackForest	DeepForest Mist
+743	Swamp	SwampRain
+743	Mountain	SnowStorm
+743	Plains	Heath clear
+743	Ocean	Rain
+743	Mistlands	Mistlands_clear
+743	AshLands	Ashlands_ashrain
+743	DeepNorth	Twilight_SnowStorm
+744	Meadows	Clear
+744	BlackForest	DeepForest Mist
+744	Swamp	SwampRain
+744	Mountain	Snow
+744	Plains	Heath clear
+744	Ocean	Clear
+744	Mistlands	Mistlands_clear
+744	AshLands	Ashlands_ashrain
+744	DeepNorth	Twilight_Snow
+745	Meadows	Clear
+745	BlackForest	DeepForest Mist
+745	Swamp	SwampRain
+745	Mountain	Snow
+745	Plains	Heath clear
+745	Ocean	Clear
+745	Mistlands	Mistlands_clear
+745	AshLands	Ashlands_ashrain
+745	DeepNorth	Twilight_Snow
+746	Meadows	Clear
+746	BlackForest	DeepForest Mist
+746	Swamp	SwampRain
+746	Mountain	Snow
+746	Plains	Misty
+746	Ocean	Clear
+746	Mistlands	Mistlands_clear
+746	AshLands	Ashlands_ashrain
+746	DeepNorth	Twilight_Clear
+747	Meadows	Clear
+747	BlackForest	DeepForest Mist
+747	Swamp	SwampRain
+747	Mountain	Snow
+747	Plains	Heath clear
+747	Ocean	Clear
+747	Mistlands	Mistlands_clear
+747	AshLands	Ashlands_ashrain
+747	DeepNorth	Twilight_Snow
+748	Meadows	Clear
+748	BlackForest	DeepForest Mist
+748	Swamp	SwampRain
+748	Mountain	Snow
+748	Plains	Heath clear
+748	Ocean	Clear
+748	Mistlands	Mistlands_clear
+748	AshLands	Ashlands_ashrain
+748	DeepNorth	Twilight_Snow
+749	Meadows	Clear
+749	BlackForest	DeepForest Mist
+749	Swamp	SwampRain
+749	Mountain	Snow
+749	Plains	Heath clear
+749	Ocean	Clear
+749	Mistlands	Mistlands_clear
+749	AshLands	Ashlands_ashrain
+749	DeepNorth	Twilight_Snow
+750	Meadows	Clear
+750	BlackForest	DeepForest Mist
+750	Swamp	SwampRain
+750	Mountain	SnowStorm
+750	Plains	Heath clear
+750	Ocean	LightRain
+750	Mistlands	Mistlands_clear
+750	AshLands	Ashlands_ashrain
+750	DeepNorth	Twilight_SnowStorm
+751	Meadows	LightRain
+751	BlackForest	ThunderStorm
+751	Swamp	SwampRain
+751	Mountain	Snow
+751	Plains	LightRain
+751	Ocean	ThunderStorm
+751	Mistlands	Mistlands_thunder
+751	AshLands	Ashlands_storm
+751	DeepNorth	Twilight_Clear
+752	Meadows	Clear
+752	BlackForest	DeepForest Mist
+752	Swamp	SwampRain
+752	Mountain	Snow
+752	Plains	Heath clear
+752	Ocean	Clear
+752	Mistlands	Mistlands_clear
+752	AshLands	Ashlands_ashrain
+752	DeepNorth	Twilight_Snow
+753	Meadows	Clear
+753	BlackForest	DeepForest Mist
+753	Swamp	SwampRain
+753	Mountain	Snow
+753	Plains	Misty
+753	Ocean	Clear
+753	Mistlands	Mistlands_clear
+753	AshLands	Ashlands_misty
+753	DeepNorth	Twilight_Clear
+754	Meadows	Clear
+754	BlackForest	DeepForest Mist
+754	Swamp	SwampRain
+754	Mountain	Snow
+754	Plains	Misty
+754	Ocean	Clear
+754	Mistlands	Mistlands_clear
+754	AshLands	Ashlands_ashrain
+754	DeepNorth	Twilight_Clear
+755	Meadows	Clear
+755	BlackForest	DeepForest Mist
+755	Swamp	SwampRain
+755	Mountain	SnowStorm
+755	Plains	Heath clear
+755	Ocean	Rain
+755	Mistlands	Mistlands_clear
+755	AshLands	Ashlands_ashrain
+755	DeepNorth	Twilight_SnowStorm
+756	Meadows	Clear
+756	BlackForest	DeepForest Mist
+756	Swamp	SwampRain
+756	Mountain	Snow
+756	Plains	Heath clear
+756	Ocean	Clear
+756	Mistlands	Mistlands_clear
+756	AshLands	Ashlands_ashrain
+756	DeepNorth	Twilight_Snow
+757	Meadows	Clear
+757	BlackForest	DeepForest Mist
+757	Swamp	SwampRain
+757	Mountain	Snow
+757	Plains	Heath clear
+757	Ocean	Clear
+757	Mistlands	Mistlands_clear
+757	AshLands	Ashlands_ashrain
+757	DeepNorth	Twilight_Snow
+758	Meadows	Clear
+758	BlackForest	DeepForest Mist
+758	Swamp	SwampRain
+758	Mountain	Snow
+758	Plains	Misty
+758	Ocean	Clear
+758	Mistlands	Mistlands_clear
+758	AshLands	Ashlands_ashrain
+758	DeepNorth	Twilight_Clear
+759	Meadows	Clear
+759	BlackForest	DeepForest Mist
+759	Swamp	SwampRain
+759	Mountain	Snow
+759	Plains	Heath clear
+759	Ocean	Clear
+759	Mistlands	Mistlands_clear
+759	AshLands	Ashlands_ashrain
+759	DeepNorth	Twilight_Clear
+760	Meadows	Clear
+760	BlackForest	DeepForest Mist
+760	Swamp	SwampRain
+760	Mountain	Snow
+760	Plains	Heath clear
+760	Ocean	Clear
+760	Mistlands	Mistlands_clear
+760	AshLands	Ashlands_ashrain
+760	DeepNorth	Twilight_Snow
+761	Meadows	Clear
+761	BlackForest	DeepForest Mist
+761	Swamp	SwampRain
+761	Mountain	Snow
+761	Plains	Heath clear
+761	Ocean	Clear
+761	Mistlands	Mistlands_clear
+761	AshLands	Ashlands_ashrain
+761	DeepNorth	Twilight_Snow
+762	Meadows	Clear
+762	BlackForest	DeepForest Mist
+762	Swamp	SwampRain
+762	Mountain	Snow
+762	Plains	Heath clear
+762	Ocean	Clear
+762	Mistlands	Mistlands_clear
+762	AshLands	Ashlands_ashrain
+762	DeepNorth	Twilight_Snow
+763	Meadows	LightRain
+763	BlackForest	ThunderStorm
+763	Swamp	SwampRain
+763	Mountain	Snow
+763	Plains	LightRain
+763	Ocean	ThunderStorm
+763	Mistlands	Mistlands_thunder
+763	AshLands	Ashlands_CinderRain
+763	DeepNorth	Twilight_Clear
+764	Meadows	Clear
+764	BlackForest	DeepForest Mist
+764	Swamp	SwampRain
+764	Mountain	Snow
+764	Plains	Heath clear
+764	Ocean	Clear
+764	Mistlands	Mistlands_clear
+764	AshLands	Ashlands_ashrain
+764	DeepNorth	Twilight_Snow
+765	Meadows	Clear
+765	BlackForest	DeepForest Mist
+765	Swamp	SwampRain
+765	Mountain	Snow
+765	Plains	Heath clear
+765	Ocean	Misty
+765	Mistlands	Mistlands_clear
+765	AshLands	Ashlands_ashrain
+765	DeepNorth	Twilight_SnowStorm
+766	Meadows	Clear
+766	BlackForest	DeepForest Mist
+766	Swamp	SwampRain
+766	Mountain	Snow
+766	Plains	Heath clear
+766	Ocean	Clear
+766	Mistlands	Mistlands_clear
+766	AshLands	Ashlands_ashrain
+766	DeepNorth	Twilight_Clear
+767	Meadows	Clear
+767	BlackForest	DeepForest Mist
+767	Swamp	SwampRain
+767	Mountain	SnowStorm
+767	Plains	Heath clear
+767	Ocean	Rain
+767	Mistlands	Mistlands_clear
+767	AshLands	Ashlands_ashrain
+767	DeepNorth	Twilight_SnowStorm
+768	Meadows	ThunderStorm
+768	BlackForest	Misty
+768	Swamp	SwampRain
+768	Mountain	Snow
+768	Plains	LightRain
+768	Ocean	ThunderStorm
+768	Mistlands	Mistlands_thunder
+768	AshLands	Ashlands_CinderRain
+768	DeepNorth	Twilight_Clear
+769	Meadows	Clear
+769	BlackForest	DeepForest Mist
+769	Swamp	SwampRain
+769	Mountain	Snow
+769	Plains	Heath clear
+769	Ocean	Clear
+769	Mistlands	Mistlands_clear
+769	AshLands	Ashlands_ashrain
+769	DeepNorth	Twilight_Snow
+1501	Meadows	LightRain
+1501	BlackForest	ThunderStorm
+1501	Swamp	SwampRain
+1501	Mountain	Snow
+1501	Plains	LightRain
+1501	Ocean	ThunderStorm
+1501	Mistlands	Mistlands_thunder
+1501	AshLands	Ashlands_storm
+1501	DeepNorth	Twilight_Clear
+1502	Meadows	Clear
+1502	BlackForest	DeepForest Mist
+1502	Swamp	SwampRain
+1502	Mountain	Snow
+1502	Plains	Heath clear
+1502	Ocean	Clear
+1502	Mistlands	Mistlands_clear
+1502	AshLands	Ashlands_ashrain
+1502	DeepNorth	Twilight_Snow
+1503	Meadows	Clear
+1503	BlackForest	DeepForest Mist
+1503	Swamp	SwampRain
+1503	Mountain	Snow
+1503	Plains	Heath clear
+1503	Ocean	Clear
+1503	Mistlands	Mistlands_clear
+1503	AshLands	Ashlands_ashrain
+1503	DeepNorth	Twilight_Snow
+1504	Meadows	Clear
+1504	BlackForest	DeepForest Mist
+1504	Swamp	SwampRain
+1504	Mountain	Snow
+1504	Plains	Heath clear
+1504	Ocean	Clear
+1504	Mistlands	Mistlands_clear
+1504	AshLands	Ashlands_ashrain
+1504	DeepNorth	Twilight_Snow
+1505	Meadows	Clear
+1505	BlackForest	DeepForest Mist
+1505	Swamp	SwampRain
+1505	Mountain	Snow
+1505	Plains	Heath clear
+1505	Ocean	Clear
+1505	Mistlands	Mistlands_clear
+1505	AshLands	Ashlands_ashrain
+1505	DeepNorth	Twilight_Clear
+1506	Meadows	Clear
+1506	BlackForest	DeepForest Mist
+1506	Swamp	SwampRain
+1506	Mountain	Snow
+1506	Plains	Misty
+1506	Ocean	Clear
+1506	Mistlands	Mistlands_clear
+1506	AshLands	Ashlands_misty
+1506	DeepNorth	Twilight_Clear
+1507	Meadows	Clear
+1507	BlackForest	DeepForest Mist
+1507	Swamp	SwampRain
+1507	Mountain	Snow
+1507	Plains	Heath clear
+1507	Ocean	Clear
+1507	Mistlands	Mistlands_clear
+1507	AshLands	Ashlands_ashrain
+1507	DeepNorth	Twilight_Snow
+1508	Meadows	Rain
+1508	BlackForest	Rain
+1508	Swamp	SwampRain
+1508	Mountain	Snow
+1508	Plains	LightRain
+1508	Ocean	Clear
+1508	Mistlands	Mistlands_rain
+1508	AshLands	Ashlands_CinderRain
+1508	DeepNorth	Twilight_Clear
+1509	Meadows	Clear
+1509	BlackForest	DeepForest Mist
+1509	Swamp	SwampRain
+1509	Mountain	SnowStorm
+1509	Plains	Heath clear
+1509	Ocean	Rain
+1509	Mistlands	Mistlands_clear
+1509	AshLands	Ashlands_ashrain
+1509	DeepNorth	Twilight_SnowStorm
+1510	Meadows	Clear
+1510	BlackForest	DeepForest Mist
+1510	Swamp	SwampRain
+1510	Mountain	Snow
+1510	Plains	Heath clear
+1510	Ocean	Clear
+1510	Mistlands	Mistlands_clear
+1510	AshLands	Ashlands_ashrain
+1510	DeepNorth	Twilight_Clear
+1511	Meadows	Clear
+1511	BlackForest	DeepForest Mist
+1511	Swamp	SwampRain
+1511	Mountain	SnowStorm
+1511	Plains	Heath clear
+1511	Ocean	LightRain
+1511	Mistlands	Mistlands_clear
+1511	AshLands	Ashlands_ashrain
+1511	DeepNorth	Twilight_SnowStorm
+1512	Meadows	Clear
+1512	BlackForest	DeepForest Mist
+1512	Swamp	SwampRain
+1512	Mountain	Snow
+1512	Plains	Heath clear
+1512	Ocean	Clear
+1512	Mistlands	Mistlands_clear
+1512	AshLands	Ashlands_ashrain
+1512	DeepNorth	Twilight_Snow
+1513	Meadows	ThunderStorm
+1513	BlackForest	Misty
+1513	Swamp	SwampRain
+1513	Mountain	Snow
+1513	Plains	LightRain
+1513	Ocean	ThunderStorm
+1513	Mistlands	Mistlands_thunder
+1513	AshLands	Ashlands_CinderRain
+1513	DeepNorth	Twilight_Clear
+1514	Meadows	Clear
+1514	BlackForest	DeepForest Mist
+1514	Swamp	SwampRain
+1514	Mountain	Snow
+1514	Plains	Heath clear
+1514	Ocean	Clear
+1514	Mistlands	Mistlands_clear
+1514	AshLands	Ashlands_ashrain
+1514	DeepNorth	Twilight_Snow
+1515	Meadows	Clear
+1515	BlackForest	DeepForest Mist
+1515	Swamp	SwampRain
+1515	Mountain	Snow
+1515	Plains	Heath clear
+1515	Ocean	Clear
+1515	Mistlands	Mistlands_clear
+1515	AshLands	Ashlands_ashrain
+1515	DeepNorth	Twilight_Snow
+1516	Meadows	Clear
+1516	BlackForest	DeepForest Mist
+1516	Swamp	SwampRain
+1516	Mountain	Snow
+1516	Plains	Heath clear
+1516	Ocean	Misty
+1516	Mistlands	Mistlands_clear
+1516	AshLands	Ashlands_ashrain
+1516	DeepNorth	Twilight_Snow
+1517	Meadows	Clear
+1517	BlackForest	DeepForest Mist
+1517	Swamp	SwampRain
+1517	Mountain	Snow
+1517	Plains	Heath clear
+1517	Ocean	Clear
+1517	Mistlands	Mistlands_clear
+1517	AshLands	Ashlands_ashrain
+1517	DeepNorth	Twilight_Snow
+1518	Meadows	Clear
+1518	BlackForest	DeepForest Mist
+1518	Swamp	SwampRain
+1518	Mountain	Snow
+1518	Plains	Misty
+1518	Ocean	Clear
+1518	Mistlands	Mistlands_clear
+1518	AshLands	Ashlands_ashrain
+1518	DeepNorth	Twilight_Clear
+1519	Meadows	Clear
+1519	BlackForest	DeepForest Mist
+1519	Swamp	SwampRain
+1519	Mountain	Snow
+1519	Plains	Heath clear
+1519	Ocean	Clear
+1519	Mistlands	Mistlands_clear
+1519	AshLands	Ashlands_ashrain
+1519	DeepNorth	Twilight_Snow
+1520	Meadows	Clear
+1520	BlackForest	DeepForest Mist
+1520	Swamp	SwampRain
+1520	Mountain	Snow
+1520	Plains	Heath clear
+1520	Ocean	Clear
+1520	Mistlands	Mistlands_clear
+1520	AshLands	Ashlands_ashrain
+1520	DeepNorth	Twilight_Clear
+1521	Meadows	Clear
+1521	BlackForest	DeepForest Mist
+1521	Swamp	SwampRain
+1521	Mountain	SnowStorm
+1521	Plains	Heath clear
+1521	Ocean	Rain
+1521	Mistlands	Mistlands_clear
+1521	AshLands	Ashlands_ashrain
+1521	DeepNorth	Twilight_SnowStorm
+1522	Meadows	Clear
+1522	BlackForest	DeepForest Mist
+1522	Swamp	SwampRain
+1522	Mountain	Snow
+1522	Plains	Heath clear
+1522	Ocean	Clear
+1522	Mistlands	Mistlands_clear
+1522	AshLands	Ashlands_ashrain
+1522	DeepNorth	Twilight_Clear
+1523	Meadows	Clear
+1523	BlackForest	DeepForest Mist
+1523	Swamp	SwampRain
+1523	Mountain	Snow
+1523	Plains	LightRain
+1523	Ocean	Clear
+1523	Mistlands	Mistlands_clear
+1523	AshLands	Ashlands_misty
+1523	DeepNorth	Twilight_Clear
+1524	Meadows	Clear
+1524	BlackForest	DeepForest Mist
+1524	Swamp	SwampRain
+1524	Mountain	Snow
+1524	Plains	Heath clear
+1524	Ocean	Clear
+1524	Mistlands	Mistlands_clear
+1524	AshLands	Ashlands_ashrain
+1524	DeepNorth	Twilight_Snow
+1525	Meadows	ThunderStorm
+1525	BlackForest	Misty
+1525	Swamp	SwampRain
+1525	Mountain	Snow
+1525	Plains	LightRain
+1525	Ocean	ThunderStorm
+1525	Mistlands	Mistlands_rain
+1525	AshLands	Ashlands_CinderRain
+1525	DeepNorth	Twilight_Clear
+1526	Meadows	Clear
+1526	BlackForest	DeepForest Mist
+1526	Swamp	SwampRain
+1526	Mountain	SnowStorm
+1526	Plains	Heath clear
+1526	Ocean	LightRain
+1526	Mistlands	Mistlands_clear
+1526	AshLands	Ashlands_ashrain
+1526	DeepNorth	Twilight_SnowStorm
+1527	Meadows	Clear
+1527	BlackForest	DeepForest Mist
+1527	Swamp	SwampRain
+1527	Mountain	Snow
+1527	Plains	Heath clear
+1527	Ocean	Clear
+1527	Mistlands	Mistlands_clear
+1527	AshLands	Ashlands_ashrain
+1527	DeepNorth	Twilight_Snow
+1528	Meadows	Clear
+1528	BlackForest	DeepForest Mist
+1528	Swamp	SwampRain
+1528	Mountain	Snow
+1528	Plains	Heath clear
+1528	Ocean	Misty
+1528	Mistlands	Mistlands_clear
+1528	AshLands	Ashlands_ashrain
+1528	DeepNorth	Twilight_SnowStorm
+1529	Meadows	Clear
+1529	BlackForest	DeepForest Mist
+1529	Swamp	SwampRain
+1529	Mountain	Snow
+1529	Plains	Heath clear
+1529	Ocean	Clear
+1529	Mistlands	Mistlands_clear
+1529	AshLands	Ashlands_ashrain
+1529	DeepNorth	Twilight_Snow
+1530	Meadows	Clear
+1530	BlackForest	DeepForest Mist
+1530	Swamp	SwampRain
+1530	Mountain	Snow
+1530	Plains	Misty
+1530	Ocean	Clear
+1530	Mistlands	Mistlands_clear
+1530	AshLands	Ashlands_ashrain
+1530	DeepNorth	Twilight_Clear
+185370	Meadows	Clear
+185370	BlackForest	DeepForest Mist
+185370	Swamp	SwampRain
+185370	Mountain	SnowStorm
+185370	Plains	Heath clear
+185370	Ocean	LightRain
+185370	Mistlands	Mistlands_clear
+185370	AshLands	Ashlands_ashrain
+185370	DeepNorth	Twilight_SnowStorm
+185371	Meadows	Clear
+185371	BlackForest	DeepForest Mist
+185371	Swamp	SwampRain
+185371	Mountain	Snow
+185371	Plains	Heath clear
+185371	Ocean	Clear
+185371	Mistlands	Mistlands_clear
+185371	AshLands	Ashlands_ashrain
+185371	DeepNorth	Twilight_Snow
+185372	Meadows	ThunderStorm
+185372	BlackForest	ThunderStorm
+185372	Swamp	SwampRain
+185372	Mountain	Snow
+185372	Plains	LightRain
+185372	Ocean	ThunderStorm
+185372	Mistlands	Mistlands_thunder
+185372	AshLands	Ashlands_CinderRain
+185372	DeepNorth	Twilight_Clear
+185373	Meadows	Clear
+185373	BlackForest	DeepForest Mist
+185373	Swamp	SwampRain
+185373	Mountain	Snow
+185373	Plains	Heath clear
+185373	Ocean	Clear
+185373	Mistlands	Mistlands_clear
+185373	AshLands	Ashlands_ashrain
+185373	DeepNorth	Twilight_Snow
+185374	Meadows	Clear
+185374	BlackForest	DeepForest Mist
+185374	Swamp	SwampRain
+185374	Mountain	Snow
+185374	Plains	Heath clear
+185374	Ocean	Clear
+185374	Mistlands	Mistlands_clear
+185374	AshLands	Ashlands_ashrain
+185374	DeepNorth	Twilight_Clear
+185375	Meadows	Clear
+185375	BlackForest	DeepForest Mist
+185375	Swamp	SwampRain
+185375	Mountain	Snow
+185375	Plains	Heath clear
+185375	Ocean	Misty
+185375	Mistlands	Mistlands_clear
+185375	AshLands	Ashlands_ashrain
+185375	DeepNorth	Twilight_Snow
+185376	Meadows	Clear
+185376	BlackForest	DeepForest Mist
+185376	Swamp	SwampRain
+185376	Mountain	Snow
+185376	Plains	Heath clear
+185376	Ocean	Clear
+185376	Mistlands	Mistlands_clear
+185376	AshLands	Ashlands_ashrain
+185376	DeepNorth	Twilight_Clear
+185377	Meadows	Rain
+185377	BlackForest	Rain
+185377	Swamp	SwampRain
+185377	Mountain	Snow
+185377	Plains	LightRain
+185377	Ocean	Clear
+185377	Mistlands	Mistlands_rain
+185377	AshLands	Ashlands_CinderRain
+185377	DeepNorth	Twilight_Clear
+185378	Meadows	Clear
+185378	BlackForest	DeepForest Mist
+185378	Swamp	SwampRain
+185378	Mountain	Snow
+185378	Plains	Heath clear
+185378	Ocean	Clear
+185378	Mistlands	Mistlands_clear
+185378	AshLands	Ashlands_ashrain
+185378	DeepNorth	Twilight_Snow
+185379	Meadows	Rain
+185379	BlackForest	DeepForest Mist
+185379	Swamp	SwampRain
+185379	Mountain	Snow
+185379	Plains	LightRain
+185379	Ocean	Clear
+185379	Mistlands	Mistlands_clear
+185379	AshLands	Ashlands_CinderRain
+185379	DeepNorth	Twilight_Clear
+185380	Meadows	Clear
+185380	BlackForest	DeepForest Mist
+185380	Swamp	SwampRain
+185380	Mountain	SnowStorm
+185380	Plains	Heath clear
+185380	Ocean	LightRain
+185380	Mistlands	Mistlands_clear
+185380	AshLands	Ashlands_ashrain
+185380	DeepNorth	Twilight_SnowStorm
+185381	Meadows	Clear
+185381	BlackForest	DeepForest Mist
+185381	Swamp	SwampRain
+185381	Mountain	Snow
+185381	Plains	Heath clear
+185381	Ocean	Clear
+185381	Mistlands	Mistlands_clear
+185381	AshLands	Ashlands_ashrain
+185381	DeepNorth	Twilight_Snow
+185382	Meadows	Clear
+185382	BlackForest	DeepForest Mist
+185382	Swamp	SwampRain
+185382	Mountain	SnowStorm
+185382	Plains	Heath clear
+185382	Ocean	LightRain
+185382	Mistlands	Mistlands_clear
+185382	AshLands	Ashlands_ashrain
+185382	DeepNorth	Twilight_SnowStorm
+185383	Meadows	Clear
+185383	BlackForest	DeepForest Mist
+185383	Swamp	SwampRain
+185383	Mountain	Snow
+185383	Plains	Heath clear
+185383	Ocean	Clear
+185383	Mistlands	Mistlands_clear
+185383	AshLands	Ashlands_ashrain
+185383	DeepNorth	Twilight_Snow
+185384	Meadows	Clear
+185384	BlackForest	DeepForest Mist
+185384	Swamp	SwampRain
+185384	Mountain	Snow
+185384	Plains	Misty
+185384	Ocean	Clear
+185384	Mistlands	Mistlands_clear
+185384	AshLands	Ashlands_ashrain
+185384	DeepNorth	Twilight_Clear
+185385	Meadows	Clear
+185385	BlackForest	DeepForest Mist
+185385	Swamp	SwampRain
+185385	Mountain	Snow
+185385	Plains	Heath clear
+185385	Ocean	Clear
+185385	Mistlands	Mistlands_clear
+185385	AshLands	Ashlands_ashrain
+185385	DeepNorth	Twilight_Snow
+185386	Meadows	Clear
+185386	BlackForest	DeepForest Mist
+185386	Swamp	SwampRain
+185386	Mountain	Snow
+185386	Plains	Heath clear
+185386	Ocean	Clear
+185386	Mistlands	Mistlands_clear
+185386	AshLands	Ashlands_ashrain
+185386	DeepNorth	Twilight_Clear
+185387	Meadows	Clear
+185387	BlackForest	DeepForest Mist
+185387	Swamp	SwampRain
+185387	Mountain	SnowStorm
+185387	Plains	Heath clear
+185387	Ocean	Rain
+185387	Mistlands	Mistlands_clear
+185387	AshLands	Ashlands_ashrain
+185387	DeepNorth	Twilight_SnowStorm
+185388	Meadows	Clear
+185388	BlackForest	DeepForest Mist
+185388	Swamp	SwampRain
+185388	Mountain	Snow
+185388	Plains	Heath clear
+185388	Ocean	Clear
+185388	Mistlands	Mistlands_clear
+185388	AshLands	Ashlands_ashrain
+185388	DeepNorth	Twilight_Snow
+185389	Meadows	Rain
+185389	BlackForest	Rain
+185389	Swamp	SwampRain
+185389	Mountain	Snow
+185389	Plains	LightRain
+185389	Ocean	Clear
+185389	Mistlands	Mistlands_rain
+185389	AshLands	Ashlands_CinderRain
+185389	DeepNorth	Twilight_Clear
+185390	Meadows	Clear
+185390	BlackForest	DeepForest Mist
+185390	Swamp	SwampRain
+185390	Mountain	Snow
+185390	Plains	Heath clear
+185390	Ocean	Clear
+185390	Mistlands	Mistlands_clear
+185390	AshLands	Ashlands_ashrain
+185390	DeepNorth	Twilight_Snow
+185391	Meadows	Clear
+185391	BlackForest	DeepForest Mist
+185391	Swamp	SwampRain
+185391	Mountain	Snow
+185391	Plains	Misty
+185391	Ocean	Clear
+185391	Mistlands	Mistlands_clear
+185391	AshLands	Ashlands_misty
+185391	DeepNorth	Twilight_Clear
+185392	Meadows	Clear
+185392	BlackForest	DeepForest Mist
+185392	Swamp	SwampRain
+185392	Mountain	Snow
+185392	Plains	Heath clear
+185392	Ocean	Clear
+185392	Mistlands	Mistlands_clear
+185392	AshLands	Ashlands_ashrain
+185392	DeepNorth	Twilight_Snow
+185393	Meadows	Clear
+185393	BlackForest	DeepForest Mist
+185393	Swamp	SwampRain
+185393	Mountain	Snow
+185393	Plains	Heath clear
+185393	Ocean	Clear
+185393	Mistlands	Mistlands_clear
+185393	AshLands	Ashlands_ashrain
+185393	DeepNorth	Twilight_Snow
+185394	Meadows	Clear
+185394	BlackForest	DeepForest Mist
+185394	Swamp	SwampRain
+185394	Mountain	SnowStorm
+185394	Plains	Heath clear
+185394	Ocean	Rain
+185394	Mistlands	Mistlands_clear
+185394	AshLands	Ashlands_ashrain
+185394	DeepNorth	Twilight_SnowStorm
+185395	Meadows	Clear
+185395	BlackForest	DeepForest Mist
+185395	Swamp	SwampRain
+185395	Mountain	Snow
+185395	Plains	Heath clear
+185395	Ocean	Clear
+185395	Mistlands	Mistlands_clear
+185395	AshLands	Ashlands_ashrain
+185395	DeepNorth	Twilight_Snow
+185396	Meadows	Clear
+185396	BlackForest	DeepForest Mist
+185396	Swamp	SwampRain
+185396	Mountain	Snow
+185396	Plains	Misty
+185396	Ocean	Clear
+185396	Mistlands	Mistlands_clear
+185396	AshLands	Ashlands_ashrain
+185396	DeepNorth	Twilight_Clear
+185397	Meadows	Clear
+185397	BlackForest	DeepForest Mist
+185397	Swamp	SwampRain
+185397	Mountain	Snow
+185397	Plains	Heath clear
+185397	Ocean	Clear
+185397	Mistlands	Mistlands_clear
+185397	AshLands	Ashlands_ashrain
+185397	DeepNorth	Twilight_Snow
+185398	Meadows	Clear
+185398	BlackForest	DeepForest Mist
+185398	Swamp	SwampRain
+185398	Mountain	Snow
+185398	Plains	Misty
+185398	Ocean	Clear
+185398	Mistlands	Mistlands_clear
+185398	AshLands	Ashlands_ashrain
+185398	DeepNorth	Twilight_Clear
+185399	Meadows	Clear
+185399	BlackForest	DeepForest Mist
+185399	Swamp	SwampRain
+185399	Mountain	SnowStorm
+185399	Plains	Heath clear
+185399	Ocean	Rain
+185399	Mistlands	Mistlands_clear
+185399	AshLands	Ashlands_ashrain
+185399	DeepNorth	Twilight_SnowStorm

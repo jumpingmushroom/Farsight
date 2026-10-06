@@ -35,6 +35,10 @@ type Event struct {
 	// leaves it out, so IDs of every other type are unchanged; a raid's
 	// type and second are unique enough.
 	Raid string `json:"raid,omitempty"`
+
+	// To is a time_skip's nextm: the netTime the server will wake up at
+	// after the sleep. EventID leaves it out too, for the same reason.
+	To float64 `json:"to,omitempty"`
 }
 
 const (
@@ -49,6 +53,7 @@ const (
 	EvWorldSaved     = "world_saved"
 	EvHeartbeat      = "heartbeat"
 	EvRaid           = "event_raid"
+	EvTimeSkip       = "time_skip"
 )
 
 // session is one open player session, keyed either "s:{steamID}" (Steam
@@ -113,6 +118,8 @@ func (s *Sessionizer) Feed(r Raw) []Event {
 		out = []Event{s.emit(EvWorldSaved, r.At, Event{})}
 	case RawRaid:
 		out = []Event{s.emit(EvRaid, r.At, Event{Raid: r.Raid})}
+	case RawTimeSkip:
+		out = []Event{s.emit(EvTimeSkip, r.At, Event{To: r.To})}
 	}
 	return out
 }

@@ -102,6 +102,12 @@ export class AppState {
 	loaded = $state(false);
 	currentId = $state<string | undefined>(undefined);
 	card = $state<Card | undefined>(undefined);
+	/**
+	 * When `card` was received, on the viewer's clock: the world clock
+	 * ticks from here rather than from the server's `clock.at`, so the
+	 * viewer's clock skew doesn't shift it. Set together with `card`.
+	 */
+	cardAt = $state<Date | undefined>(undefined);
 	/** undefined = not loaded, null = none yet. */
 	snapshot = $state<SnapshotView | null | undefined>(undefined);
 	/**
@@ -352,6 +358,7 @@ export class AppState {
 		try {
 			const card = await getCard(id, this.f);
 			if (stale()) return;
+			this.cardAt = new Date();
 			this.card = card;
 			this.syncBiomes(id, card.tiles.key);
 			// A quiet refresh of the open profile or Activity view, on the

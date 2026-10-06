@@ -281,3 +281,30 @@ test('activity · the menu button opens the sheet, and Back closes it and return
 	await expect(page).toHaveURL(/#s=demo$/);
 	await expect(menuBtn).toBeFocused();
 });
+
+// --- Plan 9: time and weather -------------------------------------------------
+
+test('weather · the chip opens the sheet, listing the seeded explored biomes', async ({ page }) => {
+	await unlock(page);
+	const chip = page.getByTestId('weather-chip');
+	await expect(chip).toBeVisible();
+	// The weather word (Clear, Rain, …) depends on wall-clock time (the
+	// period draw), so only the label/clock structure is asserted here.
+	await expect(chip).toHaveAttribute('aria-label', /^Time and weather: (Morning|Day|Evening|Night) · \d{2}:\d{2} · .+$/);
+	await chip.tap();
+
+	const sheet = page.getByRole('dialog', { name: 'Time and weather' });
+	await expect(sheet).toBeVisible();
+	await expect(sheet).toContainText(/Day \d+ ·/);
+
+	// global-setup.ts posts snapshot.json with -explored; these six biomes
+	// are exactly what that fixture's exploredZones cover, independent of
+	// wall-clock time (unlike the weather itself).
+	const table = sheet.getByRole('table', { name: 'Weather by biome' });
+	for (const biome of ['Ocean', 'Meadows', 'Black Forest', 'Swamp', 'Mountains', 'Plains']) {
+		await expect(table.getByText(biome, { exact: true })).toHaveCount(1);
+	}
+
+	await page.keyboard.press('Escape');
+	await expect(sheet).toBeHidden();
+});

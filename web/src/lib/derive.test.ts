@@ -500,6 +500,13 @@ describe('mapFilter', () => {
 		expect(mapFilter(false, 'offline')).toBe('grayscale(1) contrast(.85) brightness(1.08) grayscale(.55) brightness(.8)');
 		expect(mapFilter(false, 'stale')).toBe('grayscale(1) contrast(.85) brightness(1.08) sepia(.35) brightness(.9)');
 	});
+	test('night/evening tint is appended last', () => {
+		expect(mapFilter(true, undefined, 'night')).toBe('brightness(.8) saturate(.8) hue-rotate(-12deg)');
+		expect(mapFilter(true, undefined, 'evening')).toBe('brightness(.94) sepia(.15)');
+		expect(mapFilter(false, 'offline', 'night')).toBe(
+			'grayscale(1) contrast(.85) brightness(1.08) grayscale(.55) brightness(.8) brightness(.8) saturate(.8) hue-rotate(-12deg)'
+		);
+	});
 });
 
 describe('offlineTitle', () => {
@@ -617,5 +624,16 @@ describe('mapView (state precedence, ruling 2)', () => {
 	test('stale with biomes off concatenates', () => {
 		const v = mapView(makeCard({ world: old(), tiles: complete }), NOW, [], false);
 		expect(v.filter).toBe('grayscale(1) contrast(.85) brightness(1.08) sepia(.35) brightness(.9)');
+	});
+	test('the night/evening tint is appended to the tile filter', () => {
+		const card = makeCard({ world: fresh(), tiles: complete });
+		expect(mapView(card, NOW, [], true, 'night').filter).toBe('brightness(.8) saturate(.8) hue-rotate(-12deg)');
+		expect(mapView(makeCard({ world: old(), tiles: complete }), NOW, [], false, 'evening').filter).toBe(
+			'grayscale(1) contrast(.85) brightness(1.08) sepia(.35) brightness(.9) brightness(.94) sepia(.15)'
+		);
+	});
+	test('no tint while waiting or charting (no tiles to tint)', () => {
+		const v = mapView(makeCard({ world: undefined, tiles: complete }), NOW, [], true, 'night');
+		expect(v.filter).toBe('');
 	});
 });

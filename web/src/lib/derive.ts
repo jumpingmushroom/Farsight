@@ -207,10 +207,16 @@ const TONE_FILTER: Record<'offline' | 'stale', string> = {
 	offline: 'grayscale(.55) brightness(.8)',
 	stale: 'sepia(.35) brightness(.9)'
 };
+const TINT_FILTER: Record<'night' | 'evening', string> = {
+	night: 'brightness(.8) saturate(.8) hue-rotate(-12deg)',
+	evening: 'brightness(.94) sepia(.15)'
+};
 
-/** The tile-pane filter: the biomes-off greyscale, then the offline or stale treatment. */
-export function mapFilter(biomes: boolean, tone: 'offline' | 'stale' | undefined): string {
-	return [biomes ? '' : BIOMES_OFF_FILTER, tone ? TONE_FILTER[tone] : ''].filter(Boolean).join(' ');
+/** The tile-pane filter: the biomes-off greyscale, then the offline or stale treatment, then the night/evening tint. */
+export function mapFilter(biomes: boolean, tone: 'offline' | 'stale' | undefined, tint?: 'night' | 'evening'): string {
+	return [biomes ? '' : BIOMES_OFF_FILTER, tone ? TONE_FILTER[tone] : '', tint ? TINT_FILTER[tint] : '']
+		.filter(Boolean)
+		.join(' ');
 }
 
 /** "Server offline · last seen online today 03:12 (11 h ago)", or "Server offline" without a heartbeat. */
@@ -232,8 +238,16 @@ const REFUSED_BODY =
  * charting, refused/none banner, offline banner, stale banner, else the
  * map-updated pill. Offline beats stale for the banner, filter and pins;
  * the refused banner keeps the offline treatment when the server is down.
+ * `tint` (the world clock's night/evening, worldtime.ts `tintOf`) is
+ * appended to the tile filter once there is a map to tint.
  */
-export function mapView(card: Card, now: Date, samples: TileSample[], biomes: boolean): MapView {
+export function mapView(
+	card: Card,
+	now: Date,
+	samples: TileSample[],
+	biomes: boolean,
+	tint?: 'night' | 'evening'
+): MapView {
 	const st = mapState(card, now, samples);
 	if (st.kind === 'waiting' || st.kind === 'charting') {
 		return { overlay: st, markersOn: false, filter: '', pinClass: '' };
@@ -243,7 +257,7 @@ export function mapView(card: Card, now: Date, samples: TileSample[], biomes: bo
 	const tone = offline ? 'offline' : stale ? 'stale' : undefined;
 	const base = {
 		markersOn: true,
-		filter: mapFilter(biomes, tone),
+		filter: mapFilter(biomes, tone, tint),
 		pinClass: tone ? (`fs-pins-${tone}` as const) : ('' as const)
 	};
 	if (st.kind === 'refused') {

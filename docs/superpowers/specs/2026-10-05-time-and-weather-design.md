@@ -22,6 +22,8 @@ The design (`design/World Atlas.dc.html :309-336`, section 08) has a pill under 
 
 From the newest anchor `(t0, at0)`: `netTime(now) = t0 + seconds between at0 and now during which at least one player was online` (sessions and live presence, as the Online list uses). `running` = someone is online now. A server that is offline or has no snapshot has no clock.
 
+Restarts (final review I1): a `server_boot`/`server_starting` after the save means the world was reloaded from the save (a crash has no shutdown save). Online time then counts only from the boot, and a sleep before the boot is discarded. After a graceful stop the shutdown save is the anchor, so nothing changes. Dangling sessions (final review M1): if a `players_now` reading newer than every open session says 0, the open sessions count only until that reading and `running` is false. The client ticks from the card's receipt on the viewer's clock, not from `at` (final review M3).
+
 Card JSON (new field, omitted when unknown):
 
 ```json

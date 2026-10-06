@@ -22,6 +22,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/jumpingmushroom/farsight/internal/auth"
+	"github.com/jumpingmushroom/farsight/internal/biomegrid"
 	"github.com/jumpingmushroom/farsight/internal/config"
 	"github.com/jumpingmushroom/farsight/internal/extract"
 	"github.com/jumpingmushroom/farsight/internal/ingest"
@@ -32,6 +33,11 @@ import (
 	"github.com/jumpingmushroom/farsight/internal/tileset"
 	"github.com/jumpingmushroom/farsight/internal/worldevents"
 )
+
+func init() {
+	grids := biomegrid.NewCache(4)
+	newBiomeGrids = func() *biomegrid.Cache { return grids }
+}
 
 var t0 = time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
 

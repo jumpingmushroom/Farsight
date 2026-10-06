@@ -146,17 +146,27 @@ func (s *Store) PlayerSessions(ctx context.Context, serverID, platformID string)
 // [from, until): started before until, and still open or ended after
 // from. Oldest first.
 func (s *Store) SessionsOverlapping(ctx context.Context, serverID string, from, until time.Time) ([]Session, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT server_id, platform_id, name, since, platform, until, seconds, reason
-		FROM sessions
-		WHERE server_id = ? AND since < ? AND (until IS NULL OR until > ?)
-		ORDER BY since ASC, name ASC`, serverID, millis(until), millis(from))
+	rows, err := s.db.QueryContext(ctx, sessionsOverlappingSQL, serverID, millis(until), serverID, millis(from), millis(until))
 	if err != nil {
 		return nil, fmt.Errorf("store: sessions overlapping: %w", err)
 	}
 	defer rows.Close()
 	return scanSessions(rows)
 }
+
+// sessionsOverlappingSQL is the open sessions plus the closed ones ending
+// after from: two range scans of the (server_id, until) index, so the
+// cost follows the window rather than the server's whole history (an
+// OR of the two would only use the index's server_id prefix).
+const sessionsOverlappingSQL = `
+		SELECT server_id, platform_id, name, since, platform, until, seconds, reason
+		FROM sessions
+		WHERE server_id = ? AND until IS NULL AND since < ?
+		UNION ALL
+		SELECT server_id, platform_id, name, since, platform, until, seconds, reason
+		FROM sessions
+		WHERE server_id = ? AND until > ? AND since < ?
+		ORDER BY since ASC, name ASC`
 
 // Player is one platform ID seen on a server, under the newest name its
 // sessions carry.
