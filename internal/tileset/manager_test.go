@@ -343,6 +343,92 @@ func TestRunGCRemovesOldVersionKeepsCurrentAndUnrelated(t *testing.T) {
 	}
 }
 
+// After a render, the tile sets of worlds no server's latest save uses
+// are removed, but never one in use, queued or rendering, nor anything in
+// root that isn't a tile set.
+func TestRunGCRemovesWorldsNoLongerInUse(t *testing.T) {
+	root := t.TempDir()
+	release := map[int32]chan struct{}{5: make(chan struct{}), 8: make(chan struct{})}
+	rendering := make(chan int32, 2)
+	render := func(ctx context.Context, seed, gen int32, dir string, progress func(int, int)) error {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+		rendering <- seed
+		<-release[seed]
+		writeComplete(t, dir)
+		return nil
+	}
+	m := NewManager(root, render, nil)
+	m.InUse = func(context.Context) ([]World, error) {
+		return []World{{Seed: 5, Gen: 2}, {Seed: 7, Gen: 0}}, nil
+	}
+
+	inUse, unused := m.Dir(7, 0), m.Dir(9, 0)
+	writeComplete(t, inUse)
+	writeComplete(t, unused)
+	other := filepath.Join(root, "notes")
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if st := m.Status(9, 0); st.State != StateComplete {
+		t.Fatalf("unused set = %v, want complete before gc", st.State)
+	}
+
+	m.Ensure(5, 2)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { m.Run(ctx); close(done) }()
+	defer func() { cancel(); <-done }() // before TempDir's cleanup
+	<-rendering
+	// 8-0, not in use, is queued behind 5-2, with a partial render to resume.
+	m.Ensure(8, 0)
+	if err := os.MkdirAll(m.Dir(8, 0), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	close(release[5])
+
+	if seed := <-rendering; seed != 8 {
+		t.Fatalf("rendering %d, want 8", seed)
+	}
+	if _, err := os.Stat(unused); !os.IsNotExist(err) {
+		t.Fatalf("unused set still there (err %v)", err)
+	}
+	if st := m.Status(9, 0); st.State != StateNone {
+		t.Fatalf("unused set = %v after gc, want none", st.State)
+	}
+	for _, dir := range []string{m.Dir(5, 2), inUse, m.Dir(8, 0), other} {
+		if _, err := os.Stat(dir); err != nil {
+			t.Fatalf("%s removed by gc: %v", dir, err)
+		}
+	}
+	close(release[8])
+}
+
+// If the worlds in use can't be listed, nothing is removed.
+func TestRunGCKeepsEverythingWhenInUseFails(t *testing.T) {
+	root := t.TempDir()
+	render := func(ctx context.Context, seed, gen int32, dir string, progress func(int, int)) error {
+		writeComplete(t, dir)
+		return nil
+	}
+	m := NewManager(root, render, nil)
+	m.InUse = func(context.Context) ([]World, error) { return nil, errors.New("store down") }
+	unused := m.Dir(9, 0)
+	writeComplete(t, unused)
+
+	m.Ensure(5, 2)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go m.Run(ctx)
+	waitFor(t, 2*time.Second, func() bool { return m.Status(5, 2).State == StateComplete })
+	m.Ensure(6, 2) // a second render: the first's gc has certainly run by its end
+	waitFor(t, 2*time.Second, func() bool { return m.Status(6, 2).State == StateComplete })
+	if _, err := os.Stat(unused); err != nil {
+		t.Fatalf("unused set removed although the worlds in use are unknown: %v", err)
+	}
+}
+
 func TestRunReturnsOnCancelIdle(t *testing.T) {
 	root := t.TempDir()
 	render := func(ctx context.Context, seed, gen int32, dir string, progress func(int, int)) error {

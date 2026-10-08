@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -346,6 +347,43 @@ func TestEnsureTilesOnStartup(t *testing.T) {
 	}
 	if s := tm.Status(8, 99); s.State != tileset.State("refused") {
 		t.Errorf("beta tiles = %+v, want refused", s)
+	}
+}
+
+// The tile sets in use are each configured server's latest save's world;
+// a server without a save adds none, and an unreadable save fails the
+// whole list (the manager then removes nothing).
+func TestWorldsInUse(t *testing.T) {
+	st, err := store.Open("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	cfg := &config.Config{Servers: []config.Server{{ID: "alpha"}, {ID: "beta"}, {ID: "gamma"}}}
+	now := time.Now().UTC()
+	put := func(id, saveID string, at time.Time, blob string) {
+		t.Helper()
+		if _, err := st.PutSnapshot(ctx, id, saveID, at, at, []byte(blob)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put("alpha", "s1", now.Add(-time.Hour), `{"world":{"seed":1,"genVersion":2}}`)
+	put("alpha", "s2", now, `{"world":{"seed":7,"genVersion":2}}`) // the world swapped
+	put("beta", "s1", now, `{"world":{"seed":8,"genVersion":3}}`)
+	put("other", "s1", now, `{"world":{"seed":9,"genVersion":3}}`) // not configured
+
+	got, err := worldsInUse(cfg, st)(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []tileset.World{{Seed: 7, Gen: 2}, {Seed: 8, Gen: 3}}; !slices.Equal(got, want) {
+		t.Fatalf("worlds = %+v, want %+v", got, want)
+	}
+
+	put("gamma", "s1", now, `not json`)
+	if _, err := worldsInUse(cfg, st)(ctx); err == nil {
+		t.Fatal("no error for an unreadable save")
 	}
 }
 

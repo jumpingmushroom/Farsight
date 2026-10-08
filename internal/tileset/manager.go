@@ -56,6 +56,11 @@ type Status struct {
 // it goes. It must honour ctx cancellation.
 type RenderFunc func(ctx context.Context, seed, gen int32, dir string, progress func(done, total int)) error
 
+// World names one world's tile set: its seed and generator version.
+type World struct {
+	Seed, Gen int32
+}
+
 // queueItem is a pending Ensure request waiting for Run's single worker.
 type queueItem struct {
 	seed, gen int32
@@ -69,6 +74,18 @@ type Manager struct {
 	root   string
 	render RenderFunc
 	log    *slog.Logger
+
+	// InUse, if set, lists the worlds whose tile sets are still wanted
+	// (each configured server's latest save): after each render, Run
+	// removes every other world's tile set that isn't queued or
+	// rendering. Set it before Run starts. Nil keeps every world's.
+	InUse func(ctx context.Context) ([]World, error)
+
+	// gcMu keeps Ensure and Status (RLock) out while Run lists the worlds
+	// in use and removes the rest (Lock): otherwise a save of a world
+	// stored just after InUse read the store could find its tile set
+	// complete (and cache that) a moment before it is removed.
+	gcMu sync.RWMutex
 
 	mu       sync.Mutex
 	statuses map[string]Status
@@ -134,6 +151,8 @@ func (m *Manager) Ensure(seed, gen int32) Status {
 		return Status{State: StateRefused}
 	}
 	key := m.Key(seed, gen)
+	m.gcMu.RLock()
+	defer m.gcMu.RUnlock()
 
 	m.mu.Lock()
 	if st, ok := m.statuses[key]; ok && (st.State == StateComplete || st.State == StateQueued || st.State == StateRendering) {
@@ -145,8 +164,9 @@ func (m *Manager) Ensure(seed, gen int32) Status {
 	// Not known to be in flight or complete in memory: it may still be
 	// complete on disk (e.g. rendered by a previous process before this
 	// Manager started, or left over from before a restart). This cache
-	// assumes only this Manager ever deletes tile-set directories, so once
-	// we've observed one complete on disk it can't un-complete under us.
+	// assumes only this Manager ever deletes tile-set directories (gcUnused,
+	// which drops the cached state with them, under gcMu), so once we've
+	// observed one complete on disk it can't un-complete under us.
 	if tiles.Complete(m.Dir(seed, gen)) {
 		return m.setState(key, StateComplete)
 	}
@@ -182,6 +202,8 @@ func (m *Manager) Status(seed, gen int32) Status {
 		return Status{State: StateRefused}
 	}
 	key := m.Key(seed, gen)
+	m.gcMu.RLock()
+	defer m.gcMu.RUnlock()
 
 	m.mu.Lock()
 	st, ok := m.statuses[key]
@@ -242,6 +264,7 @@ func (m *Manager) Run(ctx context.Context) error {
 		m.setState(key, StateComplete)
 		m.log.Info("tileset: render complete", "key", key)
 		m.gc(item.seed, item.gen, dir)
+		m.gcUnused(ctx)
 	}
 }
 
@@ -326,4 +349,76 @@ func (m *Manager) gc(seed, gen int32, currentDir string) {
 			m.log.Warn("tileset: gc remove failed", "key", name, "err", err)
 		}
 	}
+}
+
+// gcUnused removes the tile sets of worlds InUse doesn't list (a world
+// swapped out, or a server removed from the config), except any queued
+// or rendering, and anything in root that isn't named like a tile set.
+// It holds gcMu from listing the worlds in use until the doomed sets are
+// renamed out of the way and their cached state dropped, so an Ensure or
+// Status in between waits and then sees them gone; the slow removal runs
+// after. Failures are logged at Warn and never fail the render that
+// triggered them; an InUse error removes nothing.
+func (m *Manager) gcUnused(ctx context.Context) {
+	if m.InUse == nil {
+		return
+	}
+	var doomed []string
+	func() {
+		m.gcMu.Lock()
+		defer m.gcMu.Unlock()
+		worlds, err := m.InUse(ctx)
+		if err != nil {
+			m.log.Warn("tileset: gc: list worlds in use", "err", err)
+			return
+		}
+		keep := make(map[string]bool, len(worlds))
+		for _, w := range worlds {
+			keep[m.Key(w.Seed, w.Gen)] = true
+		}
+		entries, err := os.ReadDir(m.root)
+		if err != nil {
+			m.log.Warn("tileset: gc list failed", "err", err)
+			return
+		}
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		for _, e := range entries {
+			name := e.Name()
+			if !e.IsDir() || keep[name] || !isSetName(name) {
+				continue
+			}
+			if st := m.statuses[name].State; st == StateQueued || st == StateRendering {
+				continue
+			}
+			if err := os.Rename(filepath.Join(m.root, name), filepath.Join(m.root, gcTrashPrefix+name)); err != nil {
+				m.log.Warn("tileset: gc remove failed", "key", name, "err", err)
+				continue
+			}
+			delete(m.statuses, name)
+			doomed = append(doomed, name)
+		}
+	}()
+	for _, name := range doomed {
+		if err := os.RemoveAll(filepath.Join(m.root, gcTrashPrefix+name)); err != nil {
+			m.log.Warn("tileset: gc remove failed", "key", name, "err", err)
+			continue
+		}
+		m.log.Info("tileset: removed a world no longer in use", "key", name)
+	}
+}
+
+// gcTrashPrefix names a tile set gcUnused has renamed out of the way to
+// remove; such a name is never a tile set's (see isSetName).
+const gcTrashPrefix = "gc-"
+
+// isSetName reports whether name is a tile-set directory's base name,
+// "{seed}-{gen}-r{renderVersion}" (see tiles.SetDir), of any render
+// version.
+func isSetName(name string) bool {
+	var seed, gen, ver int32
+	if n, err := fmt.Sscanf(name, "%d-%d-r%d", &seed, &gen, &ver); err != nil || n != 3 {
+		return false
+	}
+	return name == fmt.Sprintf("%d-%d-r%d", seed, gen, ver)
 }

@@ -78,6 +78,7 @@ func runServe(ctx context.Context, cfgPath string, getenv func(string) string, l
 
 	tiles := tileset.NewManager(filepath.Join(cfg.DataDir, "tiles"),
 		tileset.DefaultRender(max(1, runtime.GOMAXPROCS(0)-1)), log)
+	tiles.InUse = worldsInUse(cfg, st)
 	applier := &live.Applier{Store: st, Now: time.Now, StartedAt: time.Now(), Log: log}
 	world := worldevents.NewDeriver(st, log)
 
@@ -320,25 +321,53 @@ func backfillWorldEvents(ctx context.Context, cfg *config.Config, world *worldev
 // Errors are logged and the server skipped.
 func ensureTiles(ctx context.Context, cfg *config.Config, st *store.Store, tiles *tileset.Manager, log *slog.Logger) {
 	for _, s := range cfg.Servers {
-		blob, _, ok, err := st.LatestSnapshot(ctx, s.ID)
+		w, ok, err := latestWorld(ctx, st, s.ID)
 		if err != nil {
-			log.Error("startup tiles: read snapshot", "server", s.ID, "err", err)
+			log.Error("startup tiles", "server", s.ID, "err", err)
 			continue
 		}
 		if !ok {
 			continue
 		}
-		var snap struct {
-			World struct {
-				Seed       int32 `json:"seed"`
-				GenVersion int32 `json:"genVersion"`
-			} `json:"world"`
-		}
-		if err := json.Unmarshal(blob, &snap); err != nil {
-			log.Error("startup tiles: decode snapshot", "server", s.ID, "err", err)
-			continue
-		}
-		stt := tiles.Ensure(snap.World.Seed, snap.World.GenVersion)
-		log.Info("startup tiles", "server", s.ID, "key", tiles.Key(snap.World.Seed, snap.World.GenVersion), "state", string(stt.State))
+		stt := tiles.Ensure(w.Seed, w.Gen)
+		log.Info("startup tiles", "server", s.ID, "key", tiles.Key(w.Seed, w.Gen), "state", string(stt.State))
 	}
+}
+
+// worldsInUse is the tile manager's InUse: the world of each configured
+// server's latest snapshot. Any server's failing fails the lot, so the
+// manager removes nothing while it can't tell what is in use.
+func worldsInUse(cfg *config.Config, st *store.Store) func(context.Context) ([]tileset.World, error) {
+	return func(ctx context.Context) ([]tileset.World, error) {
+		var out []tileset.World
+		for _, s := range cfg.Servers {
+			w, ok, err := latestWorld(ctx, st, s.ID)
+			if err != nil {
+				return nil, fmt.Errorf("server %s: %w", s.ID, err)
+			}
+			if ok {
+				out = append(out, w)
+			}
+		}
+		return out, nil
+	}
+}
+
+// latestWorld returns the world (seed, generator version) of serverID's
+// latest snapshot; ok is false if it has none.
+func latestWorld(ctx context.Context, st *store.Store, serverID string) (tileset.World, bool, error) {
+	blob, _, ok, err := st.LatestSnapshot(ctx, serverID)
+	if err != nil || !ok {
+		return tileset.World{}, false, err
+	}
+	var snap struct {
+		World struct {
+			Seed       int32 `json:"seed"`
+			GenVersion int32 `json:"genVersion"`
+		} `json:"world"`
+	}
+	if err := json.Unmarshal(blob, &snap); err != nil {
+		return tileset.World{}, false, fmt.Errorf("decode snapshot: %w", err)
+	}
+	return tileset.World{Seed: snap.World.Seed, Gen: snap.World.GenVersion}, true, nil
 }
