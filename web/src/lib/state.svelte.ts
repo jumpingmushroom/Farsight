@@ -67,6 +67,9 @@ export function unlockMessage(r: Exclude<UnlockResult, 'ok'> | 'error'): string 
 
 const hasDocument = () => typeof document !== 'undefined';
 
+/** Two RFC 3339 timestamps name the same instant (activity page boundaries). */
+const sameInstant = (a: string, b: string) => Date.parse(a) === Date.parse(b);
+
 function documentVisibility(): Visibility {
 	return {
 		visible: () => !hasDocument() || document.visibilityState !== 'hidden',
@@ -537,10 +540,12 @@ export class AppState {
 	 * "Show earlier": fetches the three local days before the oldest loaded
 	 * page's `from`, and appends it — the pages already loaded (including
 	 * page 0, which a quiet poll refresh may replace concurrently) are
-	 * never discarded. Guarded by identity against exactly that race: if
-	 * the oldest page is no longer the one this call started with (a poll
-	 * refresh replaced page 0, the only page, while this was in flight, or
-	 * the view closed/switched), the result is dropped.
+	 * never discarded. Guarded by page boundaries against exactly that
+	 * race: a poll refresh that replaced page 0 with the same window keeps
+	 * the result, but if the oldest page's `from` no longer meets the new
+	 * page's `until` (page 0's window slid past midnight meanwhile), the
+	 * result is dropped rather than leave a gap, as it is if the view
+	 * closed or switched.
 	 */
 	async loadEarlierActivity(): Promise<void> {
 		if (this.currentId === undefined || this.view?.kind !== 'activity' || this.activityLoadingMore) return;
@@ -552,7 +557,8 @@ export class AppState {
 		try {
 			const p = await getActivity(id, oldest.from, this.f);
 			if (g !== this.activityGen) return;
-			if (this.activityPages.at(-1) === oldest) this.activityPages = [...this.activityPages, p];
+			const last = this.activityPages.at(-1);
+			if (last && sameInstant(last.from, p.until)) this.activityPages = [...this.activityPages, p];
 		} catch (err) {
 			if (g !== this.activityGen) return;
 			this.showToast('Couldn’t load earlier activity', 'Try again in a moment.');
@@ -696,7 +702,11 @@ export class AppState {
 				const [p, t] = await Promise.all([getActivity(id, undefined, this.f, undefined, days), getSessionsToday(id, this.f)]);
 				if (g !== this.activityGen) return;
 				this.today = t;
-				this.activityPages = this.activityPages.length === 0 ? [p] : [p, ...this.activityPages.slice(1)];
+				// An earlier page that landed while this was in flight (it was
+				// asked for without the pinned `days`) can leave a page 0 that
+				// no longer meets it: drop that, and the next poll pins it.
+				const next = this.activityPages[1];
+				if (!next || sameInstant(p.from, next.until)) this.activityPages = [p, ...this.activityPages.slice(1)];
 				this.activityFailed = false;
 			} catch (err) {
 				if (g !== this.activityGen) return;

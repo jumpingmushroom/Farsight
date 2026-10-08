@@ -1339,7 +1339,11 @@ describe('activity refresh (fix round 1)', () => {
 		await flush();
 		app.openView({ kind: 'activity' });
 		await flush();
-		// "Show earlier" loads a second (older) page.
+		// "Show earlier" loads a second (older) page, ending where page 0 starts.
+		server.activity['a/activity?before=2026-09-27T00%3A00%3A00Z'] = makeActivityPage([], {
+			from: '2026-09-24T00:00:00Z',
+			until: '2026-09-27T00:00:00Z'
+		});
 		const before = server.calls.length;
 		await app.loadEarlierActivity();
 		expect(server.calls.length).toBeGreaterThan(before);
@@ -1484,6 +1488,95 @@ describe('activity refresh across local midnight (fix round 2)', () => {
 		const names = [...(top?.events ?? []), ...(earlier?.events ?? [])].map((e) => e.name);
 		expect(names).toEqual(['Sigrun', 'Bjorn', 'Halvor', 'Astrid']);
 		expect(new Set(names).size).toBe(names.length);
+	});
+
+	test('"Show earlier" in flight while a poll refresh replaces page 0 (same window) still appends the earlier page', async () => {
+		const { app, server } = setup('#s=a');
+		server.activity['a/activity'] = makeActivityPage([act('player_join', '2026-09-29T10:00:00Z', { name: 'Bjorn' })]);
+		server.today['a'] = makeToday();
+		app.start();
+		await flush();
+		app.openView({ kind: 'activity' });
+		await flush();
+		const earlierPath = '/api/servers/a/activity?before=2026-09-27T00%3A00%3A00Z';
+		server.activity['a/activity?before=2026-09-27T00%3A00%3A00Z'] = makeActivityPage(
+			[act('player_join', '2026-09-25T10:00:00Z', { name: 'Astrid' })],
+			{ from: '2026-09-24T00:00:00Z', until: '2026-09-27T00:00:00Z' }
+		);
+		let release!: () => void;
+		const gate = new Promise<void>((r) => (release = r));
+		server.override = async (call) => {
+			if (call.path === earlierPath) await gate;
+			return server.route(call);
+		};
+		const earlier = app.loadEarlierActivity();
+		// A new event lands on page 0 while "Show earlier" is in flight.
+		server.activity['a/activity'] = makeActivityPage([
+			act('player_join', '2026-09-30T10:00:00Z', { name: 'Sigrun' }),
+			act('player_join', '2026-09-29T10:00:00Z', { name: 'Bjorn' })
+		]);
+		await vi.advanceTimersByTimeAsync(CARD_EVERY_MS);
+		await flush();
+		expect(app.activityPages[0]?.events.map((e) => e.name)).toEqual(['Sigrun', 'Bjorn']);
+		release();
+		await earlier;
+		expect(app.activityPages.map((p) => p.from)).toEqual(['2026-09-27T00:00:00Z', '2026-09-24T00:00:00Z']);
+	});
+
+	test('a poll refresh that crossed midnight while "Show earlier" landed never opens a gap before the earlier page', async () => {
+		vi.setSystemTime(new Date('2026-09-29T23:59:50Z'));
+		const { app, server } = setup('#s=a');
+		server.activity['a/activity'] = makeActivityPage([act('player_join', '2026-09-29T10:00:00Z', { name: 'Bjorn' })], {
+			from: '2026-09-27T00:00:00Z',
+			until: '2026-09-30T00:00:00Z'
+		});
+		server.activity['a/activity?before=2026-09-27T00%3A00%3A00Z'] = makeActivityPage(
+			[act('player_join', '2026-09-25T10:00:00Z', { name: 'Astrid' })],
+			{ from: '2026-09-24T00:00:00Z', until: '2026-09-27T00:00:00Z' }
+		);
+		server.today['a'] = makeToday();
+		app.start();
+		await flush();
+		app.openView({ kind: 'activity' });
+		await flush();
+
+		// The next poll lands after midnight, with only page 0 loaded: it asks
+		// for the default window, which has slid forward a day. It hangs.
+		server.activity['a/activity'] = makeActivityPage(
+			[act('player_join', '2026-09-30T00:00:01Z', { name: 'Sigrun' }), act('player_join', '2026-09-29T10:00:00Z', { name: 'Bjorn' })],
+			{ from: '2026-09-28T00:00:00Z', until: '2026-10-01T00:00:00Z' }
+		);
+		server.activity['a/activity?days=4'] = makeActivityPage(
+			[
+				act('player_join', '2026-09-30T00:00:01Z', { name: 'Sigrun' }),
+				act('player_join', '2026-09-29T10:00:00Z', { name: 'Bjorn' }),
+				act('player_join', '2026-09-27T12:00:00Z', { name: 'Halvor' })
+			],
+			{ from: '2026-09-27T00:00:00Z', until: '2026-10-01T00:00:00Z' }
+		);
+		let release!: () => void;
+		const gate = new Promise<void>((r) => (release = r));
+		server.override = async (call) => {
+			if (call.path === '/api/servers/a/activity') await gate;
+			return server.route(call);
+		};
+		await vi.advanceTimersByTimeAsync(CARD_EVERY_MS);
+		// "Show earlier" lands meanwhile, contiguous with the current page 0.
+		await app.loadEarlierActivity();
+		expect(app.activityPages.length).toBe(2);
+		release();
+		await flush();
+		let [top, earlier] = app.activityPages;
+		expect(top?.from).toBe(earlier?.until);
+
+		// The next poll pins page 0's `from` to the earlier page and fills the day in.
+		server.override = undefined;
+		await vi.advanceTimersByTimeAsync(CARD_EVERY_MS);
+		await flush();
+		[top, earlier] = app.activityPages;
+		expect(top?.from).toBe(earlier?.until);
+		const names = [...(top?.events ?? []), ...(earlier?.events ?? [])].map((e) => e.name);
+		expect(names).toEqual(['Sigrun', 'Bjorn', 'Halvor', 'Astrid']);
 	});
 });
 
