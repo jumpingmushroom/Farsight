@@ -5,37 +5,27 @@
   waiting pill, charting card, offline/stale/can't-draw banner; while
   Farsight can't be reached the "Reconnecting…" banner takes the pill's or
   banner's slot), the time-and-weather pill under it (Plan 9; hidden while
-  waiting/charting), the top-right search and layers cluster (§3.12, §3.13), the scale readout and
-  zoom controls, and the join dialog (§3.19). The toast lives in the layout.
+  waiting/charting), the top-right search and layers cluster (§3.12,
+  §3.13), the scale readout and zoom controls, and the join dialog (§3.19).
+  The toast lives in the layout.
 
-  Owns the UI flags: panelOpen, tab, selectedId, joinOpen, layersOpen,
-  weatherOpen, layers and portalLinks. `mapView` (derive.ts) decides the
-  state overlay, the tile filter (with the world clock's night/evening
-  tint) and the pin-opacity class on the marker pane. While the world
-  clock runs, a 1 s ticker drives the time pill and the tint. The map stays mounted across server switches (AtlasMap swaps
-  its tiles by key); a switch clears the selection and resets the view. The
-  panel floats over the map, so map container points are page points and
-  `padLeft` (376 open, 0 collapsed) keeps programmatic centring in the area
-  right of the panel.
+  Owns the UI flags: panelOpen, tab, joinOpen, layersOpen and weatherOpen.
+  What it shares with MobileShell — the card, the world clock and its 1 s
+  ticker, `mapView` (derive.ts: the state overlay, the tile filter with the
+  night/evening tint, the pin-opacity class on the marker pane), the
+  markers, the selection and the layer toggles — is the ShellModel
+  (shell.svelte.ts); the selection and the toggles outlive the shell. The
+  map stays mounted across server switches (AtlasMap swaps its tiles by
+  key); a switch clears the selection and resets the view. The panel floats
+  over the map, so map container points are page points and `padLeft` (376
+  open, 0 collapsed) keeps programmatic centring in the area right of the
+  panel.
 -->
 <script lang="ts">
-	import type L from 'leaflet';
 	import { onDestroy, tick, untrack } from 'svelte';
 	import { toLatLng } from '$lib/geo';
-	import { mapView } from '$lib/derive';
-	import { timeView, tintOf } from '$lib/worldtime';
-	import {
-		buildMarkers,
-		defaultLayers,
-		enabledLayerCount,
-		layerCounts,
-		linkedMarker,
-		markerAt,
-		markersKey,
-		visibleMarkers,
-		type LayerKey,
-		type MapMarker
-	} from '$lib/markers';
+	import { enabledLayerCount, linkedMarker, markerAt, type MapMarker } from '$lib/markers';
+	import { ShellModel } from '$lib/shell.svelte';
 	import { app } from '$lib/state.svelte';
 	import type { Marker } from '$lib/types';
 	import ActivityPanel from './ActivityPanel.svelte';
@@ -63,15 +53,12 @@
 	const POPOVER_W = 312;
 	const CULL = 40;
 
-	// UI flags.
+	// UI flags (the selection and the layer toggles are the ShellModel's).
 	let panelOpen = $state(true);
 	let tab = $state<'players' | 'world'>('players');
-	let selectedId = $state<string>();
 	let joinOpen = $state(false);
 	let layersOpen = $state(false);
 	let weatherOpen = $state(false);
-	let layers = $state(defaultLayers());
-	let portalLinks = $state(true);
 
 	let searchBox = $state<ReturnType<typeof SearchBox>>();
 	let layersButton = $state<ReturnType<typeof LayersButton>>();
@@ -83,14 +70,31 @@
 	let slotH = $state(0);
 
 	let atlas = $state<ReturnType<typeof AtlasMap>>();
-	let map = $state.raw<L.Map>();
-	/** Kind and position of the selection, to drop it when a new snapshot reuses the id (§5.4). */
-	let selectedKey: string | undefined;
-	let zoom = $state(0);
 	let popover = $state<{ left: number; top: number }>();
 	let frame = 0;
 
-	const card = $derived(app.card?.id === app.currentId ? app.card : undefined);
+	const shell = new ShellModel({
+		// Selecting a marker closes the menus (§5.3).
+		onselect: (id) => {
+			if (id !== undefined) closeMenus();
+		},
+		// A server switch: close the menus, clear the typed search, close the
+		// join dialog and return to the default view.
+		onswitch: () => {
+			closeMenus();
+			searchBox?.clear();
+			joinOpen = false;
+			atlas?.resetView();
+		}
+	});
+	const { select, toggleLayer, toast } = shell;
+	const card = $derived(shell.card);
+	const map = $derived(shell.map);
+	const time = $derived(shell.time);
+	const view = $derived(shell.view);
+	const markersOn = $derived(shell.markersOn);
+	const all = $derived(shell.all);
+	const selected = $derived(shell.selected);
 	/** The decoded 12 m explored mask, for the cursor readout's "Unexplored". */
 	const mask = $derived(app.snapshot?.mask);
 	/** The biome grid for the current tile set, once loaded (Task 4); stale once `card.tiles.key` has moved on. */
@@ -103,41 +107,7 @@
 	const activityOpen = $derived(app.view?.kind === 'activity');
 	const padLeft = $derived(activityOpen ? ACTIVITY_W : panelOpen || profilePlayer !== undefined ? PANEL_W : 0);
 
-	// The state treatment (§3.22): overlay, tile filter and pin opacity.
-	// `app.tileSamples` is replaced together with `app.card`, so reading it
-	// here stays current.
-	// The world clock (Plan 9): ticks every second while it runs (app.now
-	// only ticks every 30 s); paused, netTimeNow ignores the time. It stops
-	// while Farsight can't be reached: whether the world clock still runs
-	// isn't known then.
-	let clockNow = $state(new Date());
-	const clockRunning = $derived(!!card?.clock?.running && !app.disconnected);
-	$effect(() => {
-		if (!clockRunning) return;
-		clockNow = new Date();
-		const id = setInterval(() => (clockNow = new Date()), 1000);
-		return () => clearInterval(id);
-	});
-	const time = $derived(card ? timeView(card, app.cardAt ?? clockNow, clockNow) : undefined);
-	/** A primitive, so mapView only re-runs when the phase's tint changes. */
-	const tint = $derived(time ? tintOf(time.phase) : undefined);
-	const view = $derived(card ? mapView(card, app.now, app.tileSamples, layers.biomes, tint) : undefined);
 	const pillL = $derived(padLeft > 0 ? padLeft : 190);
-
-	// Markers are hidden while waiting for a save and while charting.
-	const markersOn = $derived(!!view?.markersOn);
-	// The marker model is memoised on (server, save, defeated bosses): a card
-	// poll (a new object every 15 s) returns the same array, so search
-	// results, layer counts and MarkerLayer don't rework.
-	let built: { key: string; all: MapMarker[] } = { key: '', all: [] };
-	const all = $derived.by<MapMarker[]>(() => {
-		const snap = app.snapshot;
-		if (!markersOn || !snap || !card) return [];
-		const key = markersKey(card.id, snap, card.world);
-		if (built.key !== key) built = { key, all: buildMarkers(snap, card.world) };
-		return built.all;
-	});
-	const counts = $derived(layerCounts(all));
 
 	// The search box is 340 px (§3.12), narrowed on small desktops with the
 	// panel open so the cluster clears it (376 + 16 + layers ≈ 137 + gaps).
@@ -162,21 +132,6 @@
 		if (!weatherShown) weatherOpen = false;
 	});
 
-	// Pin opacity for offline / stale lives on the marker pane (app.css).
-	$effect(() => {
-		const pane = map?.getPane('markerPane');
-		if (!pane) return;
-		const cls = view?.pinClass ?? '';
-		pane.classList.remove('fs-pins-offline', 'fs-pins-stale');
-		if (cls) pane.classList.add(cls);
-	});
-	const selected = $derived(selectedId === undefined ? undefined : all.find((m) => m.id === selectedId));
-	const selectedShown = $derived(
-		!!selected && visibleMarkers([selected], layers, zoom).length === 1
-	);
-
-	const keyOf = (m: MapMarker) => `${m.type}@${m.x},${m.z}`;
-
 	/** Closes the layers panel; focus inside it goes back to the Layers button. */
 	function closeLayers(): void {
 		if (!layersOpen) return;
@@ -199,37 +154,6 @@
 		closeWeather();
 		searchBox?.close();
 	}
-
-	function select(id: string | undefined): void {
-		if (id !== undefined) closeMenus();
-		selectedId = id;
-		const m = id === undefined ? undefined : all.find((x) => x.id === id);
-		selectedKey = m ? keyOf(m) : undefined;
-	}
-
-	// A refreshed snapshot: keep the selection only if the id still names the
-	// same kind at the same position.
-	$effect(() => {
-		if (selectedId === undefined) return;
-		if (!selected || keyOf(selected) !== selectedKey) select(undefined);
-	});
-
-	// A server switch: drop the selection, close the menus, clear the
-	// typed search and return to the default view.
-	let lastServer: string | undefined;
-	$effect(() => {
-		const id = app.currentId;
-		if (lastServer !== undefined && id !== lastServer) {
-			untrack(() => {
-				closeMenus();
-				searchBox?.clear();
-			});
-			select(undefined);
-			joinOpen = false;
-			atlas?.resetView();
-		}
-		lastServer = id;
-	});
 
 	/**
 	 * Desktop focus (fix round 1; extended for the Activity view, Plan 7):
@@ -282,7 +206,7 @@
 	function placePopover(): void {
 		frame = 0;
 		if (!map) return;
-		zoom = map.getZoom();
+		shell.zoom = map.getZoom();
 		if (!selected) {
 			popover = undefined;
 			return;
@@ -380,17 +304,9 @@
 		select(m.id);
 	}
 
-	function toggleLayer(key: LayerKey): void {
-		layers[key] = !layers[key];
-	}
-
 	function openJoin(): void {
 		closeMenus();
 		joinOpen = true;
-	}
-
-	function toast(title: string, sub: string): void {
-		app.showToast(title, sub === '' ? undefined : sub);
 	}
 
 	function onkeydown(e: KeyboardEvent): void {
@@ -403,7 +319,7 @@
 			closeWeather();
 			return;
 		}
-		if (selectedId !== undefined) {
+		if (shell.selectedId !== undefined) {
 			select(undefined);
 			return;
 		}
@@ -475,7 +391,7 @@
 		<div class="layers">
 			<LayersButton
 				bind:this={layersButton}
-				count={enabledLayerCount(layers)}
+				count={enabledLayerCount(shell.layers)}
 				open={layersOpen}
 				controls="layers-panel"
 				onclick={() => {
@@ -488,17 +404,17 @@
 				<LayersPanel
 					id="layers-panel"
 					variant="desktop"
-					{layers}
-					{portalLinks}
-					{counts}
+					layers={shell.layers}
+					portalLinks={shell.portalLinks}
+					counts={shell.counts}
 					ontoggle={toggleLayer}
-					onlinks={() => (portalLinks = !portalLinks)}
+					onlinks={shell.togglePortalLinks}
 				/>
 			{/if}
 		</div>
 	</div>
 
-	{#if selected && selectedShown && popover}
+	{#if selected && shell.selectedShown && popover}
 		<div class="popover" style:left="{popover.left}px" style:top="{popover.top}px">
 			<MarkerCard m={selected.card} onclose={() => select(undefined)} onjump={jump} />
 		</div>
@@ -524,7 +440,7 @@
 		{padLeft}
 		dim={1}
 		filter={view?.filter ?? ''}
-		onready={(m) => (map = m)}
+		onready={(m) => (shell.map = m)}
 		onclick={() => {
 			closeMenus();
 			select(undefined);
@@ -532,7 +448,7 @@
 		onmove={schedulePopover}
 	/>
 	{#if map}
-		<MarkerLayer {map} {all} {layers} {portalLinks} {selectedId} onselect={select} />
+		<MarkerLayer {map} {all} layers={shell.layers} portalLinks={shell.portalLinks} selectedId={shell.selectedId} onselect={select} />
 	{/if}
 </main>
 

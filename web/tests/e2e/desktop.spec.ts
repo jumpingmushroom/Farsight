@@ -965,6 +965,36 @@ test('fix · desktop: the marker popover follows the panel’s width', async ({ 
 	await expect.poll(left).toBe(beside);
 });
 
+// Review fix: the layer toggles and the selection lived in each shell, so a
+// tablet rotating across the 768 px breakpoint (which swaps the shells)
+// silently reset them.
+test('fix · the layer toggles and the selection survive a switch to the mobile shell and back', async ({ page }) => {
+	await unlock(page);
+	await markersReady(page);
+	await page.getByRole('button', { name: /^Layers ·/ }).click();
+	await page.getByRole('group', { name: 'Map layers' }).getByRole('switch', { name: /^Beds/ }).click();
+	await search(page).fill('copper');
+	await page.getByRole('listbox', { name: 'Search results' }).getByRole('option').filter({ hasText: 'Portal · unpaired' }).click();
+	await expect(markerCard(page)).toContainText('copper');
+
+	await page.setViewportSize({ width: 700, height: 900 });
+	await expect(page.locator('main.shell[data-layout="mobile"]')).toBeVisible();
+	await expect(page.getByTestId('mobile-marker-card')).toContainText('copper');
+	await page.getByTestId('mobile-marker-card').getByRole('button', { name: 'Close' }).click();
+	await page.getByRole('button', { name: 'Search and layers' }).click();
+	const menu = page.getByRole('dialog', { name: 'Search and layers' });
+	await expect(menu.getByRole('switch', { name: /^Beds/ })).toHaveAttribute('aria-checked', 'true');
+	await menu.getByRole('switch', { name: /^Signs/ }).click();
+
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await expect(page.getByRole('button', { name: /^Layers ·/ })).toBeVisible();
+	await page.getByRole('button', { name: /^Layers ·/ }).click();
+	const layers = page.getByRole('group', { name: 'Map layers' });
+	await expect(layers.getByRole('switch', { name: /^Beds/ })).toHaveAttribute('aria-checked', 'true');
+	await expect(layers.getByRole('switch', { name: /^Signs/ })).toHaveAttribute('aria-checked', 'true');
+	await expect(markerCard(page)).toHaveCount(0);
+});
+
 // --- Plan 9: time and weather -------------------------------------------------
 
 const weatherPill = (page: Page) => page.getByTestId('weather-pill');
