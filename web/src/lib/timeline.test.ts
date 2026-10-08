@@ -169,6 +169,21 @@ describe('todayRows', () => {
 		expect(open.left + open.width).toBeCloseTo(nowPct, 5);
 		expect(rows[1].bars[0].left).toBe(0);
 	});
+	test('axis ticks at 00, 06, 12, 18 and 24, evenly spread on an ordinary day', () => {
+		const { ticks } = todayRows(t, new Date('2026-09-29T12:44:00Z'));
+		expect(ticks.map((k) => k.label)).toEqual(['00', '06', '12', '18', '24']);
+		ticks.forEach((k, i) => expect(k.pct).toBeCloseTo(i * 25, 5));
+	});
+	test('on a DST change day the ticks sit at the real local hours, under the bars', () => {
+		// Oslo springs forward at 02:00 on 29 Mar 2026: a 23-hour day.
+		const spring: TodaySessions = { ...t, dayStart: '2026-03-28T23:00:00Z', dayEnd: '2026-03-29T22:00:00Z', now: '2026-03-29T12:00:00Z', players: [] };
+		const s = todayRows(spring, new Date('2026-03-29T12:00:00Z')).ticks.map((k) => k.pct);
+		[0, 5 / 23, 11 / 23, 17 / 23, 1].forEach((f, i) => expect(s[i]).toBeCloseTo(f * 100, 5));
+		// And falls back at 03:00 on 25 Oct 2026: a 25-hour day.
+		const fall: TodaySessions = { ...t, dayStart: '2026-10-24T22:00:00Z', dayEnd: '2026-10-25T23:00:00Z', now: '2026-10-25T12:00:00Z', players: [] };
+		const f = todayRows(fall, new Date('2026-10-25T12:00:00Z')).ticks.map((k) => k.pct);
+		[0, 7 / 25, 13 / 25, 19 / 25, 1].forEach((x, i) => expect(f[i]).toBeCloseTo(x * 100, 5));
+	});
 	test('the people filter applies', () => {
 		expect(todayRows(t, new Date('2026-09-29T12:44:00Z'), ['2']).rows.map((r) => r.name)).toEqual(['Alina']);
 	});
