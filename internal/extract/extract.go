@@ -39,6 +39,15 @@ type Extractor struct {
 // save.ReadOptions.KeepBytes): only cartography tables.
 func KeepBytes(prefab int32) bool { return prefab == save.MapTablePrefab }
 
+// Read streams the newest save of worldName to fn (normally an
+// Extractor's Add) with the byte arrays Add needs kept. The agent and
+// farsight-snapshot both read through it, so the snapshot a developer
+// prints can't drift from the one the agent sends: plain save.Read drops
+// the tables' map data and the explored mask falls back to zones.
+func Read(worldsDir, worldName string, fn func(*save.ZDO)) (*save.World, error) {
+	return save.ReadWith(worldsDir, worldName, save.ReadOptions{KeepBytes: KeepBytes}, fn)
+}
+
 func New() *Extractor {
 	return &Extractor{counts: map[string]int{}, players: map[int64]string{}, unknown: map[int32]bool{}, portalCreator: map[int]int64{}}
 }

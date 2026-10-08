@@ -20,9 +20,7 @@ import (
 // arrays the extractor needs (the cartography tables' maps).
 var (
 	saveLatest = save.LatestSave
-	saveRead   = func(worldsDir, worldName string, fn func(*save.ZDO)) (*save.World, error) {
-		return save.ReadWith(worldsDir, worldName, save.ReadOptions{KeepBytes: extract.KeepBytes}, fn)
-	}
+	saveRead   = extract.Read
 )
 
 // maxBackoff caps the exponential backoff between POST retries.
