@@ -386,3 +386,30 @@ func TestWatcherEmitsRaids(t *testing.T) {
 	appendLine(t, srv, "10/03/2026 21:40:00: Random event set:foresttrolls\n")
 	waitFor(t, func() bool { return c.count(EvRaid) == 2 })
 }
+
+// TestWatcherReplayReadsTheRotatedServerLog: supervisord rotates the
+// server log to <name>.1. A replay after an agent restart must read that
+// first, so a session that started before the rotation still gets its
+// leave, even when the rotation split a line in two.
+func TestWatcherReplayReadsTheRotatedServerLog(t *testing.T) {
+	dir := t.TempDir()
+	srv := filepath.Join(dir, "valheim-server-stdout---supervisor-aaaa.log")
+	appendLine(t, srv+".1", "09/29/2026 10:00:00: PlayFab socket with remote ID playfab/X received local Platform ID Steam_1\n")
+	appendLine(t, srv+".1", "09/29/2026 10:00:05: Got character ZDOID from A : 11:1\n")
+	appendLine(t, srv+".1", "09/29/2026 10:30:00: Destroying abandoned non persistent zdo 11:5 ")
+	appendLine(t, srv, "owner 11\n")
+
+	c := &collector{}
+	w := &Watcher{Dir: dir, Loc: oslo(t), Poll: time.Hour, Emit: c.emit, Once: true}
+	if err := w.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if c.count(EvPlayerJoin) != 1 || c.count(EvPlayerLeave) != 1 {
+		t.Fatalf("events = %+v, want A's join and leave", c.evs)
+	}
+	for _, e := range c.evs {
+		if e.Type == EvPlayerLeave && (e.Since == nil || e.PlatformID != "1") {
+			t.Fatalf("leave = %+v, want it paired with the join from the rotated file", e)
+		}
+	}
+}

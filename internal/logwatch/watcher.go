@@ -153,7 +153,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 		log = slog.New(slog.DiscardHandler)
 	}
 
-	w.srv = &follower{resolve: resolveServerLog(w.Dir), role: "server", log: log}
+	w.srv = &follower{resolve: resolveServerLog(w.Dir), rotated: true, role: "server", log: log}
 	w.sup = &follower{resolve: resolveSupervisorLog(w.Dir), role: "supervisor", log: log}
 	defer w.srv.close()
 	defer w.sup.close()
