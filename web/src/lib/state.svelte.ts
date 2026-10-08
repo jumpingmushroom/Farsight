@@ -193,6 +193,16 @@ export class AppState {
 	private log: (message: string, err: unknown) => void;
 
 	private savedAt: string | undefined;
+	/** Bumped by every refreshServers() call: orders overlapping list responses. */
+	private serversSeq = 0;
+	/** The newest servers request whose result was applied (or invalidated by an unlock): older responses are dropped. */
+	private serversApplied = 0;
+	/**
+	 * The hash link boot lands on once a server list arrives, until a
+	 * server is first selected: the first list request can fail, and a
+	 * later poll's list must still select (and open the linked view).
+	 */
+	private landing: { server?: string; view?: View } | undefined;
 	/** Bumped by a server switch (select, moveOff); responses from older generations are dropped. */
 	private gen = 0;
 	/** The refresh in flight, if any (single flight per generation). */
@@ -248,6 +258,7 @@ export class AppState {
 			offVisible();
 			offHash();
 			clearTimeout(this.toastTimer);
+			this.landing = undefined;
 			if (this.stopFn === stop) this.stopFn = undefined;
 		};
 		this.stopFn = stop;
@@ -271,10 +282,23 @@ export class AppState {
 			if (result !== 'ok') this.unlockPrompt = { server: link.server, error: unlockMessage(result) };
 		}
 		if (stopped()) return;
+		this.landing = { server: link.server, view: link.view };
 		if (!this.loaded) await this.refreshServers();
-		if (stopped() || this.currentId !== undefined) return;
+		if (stopped()) return;
+		this.land();
+	}
+
+	/** Selects the linked (or else the first) server once one is listed, if nothing is selected yet; see `landing`. */
+	private land(): void {
+		const link = this.landing;
+		if (link === undefined) return;
+		if (this.currentId !== undefined) {
+			this.landing = undefined;
+			return;
+		}
 		const pick = this.servers.find((s) => s.id === link.server)?.id ?? this.servers[0]?.id;
 		if (pick === undefined) return;
+		this.landing = undefined;
 		this.select(pick);
 		// A linked profile or timeline opens over its server. It added no
 		// history entry, so closing it replaces the hash instead of going back.
@@ -396,15 +420,27 @@ export class AppState {
 		}
 	}
 
+	/**
+	 * Reloads the server list. Overlapping calls (the 60 s poll, an
+	 * unlock's reload) apply in request order, not arrival order: a
+	 * response older than the last one applied is dropped, so a slow poll
+	 * carrying a pre-unlock list can't move off the server just unlocked.
+	 */
 	async refreshServers(): Promise<void> {
+		const seq = ++this.serversSeq;
+		const stale = () => seq <= this.serversApplied;
 		try {
 			const list = await listServers(this.f);
+			if (stale()) return;
+			this.serversApplied = seq;
 			this.ok();
 			const cur = this.currentId;
 			// moveOff reads the neighbour index from the old list, so it runs first.
 			if (cur !== undefined && !list.some((s) => s.id === cur)) this.moveOff(cur, list);
 			this.servers = list;
+			this.land();
 		} catch (err) {
+			if (stale()) return;
 			this.fail(err);
 		} finally {
 			this.loaded = true;
@@ -415,6 +451,10 @@ export class AppState {
 	async tryUnlock(server: string, passphrase: string): Promise<UnlockResult> {
 		const r = await unlock(server, passphrase, this.f);
 		if (r === 'ok') {
+			// Lists requested before the unlock can't include `server`; and
+			// it, not boot's pending landing, is what gets selected.
+			this.serversApplied = this.serversSeq;
+			this.landing = undefined;
 			await this.refreshServers();
 			this.select(server);
 		}

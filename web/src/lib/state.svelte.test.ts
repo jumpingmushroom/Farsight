@@ -420,6 +420,24 @@ describe('start()', () => {
 		stop();
 	});
 
+	test('a failed first servers request: the next successful poll still selects the linked server and opens its view', async () => {
+		const { app, server } = setup('#s=b&activity');
+		server.activity['b'] = makeActivityPage();
+		server.today['b'] = makeToday();
+		server.fail = true;
+		const stop = app.start();
+		await flush();
+		expect(app.loaded).toBe(true);
+		expect(app.currentId).toBeUndefined();
+		server.fail = false;
+		await vi.advanceTimersByTimeAsync(60_000);
+		await flush();
+		expect(app.currentId).toBe('b');
+		expect(app.card?.id).toBe('b');
+		expect(app.view).toEqual({ kind: 'activity' });
+		stop();
+	});
+
 	test('no servers leaves currentId undefined', async () => {
 		const { app, server } = setup('');
 		server.servers = [];
@@ -943,6 +961,61 @@ describe('tryUnlock()', () => {
 		expect(server.count('/api/servers')).toBe(before + 1);
 		expect(app.servers.map((s) => s.id)).toEqual(['a', 'b']);
 		expect(app.currentId).toBe('b');
+		stop();
+	});
+
+	test('an older servers poll landing after the unlock’s refresh does not move off the unlocked server', async () => {
+		const { app, server } = setup('');
+		server.servers = [SERVERS[0]];
+		const stop = app.start();
+		await flush();
+		// A 60 s poll starts and hangs, carrying the pre-unlock list.
+		let release!: () => void;
+		const gate = new Promise<void>((r) => (release = r));
+		let held = true;
+		server.override = async (call) => {
+			if (call.path === '/api/servers' && held) {
+				held = false;
+				const stale = json({ servers: [SERVERS[0]] });
+				await gate;
+				return stale;
+			}
+			return server.route(call);
+		};
+		await vi.advanceTimersByTimeAsync(60_000);
+		server.unlockAdds = SERVERS[1];
+		expect(await app.tryUnlock('b', 'pw')).toBe('ok');
+		expect(app.currentId).toBe('b');
+		release();
+		await flush();
+		expect(app.currentId).toBe('b');
+		expect(app.servers.map((s) => s.id)).toEqual(['a', 'b']);
+		stop();
+	});
+
+	test('overlapping servers refreshes: a response older than the one applied is dropped', async () => {
+		const { app, server } = setup('#s=b');
+		const stop = app.start();
+		await flush();
+		let release!: () => void;
+		const gate = new Promise<void>((r) => (release = r));
+		let held = true;
+		server.override = async (call) => {
+			if (call.path === '/api/servers' && held) {
+				held = false;
+				const stale = json({ servers: [SERVERS[0]] }); // b was briefly gone
+				await gate;
+				return stale;
+			}
+			return server.route(call);
+		};
+		const older = app.refreshServers();
+		await app.refreshServers(); // newer: both servers
+		release();
+		await older;
+		await flush();
+		expect(app.currentId).toBe('b');
+		expect(app.servers.map((s) => s.id)).toEqual(['a', 'b']);
 		stop();
 	});
 
