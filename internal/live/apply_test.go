@@ -1,7 +1,10 @@
 package live
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -700,5 +703,49 @@ func TestSweepStaleWaitsAHeartbeatTimeoutAfterStart(t *testing.T) {
 	a.Now = fixedNow(started.Add(HeartbeatTimeout + time.Second))
 	if n, err := a.SweepStale(ctx); err != nil || n != 1 {
 		t.Fatalf("sweep closed %d, %v; want 1 after the start grace", n, err)
+	}
+}
+
+// --- events dropped for their timestamp are warned about, at most once
+// per server per invalidWarnInterval; duplicates are not ---
+
+func TestApplyWarnsAboutEventsWithABadTimestamp(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	now := parseTime("2026-01-01T12:00:00Z")
+	var logs bytes.Buffer
+	a := &Applier{Store: s, Now: fixedNow(now), Log: slog.New(slog.NewTextHandler(&logs, nil))}
+
+	// Logged in Oslo time but read as UTC: an hour in the future.
+	future := logwatch.Event{ID: "f1", Type: logwatch.EvPlayerJoin, At: now.Add(time.Hour), Name: "Alice", PlatformID: "p1"}
+	ok := logwatch.Event{ID: "ok1", Type: logwatch.EvHeartbeat, At: now}
+	if _, _, err := a.Apply(ctx, "srv", []logwatch.Event{future, ok, ok}); err != nil {
+		t.Fatal(err)
+	}
+	out := logs.String()
+	if n := strings.Count(out, "level=WARN"); n != 1 {
+		t.Fatalf("warnings = %d, want 1:\n%s", n, out)
+	}
+	if !strings.Contains(out, "server=srv") || !strings.Contains(out, "FARSIGHT_LOG_TZ") || !strings.Contains(out, "invalid=1") {
+		t.Fatalf("warning lacks server, count or TZ hint:\n%s", out)
+	}
+
+	// Another bad batch straight after is not warned about again.
+	future.ID = "f2"
+	if _, _, err := a.Apply(ctx, "srv", []logwatch.Event{future}); err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(logs.String(), "level=WARN"); n != 1 {
+		t.Fatalf("warnings = %d after a second bad batch, want still 1", n)
+	}
+
+	// Once the interval has passed it is.
+	a.Now = fixedNow(now.Add(invalidWarnInterval + time.Second))
+	future.ID = "f3"
+	if _, _, err := a.Apply(ctx, "srv", []logwatch.Event{future}); err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(logs.String(), "level=WARN"); n != 2 {
+		t.Fatalf("warnings = %d after the interval, want 2", n)
 	}
 }

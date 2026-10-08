@@ -6,6 +6,7 @@ package live
 import (
 	"context"
 	"database/sql"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -37,6 +38,11 @@ const maxEventAge = EventRetention - 24*time.Hour
 // treated as invalid.
 const maxFuture = 10 * time.Minute
 
+// invalidWarnInterval rate-limits Apply's warning about events dropped
+// as invalid to once per server per interval: a misconfigured agent
+// sends them in every batch.
+const invalidWarnInterval = 10 * time.Minute
+
 // Applier applies agent-reported events into the store's sessions and
 // live tables, and sweeps servers that have gone quiet.
 type Applier struct {
@@ -52,6 +58,15 @@ type Applier struct {
 	// nothing about the game server, and the agent's retry backoff may
 	// not have got one through yet.
 	StartedAt time.Time
+
+	// Log, if set, gets a warning when Apply drops events as invalid
+	// (see validEvent), so a misconfigured agent (a wrong
+	// FARSIGHT_LOG_TZ dates every event in the future) isn't silent.
+	Log *slog.Logger
+
+	// lastInvalidWarn is when each server's invalid events were last
+	// warned about; guarded by mu.
+	lastInvalidWarn map[string]time.Time
 
 	// mu serializes Apply and SweepStale: both do a read-modify-write of
 	// a server's live row, and concurrent batches for the same server
@@ -117,6 +132,13 @@ func (a *Applier) Apply(ctx context.Context, serverID string, evs []logwatch.Eve
 	defer a.mu.Unlock()
 
 	now := a.now()
+	invalid := 0
+	var firstInvalid logwatch.Event
+	defer func() {
+		if invalid > 0 {
+			a.warnInvalid(serverID, invalid, firstInvalid, now)
+		}
+	}()
 
 	err = a.Store.Tx(ctx, func(tx *sql.Tx) error {
 		live, ok, err := a.Store.GetLive(ctx, tx, serverID)
@@ -129,6 +151,10 @@ func (a *Applier) Apply(ctx context.Context, serverID string, evs []logwatch.Eve
 
 		for _, e := range evs {
 			if !validEvent(e, now) {
+				if invalid == 0 {
+					firstInvalid = e
+				}
+				invalid++
 				skipped++
 				continue
 			}
@@ -253,6 +279,29 @@ func (a *Applier) Apply(ctx context.Context, serverID string, evs []logwatch.Eve
 		return applied, skipped, err
 	}
 	return applied, skipped, nil
+}
+
+// warnInvalid logs that n of serverID's events were dropped as invalid,
+// unless it already did within invalidWarnInterval. first is the first
+// of them, whose time says what is probably wrong. Called with mu held.
+func (a *Applier) warnInvalid(serverID string, n int, first logwatch.Event, now time.Time) {
+	if a.Log == nil || now.Sub(a.lastInvalidWarn[serverID]) < invalidWarnInterval {
+		return
+	}
+	if a.lastInvalidWarn == nil {
+		a.lastInvalidWarn = map[string]time.Time{}
+	}
+	a.lastInvalidWarn[serverID] = now
+	hint := "missing id, unknown type or no time"
+	switch {
+	case first.At.IsZero() || first.ID == "" || !knownEventTypes[first.Type]:
+	case first.At.After(now):
+		hint = "dated in the future: check the agent's FARSIGHT_LOG_TZ matches the game container's TZ"
+	default:
+		hint = "older than the event retention window"
+	}
+	a.Log.Warn("dropped invalid events", "server", serverID, "invalid", n,
+		"type", first.Type, "at", first.At, "offset", first.At.Sub(now).Round(time.Second), "hint", hint)
 }
 
 // SweepStale closes the open sessions of every server whose last known

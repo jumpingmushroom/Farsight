@@ -78,7 +78,7 @@ func runServe(ctx context.Context, cfgPath string, getenv func(string) string, l
 
 	tiles := tileset.NewManager(filepath.Join(cfg.DataDir, "tiles"),
 		tileset.DefaultRender(max(1, runtime.GOMAXPROCS(0)-1)), log)
-	applier := &live.Applier{Store: st, Now: time.Now, StartedAt: time.Now()}
+	applier := &live.Applier{Store: st, Now: time.Now, StartedAt: time.Now(), Log: log}
 	world := worldevents.NewDeriver(st, log)
 
 	splitIngest := cfg.IngestListen != ""
