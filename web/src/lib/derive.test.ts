@@ -254,9 +254,9 @@ describe('mapState', () => {
 			throw new Error('expected stale');
 		}
 	});
-	test('tiles none with a world present -> refused', () => {
+	test('tiles none with a world present -> undrawn (never asked for yet, or a failed render awaiting its retry), not refused', () => {
 		const card = makeCard({ world: makeWorld(), tiles: { state: 'none', done: 0, total: 0 } });
-		expect(mapState(card, NOW)).toEqual({ kind: 'refused' });
+		expect(mapState(card, NOW)).toEqual({ kind: 'undrawn' });
 	});
 });
 
@@ -569,9 +569,15 @@ describe('mapView (state precedence, ruling 2)', () => {
 		expect(v.filter).toBe('grayscale(.55) brightness(.8)');
 		expect(v.pinClass).toBe('fs-pins-offline');
 	});
-	test('tiles none with a world -> refused banner', () => {
+	test('tiles none with a world -> its own banner, without the newer-game-version claim; markers stay on', () => {
 		const v = mapView(makeCard({ world: fresh(), tiles: { state: 'none', done: 0, total: 0 } }), NOW, [], true);
-		expect(v.overlay).toMatchObject({ kind: 'banner', tone: 'refused' });
+		expect(v.overlay).toEqual({
+			kind: 'banner',
+			tone: 'undrawn',
+			title: 'The map isn’t drawn yet',
+			body: 'Farsight draws it from the world save and tries again with the next one. Markers and the online list still work.'
+		});
+		expect(v.markersOn).toBe(true);
 	});
 	test('offline -> offline banner, filter and pin class', () => {
 		const card = makeCard({ status: 'offline', lastHeartbeat: '2026-09-30T01:00:00Z', world: fresh(), tiles: complete });

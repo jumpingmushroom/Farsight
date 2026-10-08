@@ -84,7 +84,8 @@ export function cardPadBottom(containerH: number, y = 300): number {
 export const BANNER_SHORT: Record<BannerTone, string> = {
 	offline: 'Server offline',
 	stale: 'Map data may be out of date',
-	refused: 'Can’t draw this world’s map yet'
+	refused: 'Can’t draw this world’s map yet',
+	undrawn: 'The map isn’t drawn yet'
 };
 
 export interface TopBarSub {

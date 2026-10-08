@@ -120,6 +120,7 @@ export type MapState =
 	| { kind: 'waiting' }
 	| { kind: 'charting'; pct: number; done: number; total: number; etaMin?: number }
 	| { kind: 'refused' }
+	| { kind: 'undrawn' }
 	| { kind: 'ready'; stale: false }
 	| { kind: 'ready'; stale: true; ageText: string; usualMin?: number };
 
@@ -141,8 +142,14 @@ export function mapState(card: Card, now: Date, samples: TileSample[] = []): Map
 	if (!card.world) {
 		return { kind: 'waiting' };
 	}
-	if (card.tiles.state === 'refused' || card.tiles.state === 'none') {
+	if (card.tiles.state === 'refused') {
 		return { kind: 'refused' };
+	}
+	// "none" is not a refusal (internal/tileset/manager.go StateNone): the
+	// tile set was never asked for yet, or its last render failed; the
+	// server asks again on every save it receives.
+	if (card.tiles.state === 'none') {
+		return { kind: 'undrawn' };
 	}
 	if (card.tiles.state === 'queued' || card.tiles.state === 'rendering') {
 		const pct = card.tiles.total > 0 ? Math.round((card.tiles.done / card.tiles.total) * 100) : 0;
@@ -174,7 +181,7 @@ export function nextEtaMin(samples: TileSample[], total: number): number | undef
 
 // --- Map overlays, filters and pin treatment (§3.13, §3.22; ruling 2) --------
 
-export type BannerTone = 'offline' | 'stale' | 'refused';
+export type BannerTone = 'offline' | 'stale' | 'refused' | 'undrawn';
 
 export type Overlay =
 	| { kind: 'waiting' }
@@ -223,12 +230,16 @@ const STALE_BODY =
 const REFUSED_TITLE = 'Can’t draw this world’s map yet';
 const REFUSED_BODY =
 	'This world was made by a newer game version than Farsight knows. Markers and the online list still work.';
+const UNDRAWN_TITLE = 'The map isn’t drawn yet';
+const UNDRAWN_BODY =
+	'Farsight draws it from the world save and tries again with the next one. Markers and the online list still work.';
 
 /**
  * The map's state treatment, highest precedence first: waiting (no save),
- * charting, refused/none banner, offline banner, stale banner, else the
- * map-updated pill. Offline beats stale for the banner, filter and pins;
- * the refused banner keeps the offline treatment when the server is down.
+ * charting, refused or undrawn (tiles "none") banner, offline banner,
+ * stale banner, else the map-updated pill. Offline beats stale for the
+ * banner, filter and pins; the refused and undrawn banners keep the
+ * offline treatment when the server is down.
  * `tint` (the world clock's night/evening, worldtime.ts `tintOf`) is
  * appended to the tile filter once there is a map to tint.
  */
@@ -253,6 +264,9 @@ export function mapView(
 	};
 	if (st.kind === 'refused') {
 		return { overlay: { kind: 'banner', tone: 'refused', title: REFUSED_TITLE, body: REFUSED_BODY }, ...base };
+	}
+	if (st.kind === 'undrawn') {
+		return { overlay: { kind: 'banner', tone: 'undrawn', title: UNDRAWN_TITLE, body: UNDRAWN_BODY }, ...base };
 	}
 	if (offline) {
 		return { overlay: { kind: 'banner', tone: 'offline', title: offlineTitle(card, now), body: OFFLINE_BODY }, ...base };

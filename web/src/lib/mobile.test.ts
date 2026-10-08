@@ -177,17 +177,19 @@ describe('topBarSub (§3.17, ruling 5)', () => {
 		expect(topBarSub(pill, world({ saveIntervalSec: undefined }), NOW, false).text).toBe('Map 12 min ago');
 	});
 	test('banners use the short StateBanner titles', () => {
-		const b = (tone: 'offline' | 'stale' | 'refused'): MapView => ({
+		const b = (tone: 'offline' | 'stale' | 'refused' | 'undrawn'): MapView => ({
 			overlay: { kind: 'banner', tone, title: 'long', body: 'body' },
 			...base
 		});
 		expect(topBarSub(b('offline'), world(), NOW, false)).toEqual({ text: BANNER_SHORT.offline, tone: 'offline' });
 		expect(topBarSub(b('stale'), world(), NOW, false)).toEqual({ text: BANNER_SHORT.stale, tone: 'warn' });
 		expect(topBarSub(b('refused'), world(), NOW, false)).toEqual({ text: BANNER_SHORT.refused, tone: 'warn' });
+		expect(topBarSub(b('undrawn'), world(), NOW, false)).toEqual({ text: BANNER_SHORT.undrawn, tone: 'warn' });
 		expect(BANNER_SHORT).toEqual({
 			offline: 'Server offline',
 			stale: 'Map data may be out of date',
-			refused: 'Can’t draw this world’s map yet'
+			refused: 'Can’t draw this world’s map yet',
+			undrawn: 'The map isn’t drawn yet'
 		});
 	});
 	test('charting shows the percentage', () => {
