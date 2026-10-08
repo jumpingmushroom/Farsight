@@ -2,8 +2,11 @@ package store
 
 import (
 	"context"
+	"math/rand/v2"
 	"path/filepath"
+	"reflect"
 	"slices"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -221,6 +224,101 @@ func TestPlayersNewestNameOnlineFirst(t *testing.T) {
 	}
 }
 
+// playersReference is Players as it was first written, folding every
+// session (oldest first, ties by name) in Go: the SQL aggregation must
+// give exactly the same answer.
+func playersReference(sessions []Session) []Player {
+	byID := map[string]*Player{}
+	var order []string
+	for _, sess := range sessions {
+		if sess.PlatformID == "" {
+			continue
+		}
+		p := byID[sess.PlatformID]
+		if p == nil {
+			p = &Player{PlatformID: sess.PlatformID}
+			byID[sess.PlatformID] = p
+			order = append(order, sess.PlatformID)
+		}
+		p.Name, p.Platform = sess.Name, sess.Platform
+		if !slices.Contains(p.Names, sess.Name) {
+			p.Names = append(p.Names, sess.Name)
+		}
+		if sess.Until == nil {
+			p.Online = true
+		} else if sess.Until.After(p.LastSeen) {
+			p.LastSeen = *sess.Until
+		}
+	}
+	out := make([]Player, 0, len(order))
+	for _, id := range order {
+		out = append(out, *byID[id])
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if a.Online != b.Online {
+			return a.Online
+		}
+		if a.Online {
+			return a.Name < b.Name
+		}
+		return a.LastSeen.After(b.LastSeen)
+	})
+	return out
+}
+
+// TestPlayersMatchesTheReference: random histories with few names, ids
+// and times, so ties (players closed together by a restart, renames in
+// the same minute) are common.
+func TestPlayersMatchesTheReference(t *testing.T) {
+	rng := rand.New(rand.NewPCG(1, 2))
+	base := ms("2026-10-01T00:00:00Z")
+	names := []string{"Astrid", "Bjorn", "Ulf", "Sigrid"}
+	ids := []string{"", "1", "2", "3", "4", "5"}
+	for round := range 200 {
+		s := newTestStore(t)
+		ctx := context.Background()
+		for range rng.IntN(12) {
+			sess := Session{
+				ServerID: "srv", Name: names[rng.IntN(len(names))], PlatformID: ids[rng.IntN(len(ids))],
+				Platform: []string{"Steam", "Xbox"}[rng.IntN(2)],
+				Since:    base.Add(time.Duration(rng.IntN(6)) * time.Hour),
+			}
+			if rng.IntN(4) == 0 {
+				if err := s.OpenSession(ctx, nil, sess); err != nil {
+					t.Fatal(err)
+				}
+				continue
+			}
+			until := sess.Since.Add(time.Duration(1+rng.IntN(3)) * time.Hour)
+			sess.Until = &until
+			if err := s.InsertClosedSession(ctx, nil, sess); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := s.InsertClosedSession(ctx, nil, Session{ServerID: "other", Name: "Astrid", PlatformID: "1", Since: base, Until: &base}); err != nil {
+			t.Fatal(err)
+		}
+		rows, err := s.db.Query(`SELECT server_id, platform_id, name, since, platform, until, seconds, reason
+			FROM sessions WHERE server_id = 'srv' ORDER BY since ASC, name ASC, platform_id ASC`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		all, err := scanSessions(rows)
+		rows.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.Players(ctx, "srv")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := playersReference(all); !reflect.DeepEqual(got, want) {
+			t.Fatalf("round %d: players =\n%+v\nwant\n%+v\nfrom %+v", round, got, want, all)
+		}
+	}
+}
+
 func TestEventsOfTypeOldestFirst(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
@@ -245,26 +343,67 @@ func TestEventsOfTypeOldestFirst(t *testing.T) {
 	}
 }
 
-// A profile asks for every death on the server: the query must search
-// the (server_id, type, at) index, not scan the server's whole history.
-func TestEventsOfTypeUsesTheIndex(t *testing.T) {
+func TestPlayerDeaths(t *testing.T) {
 	s := newTestStore(t)
-	rows, err := s.db.Query("EXPLAIN QUERY PLAN "+eventsOfTypeSQL, "srv", "player_death")
+	ctx := context.Background()
+	for _, e := range []logwatch.Event{
+		{ID: "d1", Type: logwatch.EvPlayerDeath, At: ms("2026-10-05T12:00:00Z"), Name: "Astrid", PlatformID: "1"},
+		{ID: "d2", Type: logwatch.EvPlayerDeath, At: ms("2026-09-20T12:00:00Z"), Name: "Astrid", PlatformID: "1"},
+		{ID: "d3", Type: logwatch.EvPlayerDeath, At: ms("2026-10-05T13:00:00Z"), Name: "OldName"},                 // no identity: by name
+		{ID: "d4", Type: logwatch.EvPlayerDeath, At: ms("2026-10-05T14:00:00Z"), Name: "Astrid", PlatformID: "2"}, // another account's Astrid
+		{ID: "d5", Type: logwatch.EvPlayerDeath, At: ms("2026-09-19T12:00:00Z"), Name: "Bjorn", PlatformID: "3"},
+		{ID: "d6", Type: logwatch.EvPlayerDeath, At: ms("2026-10-05T15:00:00Z"), Name: "Bjorn"},
+		{ID: "j", Type: logwatch.EvPlayerJoin, At: ms("2026-10-05T12:00:00Z"), Name: "Astrid", PlatformID: "1"},
+	} {
+		if _, err := s.InsertEventIfNew(ctx, nil, "srv", e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.InsertEventIfNew(ctx, nil, "other", logwatch.Event{ID: "d7", Type: logwatch.EvPlayerDeath, At: ms("2026-09-01T12:00:00Z"), Name: "Astrid", PlatformID: "1"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.PlayerDeaths(ctx, "srv", "1", []string{"Astrid", "OldName"}, ms("2026-10-01T00:00:00Z"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
-	var plan []string
-	for rows.Next() {
-		var id, parent, notused int
-		var detail string
-		if err := rows.Scan(&id, &parent, &notused, &detail); err != nil {
+	if got.Total != 3 || got.Since != 2 || !got.First.Equal(ms("2026-09-19T12:00:00Z")) {
+		t.Fatalf("deaths = %+v, want 3, 2 since the week began, the server's first on 19 Sep", got)
+	}
+	if got, err := s.PlayerDeaths(ctx, "none", "1", nil, ms("2026-10-01T00:00:00Z")); err != nil || got != (DeathCounts{}) {
+		t.Fatalf("no deaths = %+v (%v), want zero", got, err)
+	}
+}
+
+// One event type's history (a profile's deaths) must search the
+// (server_id, type, at) index, not scan the server's whole history.
+func TestEventsOfTypeUsesTheIndex(t *testing.T) {
+	s := newTestStore(t)
+	for name, q := range map[string]struct {
+		sql  string
+		args []any
+	}{
+		"EventsOfType": {eventsOfTypeSQL, []any{"srv", "player_death"}},
+		"PlayerDeaths": {playerDeathsSQL, []any{int64(0), "[]", "1", "srv", "player_death"}},
+	} {
+		rows, err := s.db.Query("EXPLAIN QUERY PLAN "+q.sql, q.args...)
+		if err != nil {
 			t.Fatal(err)
 		}
-		plan = append(plan, detail)
-	}
-	want := []string{"SEARCH events USING INDEX idx_events_server_type_at (server_id=? AND type=?)"}
-	if !slices.Equal(plan, want) {
-		t.Fatalf("plan = %q, want %q", plan, want)
+		var searches []string
+		for rows.Next() {
+			var id, parent, notused int
+			var detail string
+			if err := rows.Scan(&id, &parent, &notused, &detail); err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(detail, " events") {
+				searches = append(searches, detail)
+			}
+		}
+		rows.Close()
+		want := []string{"SEARCH events USING INDEX idx_events_server_type_at (server_id=? AND type=?)"}
+		if !slices.Equal(searches, want) {
+			t.Fatalf("%s plan = %q, want %q", name, searches, want)
+		}
 	}
 }

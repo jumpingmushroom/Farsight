@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"slices"
 	"sort"
 	"time"
 )
@@ -221,39 +220,55 @@ type Player struct {
 }
 
 // Players returns every player with a platform ID on serverID: online
-// players first (by name), then by LastSeen, newest first.
+// players first (by name), then by LastSeen, newest first; ties keep the
+// order of each player's first session.
+//
+// Every card poll and activity request asks for this, so the sessions
+// are aggregated in SQL, one row per name a platform ID has played
+// under, rather than read in full: the rows are few however long the
+// history grows.
 func (s *Store) Players(ctx context.Context, serverID string) ([]Player, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT server_id, platform_id, name, since, platform, until, seconds, reason
-		FROM sessions
-		WHERE server_id = ? AND platform_id <> ''
-		ORDER BY since ASC, name ASC`, serverID)
+	rows, err := s.db.QueryContext(ctx, playersSQL, serverID)
 	if err != nil {
 		return nil, fmt.Errorf("store: players: %w", err)
 	}
 	defer rows.Close()
-	sessions, err := scanSessions(rows)
-	if err != nil {
-		return nil, err
-	}
+
 	byID := map[string]*Player{}
+	newest := map[string]int64{} // platform ID -> since of its newest session
 	var order []string
-	for _, sess := range sessions {
-		p := byID[sess.PlatformID]
+	for rows.Next() {
+		var id, name, platform string
+		var first, last int64
+		var online bool
+		var lastUntil sql.NullInt64
+		if err := rows.Scan(&id, &name, &platform, &first, &last, &online, &lastUntil); err != nil {
+			return nil, fmt.Errorf("store: players: %w", err)
+		}
+		// Rows come in order of each name's first session, so a player's
+		// first row is its first session, and its names fill oldest first.
+		p := byID[id]
 		if p == nil {
-			p = &Player{PlatformID: sess.PlatformID}
-			byID[sess.PlatformID] = p
-			order = append(order, sess.PlatformID)
+			p = &Player{PlatformID: id}
+			byID[id] = p
+			order = append(order, id)
 		}
-		p.Name, p.Platform = sess.Name, sess.Platform // oldest first: the last one wins
-		if !slices.Contains(p.Names, sess.Name) {
-			p.Names = append(p.Names, sess.Name)
+		p.Names = append(p.Names, name)
+		// The newest session's name and platform win (ties by name, as
+		// sessions are ordered everywhere else).
+		if n, seen := newest[id]; !seen || last > n || (last == n && name > p.Name) {
+			newest[id] = last
+			p.Name, p.Platform = name, platform
 		}
-		if sess.Until == nil {
-			p.Online = true
-		} else if sess.Until.After(p.LastSeen) {
-			p.LastSeen = *sess.Until
+		p.Online = p.Online || online
+		if lastUntil.Valid {
+			if t := fromMillis(lastUntil.Int64); t.After(p.LastSeen) {
+				p.LastSeen = t
+			}
 		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: players: %w", err)
 	}
 	out := make([]Player, 0, len(order))
 	for _, id := range order {
@@ -271,6 +286,22 @@ func (s *Store) Players(ctx context.Context, serverID string) ([]Player, error) 
 	})
 	return out, nil
 }
+
+// playersSQL is one row per (platform ID, name) on a server: the platform
+// of that name's newest session, its first and newest session start,
+// whether any of its sessions is open and its latest end. Ordered by
+// first session, then name and platform ID.
+const playersSQL = `
+		WITH s AS (
+			SELECT platform_id, name, since, until,
+			       FIRST_VALUE(platform) OVER (PARTITION BY platform_id, name ORDER BY since DESC) AS platform
+			FROM sessions
+			WHERE server_id = ? AND platform_id <> ''
+		)
+		SELECT platform_id, name, MAX(platform), MIN(since), MAX(since), MAX(until IS NULL), MAX(until)
+		FROM s
+		GROUP BY platform_id, name
+		ORDER BY MIN(since) ASC, name ASC, platform_id ASC`
 
 // ServersWithOpenSessions returns the IDs of all servers that currently
 // have at least one open session.

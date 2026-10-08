@@ -2,7 +2,7 @@ package server
 
 import (
 	"context"
-	"encoding/json"
+	"maps"
 	"math"
 	"net/http"
 	"slices"
@@ -10,7 +10,6 @@ import (
 
 	"github.com/jumpingmushroom/farsight/internal/config"
 	"github.com/jumpingmushroom/farsight/internal/extract"
-	"github.com/jumpingmushroom/farsight/internal/logwatch"
 	"github.com/jumpingmushroom/farsight/internal/store"
 	"github.com/jumpingmushroom/farsight/internal/worldevents"
 )
@@ -201,24 +200,12 @@ func (s *server) buildProfile(ctx context.Context, srv *config.Server, playerID 
 // platform ID, or, for a death logged with no open session to take an
 // identity from, by any name they have played under.
 func (s *server) addLoggedDeaths(ctx context.Context, p *profileJSON, serverID, playerID string, names map[string]bool, weekStart time.Time) error {
-	evs, err := s.Store.EventsOfType(ctx, serverID, logwatch.EvPlayerDeath)
-	if err != nil || len(evs) == 0 {
+	c, err := s.Store.PlayerDeaths(ctx, serverID, playerID, slices.Collect(maps.Keys(names)), weekStart)
+	if err != nil || c.First.IsZero() {
 		return err
 	}
-	p.Deaths.LoggedSince = rfc3339(evs[0].At)
-	for _, se := range evs {
-		var e logwatch.Event
-		if json.Unmarshal(se.Body, &e) != nil {
-			continue
-		}
-		if e.PlatformID != playerID && (e.PlatformID != "" || !names[e.Name]) {
-			continue
-		}
-		p.Deaths.Logged++
-		if !se.At.Before(weekStart) {
-			p.Deaths.LoggedWeek++
-		}
-	}
+	p.Deaths.LoggedSince = rfc3339(c.First)
+	p.Deaths.Logged, p.Deaths.LoggedWeek = c.Total, c.Since
 	return nil
 }
 
