@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/jumpingmushroom/farsight/internal/extract"
-	"github.com/jumpingmushroom/farsight/internal/save"
 )
 
 func main() {
@@ -23,7 +22,7 @@ func main() {
 	}
 	start := time.Now()
 	e := extract.New()
-	w, err := save.Read(*worlds, *world, e.Add)
+	w, err := extract.Read(*worlds, *world, e.Add) // the agent's read, byte arrays and all
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)

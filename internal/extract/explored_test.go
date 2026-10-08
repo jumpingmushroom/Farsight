@@ -94,3 +94,23 @@ func TestExploredFallsBackToShrunkZones(t *testing.T) {
 		t.Fatal("no 100 m reveal around the built piece")
 	}
 }
+
+// TestReadKeepsTheTablesBytes: Read is how the agent and farsight-snapshot
+// read a save, so it must keep the cartography tables' map data for the
+// explored mask instead of falling back to zones.
+func TestReadKeepsTheTablesBytes(t *testing.T) {
+	dir := t.TempDir()
+	px, py := explored.CellOf(600, -600)
+	table := savetest.ZDO{Prefab: "piece_cartographytable", Pos: [3]float32{0, 30, 0},
+		ByteArrays: map[string][]byte{"data": savetest.MapData(3, py*explored.Size+px)}}
+	savetest.WriteChunkedWorld(t, dir, "W", 1, "seed", []savetest.ZDO{table}, nil, nil, nil)
+	e := New()
+	w, err := Read(dir, "W", e.Add)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := e.Finish(w, "mv", time.Now())
+	if s.Explored == nil || s.Explored.Source != explored.SourceTables || !decoded(t, s).At(600, -600) {
+		t.Fatalf("explored = %+v, want the table's mask", s.Explored)
+	}
+}

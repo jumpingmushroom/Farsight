@@ -140,6 +140,44 @@ func TestFailedPostIsRetried(t *testing.T) {
 	}
 }
 
+// TestRejectedSnapshotIsDroppedUntilTheNextSave: a response saying the
+// snapshot itself is unacceptable (422 here) can never succeed on retry,
+// so the agent logs it once, drops it and skips that save, posting again
+// only once a new save appears.
+func TestRejectedSnapshotIsDroppedUntilTheNextSave(t *testing.T) {
+	s := &sink{status: http.StatusUnprocessableEntity}
+	srv := httptest.NewServer(s.handler(t))
+	defer srv.Close()
+	dir := t.TempDir()
+	savetest.WriteChunkedWorld(t, dir, "W", 1, "seed", zdos, nil, nil, nil)
+	var buf bytes.Buffer
+	a := New(Config{WorldsDir: dir, WorldName: "W", ServerID: "mv", URL: srv.URL, Token: "sekrit"},
+		slog.New(slog.NewTextHandler(&buf, nil)))
+	clock := time.Now()
+	a.now = func() time.Time { return clock }
+	ctx := context.Background()
+
+	if err := a.Tick(ctx); err != nil {
+		t.Fatalf("rejected POST: err = %v, want nil (logged, not retried)", err)
+	}
+	for range 3 {
+		clock = clock.Add(maxBackoff)
+		if err := a.Tick(ctx); err != nil || s.count() != 1 {
+			t.Fatalf("after rejection: err=%v posts=%d, want the save skipped", err, s.count())
+		}
+	}
+	if n := strings.Count(buf.String(), "level=ERROR"); n != 1 || !strings.Contains(buf.String(), "422") {
+		t.Fatalf("logged %d errors, want 1 carrying the status: %s", n, buf.String())
+	}
+
+	savetest.WriteChunkedWorld(t, dir, "W", 2, "seed", zdos, nil, nil, nil)
+	s.status = 0
+	clock = clock.Add(a.cfg.Poll)
+	if err := a.Tick(ctx); err != nil || s.count() != 2 {
+		t.Fatalf("next save: err=%v posts=%d, want it posted", err, s.count())
+	}
+}
+
 // TestPostRetryDoesNotReReadSave proves the retried POST reuses the
 // already-built snapshot: it removes every save file between the failed
 // POST and the retry, so any re-read would fail.
@@ -389,5 +427,14 @@ func TestRunExitsOnContextCancel(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run did not exit after ctx cancel")
+	}
+}
+
+// TestNewDefaultsNonPositivePoll: a negative Poll would panic
+// time.NewTicker in Run, so New treats it like an unset one.
+func TestNewDefaultsNonPositivePoll(t *testing.T) {
+	a := New(Config{Poll: -time.Second}, slog.New(slog.DiscardHandler))
+	if a.cfg.Poll != 15*time.Second {
+		t.Fatalf("Poll = %v, want the 15s default", a.cfg.Poll)
 	}
 }

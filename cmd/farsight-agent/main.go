@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -32,8 +33,11 @@ func main() {
 	}
 	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
 	poll, err := time.ParseDuration(env("FARSIGHT_POLL", "15s"))
+	if err == nil && poll <= 0 {
+		err = errors.New("must be a positive duration")
+	}
 	if err != nil {
-		log.Error("bad FARSIGHT_POLL", "err", err)
+		log.Error("bad FARSIGHT_POLL", "value", os.Getenv("FARSIGHT_POLL"), "err", err)
 		os.Exit(2)
 	}
 	cfg := agent.Config{
