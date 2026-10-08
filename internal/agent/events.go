@@ -149,9 +149,9 @@ func (s *Sink) addHeartbeat(now time.Time) {
 	s.mu.Unlock()
 }
 
-// rejected reports whether err is a response saying the batch itself is
-// unacceptable (400, 413, 422), so retrying the same batch can never
-// succeed. Everything else (401, 403, 408, 429, 5xx, network errors, ...)
+// rejected reports whether err is a response saying the payload itself
+// (an event batch, or a snapshot) is unacceptable (400, 413, 422), so
+// retrying the same payload can never succeed. Everything else (401, 403, 408, 429, 5xx, network errors, ...)
 // is worth retrying.
 func rejected(err error) (*ingest.StatusError, bool) {
 	var se *ingest.StatusError

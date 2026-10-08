@@ -60,7 +60,7 @@ type Agent struct {
 
 	lastSent  string // save id of the last snapshot successfully posted
 	candidate string // legacy: save id seen last tick, must repeat before it's read
-	failedID  string // save id that failed to parse; skipped until a new id appears
+	failedID  string // save id that failed to parse or was rejected; skipped until a new id appears
 
 	pending    *pendingSnapshot
 	backoff    time.Duration
@@ -165,10 +165,19 @@ func (a *Agent) Tick(ctx context.Context) (err error) {
 
 // sendPending POSTs the current pending snapshot. On success it records
 // lastSent and clears the pending state; on failure it bumps the backoff
-// and returns the error, leaving pending set for the next retry.
+// and returns the error, leaving pending set for the next retry. A
+// response rejecting the snapshot itself (the Sink's rule, see rejected)
+// can never succeed on retry, so that save is logged once, dropped and
+// marked failed, like one that fails to parse, until the next save.
 func (a *Agent) sendPending(ctx context.Context) error {
 	p := a.pending
 	if err := a.ingest.Post(ctx, "snapshot", p.snap); err != nil {
+		if se, drop := rejected(err); drop {
+			a.log.Error("snapshot rejected; skipping until the next save", "save", p.saveID, "status", se.Code, "body", se.Body)
+			a.failedID = p.saveID
+			a.clearPending()
+			return nil
+		}
 		a.bumpBackoff()
 		return fmt.Errorf("post %s: %w", p.saveID, err)
 	}
