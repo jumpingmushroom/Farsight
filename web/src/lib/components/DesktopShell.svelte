@@ -399,24 +399,6 @@
 <svelte:window {onkeydown} />
 
 <main class="shell" bind:clientWidth={shellW}>
-	<AtlasMap
-		bind:this={atlas}
-		{card}
-		snapshot={app.snapshot}
-		{padLeft}
-		dim={1}
-		filter={view?.filter ?? ''}
-		onready={(m) => (map = m)}
-		onclick={() => {
-			closeMenus();
-			select(undefined);
-		}}
-		onmove={schedulePopover}
-	/>
-	{#if map}
-		<MarkerLayer {map} {all} {layers} {portalLinks} {selectedId} onselect={select} />
-	{/if}
-
 	{#if profilePlayer !== undefined && app.currentId}
 		<ProfilePanel serverId={app.currentId} player={profilePlayer} onback={() => app.closeView()} onmap={mapTo} />
 	{:else if activityOpen && app.currentId}
@@ -516,6 +498,27 @@
 			select(undefined);
 		}}
 	/>
+
+	<!-- Last in the DOM, so Tab reaches the panel and the controls before
+	     the map and its pins (each one a tab stop); AtlasMap sits under
+	     them all with z-index -1. -->
+	<AtlasMap
+		bind:this={atlas}
+		{card}
+		snapshot={app.snapshot}
+		{padLeft}
+		dim={1}
+		filter={view?.filter ?? ''}
+		onready={(m) => (map = m)}
+		onclick={() => {
+			closeMenus();
+			select(undefined);
+		}}
+		onmove={schedulePopover}
+	/>
+	{#if map}
+		<MarkerLayer {map} {all} {layers} {portalLinks} {selectedId} onselect={select} />
+	{/if}
 </main>
 
 {#if joinOpen && card}

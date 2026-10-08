@@ -15,6 +15,7 @@ import {
 	refreshNow,
 	screenPixel,
 	test,
+	tabToFirstPin,
 	tilesLoaded,
 	unlock,
 	watchGuard,
@@ -330,6 +331,19 @@ test('fix · desktop profile: closing falls back to the Online tab when the open
 	await back.click();
 	await expect(page.getByTestId('profile-panel')).toHaveCount(0);
 	await expect(page.getByRole('tab', { name: /^Online/ })).toBeFocused();
+});
+
+// Review fix: the map came first in the DOM and Leaflet makes every pin a
+// tab stop, so a keyboard user went through every pin before reaching the
+// panel, search, layers or zoom.
+test('fix · keyboard: Tab reaches the panel, search, layers and zoom before the first map pin', async ({ page }) => {
+	await unlock(page);
+	await markersReady(page);
+	const seen = await tabToFirstPin(page);
+	expect(seen.at(-1), 'the pins are still reachable').toBe('pin');
+	for (const label of ['Collapse panel', 'Search the map', 'Layers · 6 on', 'Zoom in', 'Reset view']) {
+		expect(seen, `${label} before the first pin`).toContain(label);
+	}
 });
 
 test('5 · world tab: day, bosses, next up and world rules', async ({ page }) => {

@@ -323,25 +323,6 @@
 <svelte:window {onkeydown} />
 
 <main class="shell" data-layout="mobile">
-	<AtlasMap
-		bind:this={atlas}
-		{card}
-		snapshot={app.snapshot}
-		padLeft={0}
-		defaultZoom={DEFAULT_ZOOM}
-		{dim}
-		filter={view?.filter ?? ''}
-		onready={(m) => {
-			map = m;
-			zoom = m.getZoom();
-		}}
-		onclick={() => select(undefined)}
-		{onmove}
-	/>
-	{#if map}
-		<MarkerLayer {map} {all} {layers} {portalLinks} {selectedId} onselect={onmarker} />
-	{/if}
-
 	{#if view?.overlay.kind === 'waiting' || view?.overlay.kind === 'charting'}
 		<!-- Centred in the map area between the top bar and the peek sheet. -->
 		<div class="centre-slot" style:bottom="{peekH}px">
@@ -454,6 +435,28 @@
 			onclose={() => app.closeView()}
 			onmap={showOnMap}
 		/>
+	{/if}
+
+	<!-- Last in the DOM, so Tab reaches the top bar, the sheets and the
+	     controls before the map and its pins (each one a tab stop);
+	     AtlasMap sits under them all with z-index -1. -->
+	<AtlasMap
+		bind:this={atlas}
+		{card}
+		snapshot={app.snapshot}
+		padLeft={0}
+		defaultZoom={DEFAULT_ZOOM}
+		{dim}
+		filter={view?.filter ?? ''}
+		onready={(m) => {
+			map = m;
+			zoom = m.getZoom();
+		}}
+		onclick={() => select(undefined)}
+		{onmove}
+	/>
+	{#if map}
+		<MarkerLayer {map} {all} {layers} {portalLinks} {selectedId} onselect={onmarker} />
 	{/if}
 </main>
 

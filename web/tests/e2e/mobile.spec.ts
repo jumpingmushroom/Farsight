@@ -2,7 +2,7 @@
 // (global-setup.ts). Numbered tests follow the Task 9 brief; the "carried"
 // ones are the regressions carried over from reviews.
 import type { Page } from '@playwright/test';
-import { expect, pin, test, unlock } from './helpers';
+import { expect, pin, tabToFirstPin, test, unlock } from './helpers';
 
 const topBar = (page: Page) => page.getByTestId('mobile-top-bar');
 const peek = (page: Page) => page.getByTestId('sheet-peek');
@@ -178,6 +178,17 @@ test('carried · a tapped marker centres at y ≈ 300', async ({ page }) => {
 			return Number.isNaN(y) ? 'moving' : Math.abs(y - 300) <= 20 ? 'centred' : `at y=${y}`;
 		})
 		.toBe('centred');
+});
+
+// Review fix: as on desktop, the map's pins came first in Tab order.
+test('fix · keyboard: Tab reaches the top bar, the sheet and zoom before the first map pin', async ({ page }) => {
+	await unlock(page);
+	await expect(page.locator('.leaflet-marker-icon.fs-pin').first()).toBeVisible();
+	const seen = await tabToFirstPin(page);
+	expect(seen.at(-1), 'the pins are still reachable').toBe('pin');
+	for (const label of ['Switch server: Demo', 'Search and layers', 'Expand sheet', 'Zoom in']) {
+		expect(seen, `${label} before the first pin`).toContain(label);
+	}
 });
 
 test('carried · Esc on the pulled sheet collapses it to peek', async ({ page }) => {

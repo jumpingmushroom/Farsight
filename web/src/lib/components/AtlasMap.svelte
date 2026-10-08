@@ -253,9 +253,13 @@
 ></div>
 
 <style>
+	/* The shells put the map last in the DOM (for Tab order) and let it sit
+	   under everything else in the shell's stacking context (the fixed
+	   `main`), whose other layers keep stacking in DOM order as before. */
 	.atlas-map {
 		position: absolute;
 		inset: 0;
+		z-index: -1;
 		isolation: isolate;
 		touch-action: none;
 		user-select: none;
