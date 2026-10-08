@@ -200,20 +200,29 @@ func TestDeathWithoutSessionKeepsTheName(t *testing.T) {
 	}
 }
 
-func TestIntroSkipIsNotADeath(t *testing.T) {
+func TestDeathInTheIntroWindowIsFlagged(t *testing.T) {
 	// A new character riding the Valkyrie who skips the intro is respawned
 	// the same way a dead one is; that happens within the flight of joining.
+	// A returning character never sees the intro, and the log can't tell
+	// the two apart, so the death is flagged and the app decides.
 	s := NewSessionizer()
 	at := func(sec int) time.Time {
 		return time.Date(2026, 9, 29, 10, 0, 0, 0, time.UTC).Add(time.Duration(sec) * time.Second)
 	}
 	s.Feed(Raw{Kind: RawIdentity, At: at(0), Platform: "Steam", PlatformID: "1"})
 	s.Feed(Raw{Kind: RawSpawn, At: at(5), Name: "A", UID: 11})
-	if got := s.Feed(Raw{Kind: RawDeath, At: at(5 + 89), Name: "A"}); len(got) != 0 {
-		t.Fatalf("0:0 within the intro window = %+v", got)
+	got := s.Feed(Raw{Kind: RawDeath, At: at(5 + 89), Name: "A"})
+	if len(got) != 1 || !got[0].Intro || got[0].PlatformID != "1" {
+		t.Fatalf("0:0 within the intro window = %+v, want one death flagged intro", got)
 	}
-	if got := s.Feed(Raw{Kind: RawDeath, At: at(5 + 90), Name: "A"}); len(got) != 1 {
-		t.Fatalf("0:0 at the end of the intro window = %+v", got)
+	// The flag is not part of the ID.
+	unflagged := got[0]
+	unflagged.Intro = false
+	if EventID(unflagged) != got[0].ID {
+		t.Fatalf("the intro flag changes the event id")
+	}
+	if got := s.Feed(Raw{Kind: RawDeath, At: at(5 + 90), Name: "A"}); len(got) != 1 || got[0].Intro {
+		t.Fatalf("0:0 at the end of the intro window = %+v, want one unflagged death", got)
 	}
 }
 
@@ -230,9 +239,10 @@ func TestSteamDeathMatchesSessionByName(t *testing.T) {
 	}
 }
 
-func TestCrossplayFixtureEarlyZeroIsNotADeath(t *testing.T) {
+func TestCrossplayFixtureEarlyZeroIsFlaggedIntro(t *testing.T) {
 	// Thorvaldsson's 0:0 comes 72 s after joining: inside the intro window.
-	if d := ofType(feedFile(t, "testdata/valheim-crossplay.log"), EvPlayerDeath); len(d) != 0 {
-		t.Fatalf("deaths = %+v", d)
+	d := ofType(feedFile(t, "testdata/valheim-crossplay.log"), EvPlayerDeath)
+	if len(d) != 1 || !d[0].Intro || d[0].Name != "Thorvaldsson" {
+		t.Fatalf("deaths = %+v, want Thorvaldsson's, flagged intro", d)
 	}
 }

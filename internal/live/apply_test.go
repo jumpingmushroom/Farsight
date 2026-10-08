@@ -749,3 +749,80 @@ func TestApplyWarnsAboutEventsWithABadTimestamp(t *testing.T) {
 		t.Fatalf("warnings = %d after the interval, want 2", n)
 	}
 }
+
+// --- a death flagged Intro (within logwatch.IntroWindow of joining) is a
+// skipped Valkyrie intro on a character's first session, and kept for a
+// character who has played before ---
+
+// applyJoinAndDeath applies Alice's (p1) join at joinAt and her death a
+// minute later, flagged intro or not, and returns how many deaths the
+// server has stored.
+func applyJoinAndDeath(t *testing.T, s *store.Store, a *Applier, joinAt time.Time, intro bool) int {
+	t.Helper()
+	ctx := context.Background()
+	evs := []logwatch.Event{
+		{ID: "j-intro", Type: logwatch.EvPlayerJoin, At: joinAt, Name: "Alice", Platform: "Steam", PlatformID: "p1"},
+		{ID: "d-intro", Type: logwatch.EvPlayerDeath, At: joinAt.Add(time.Minute), Name: "Alice", Platform: "Steam", PlatformID: "p1", Intro: intro},
+	}
+	if _, _, err := a.Apply(ctx, "srv", evs); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.EventsOfType(ctx, "srv", logwatch.EvPlayerDeath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(got)
+}
+
+// playedBefore applies a closed hour-long session two days before joinAt.
+func playedBefore(t *testing.T, a *Applier, joinAt time.Time, name, platformID string) {
+	t.Helper()
+	since := joinAt.Add(-48 * time.Hour)
+	if _, _, err := a.Apply(context.Background(), "srv", []logwatch.Event{
+		{ID: "j0-" + name + platformID, Type: logwatch.EvPlayerJoin, At: since, Name: name, Platform: "Steam", PlatformID: platformID},
+		{ID: "l0-" + name + platformID, Type: logwatch.EvPlayerLeave, At: since.Add(time.Hour), Name: name, Platform: "Steam", PlatformID: platformID, Since: &since, Seconds: 3600, Reason: "left"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestApplyDropsAnIntroDeathOnAFirstSession(t *testing.T) {
+	s := newTestStore(t)
+	joinAt := parseTime("2026-01-03T10:00:00Z")
+	a := &Applier{Store: s, Now: fixedNow(joinAt.Add(time.Hour))}
+	if n := applyJoinAndDeath(t, s, a, joinAt, true); n != 0 {
+		t.Fatalf("deaths = %d, want 0: a new character skipping the intro", n)
+	}
+}
+
+func TestApplyKeepsAnIntroDeathOfAReturningCharacter(t *testing.T) {
+	s := newTestStore(t)
+	joinAt := parseTime("2026-01-03T10:00:00Z")
+	a := &Applier{Store: s, Now: fixedNow(joinAt.Add(time.Hour))}
+	playedBefore(t, a, joinAt, "Alice", "p1")
+	if n := applyJoinAndDeath(t, s, a, joinAt, true); n != 1 {
+		t.Fatalf("deaths = %d, want 1: Alice has played before", n)
+	}
+}
+
+func TestApplyIntroDeathIgnoresOtherCharactersSessions(t *testing.T) {
+	// The same player's other character, or another account's character
+	// of the same name, says nothing about whether this one saw the intro.
+	s := newTestStore(t)
+	joinAt := parseTime("2026-01-03T10:00:00Z")
+	a := &Applier{Store: s, Now: fixedNow(joinAt.Add(time.Hour))}
+	playedBefore(t, a, joinAt, "Old Alice", "p1")
+	playedBefore(t, a, joinAt, "Alice", "p2")
+	if n := applyJoinAndDeath(t, s, a, joinAt, true); n != 0 {
+		t.Fatalf("deaths = %d, want 0: no earlier session of this character", n)
+	}
+}
+
+func TestApplyKeepsAnUnflaggedDeathOnAFirstSession(t *testing.T) {
+	s := newTestStore(t)
+	joinAt := parseTime("2026-01-03T10:00:00Z")
+	a := &Applier{Store: s, Now: fixedNow(joinAt.Add(time.Hour))}
+	if n := applyJoinAndDeath(t, s, a, joinAt, false); n != 1 {
+		t.Fatalf("deaths = %d, want 1", n)
+	}
+}

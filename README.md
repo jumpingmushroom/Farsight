@@ -16,7 +16,7 @@ Farsight has two parts:
 - **`farsight-agent`** runs as a sidecar next to the Valheim server. It reads the world save and the server log, and pushes snapshots and events to the central app.
 - **`farsight`** stores the pushed data (SQLite), renders map tiles, and serves the web UI and JSON API.
 
-When upgrading a live deployment, roll out `farsight` before `farsight-agent`: an agent ahead of the app can send a snapshot shape the app doesn't classify yet, which the app would otherwise pass straight through and, for some event wording, store permanently malformed, and a new event type (such as the agent's `time_skip`, sent when the server sleeps, or `player_death`) is rejected outright by an older app's known-type check; the other order (a new app with an old agent) is always safe, just missing whatever that older agent build can't yet send.
+When upgrading a live deployment, roll out `farsight` before `farsight-agent`: an agent ahead of the app can send a snapshot shape the app doesn't classify yet, which the app would otherwise pass straight through and, for some event wording, store permanently malformed, and a new event type (such as the agent's `time_skip`, sent when the server sleeps, or `player_death`) is rejected outright by an older app's known-type check, and a death the agent flags as maybe a skipped Valkyrie intro (`intro`, for a 0:0 within 90 s of joining) is stored as a real death by an app that predates the flag; the other order (a new app with an old agent) is always safe, just missing whatever that older agent build can't yet send.
 
 ## Building
 

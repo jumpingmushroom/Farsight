@@ -39,6 +39,13 @@ type Event struct {
 	// To is a time_skip's nextm: the netTime the server will wake up at
 	// after the sleep. EventID leaves it out too, for the same reason.
 	To float64 `json:"to,omitempty"`
+
+	// Intro marks a player_death logged within IntroWindow of its
+	// session's start: a new character skipping the Valkyrie intro is
+	// respawned exactly as a dead one is, and only the app, which knows
+	// whether the character has played before, can tell them apart.
+	// EventID leaves it out, so a death's ID is the same either way.
+	Intro bool `json:"intro,omitempty"`
 }
 
 const (
@@ -57,11 +64,11 @@ const (
 	EvPlayerDeath    = "player_death"
 )
 
-// introWindow is how long after joining a 0:0 character line is taken for
-// a skipped intro rather than a death: a new character arrives riding the
+// IntroWindow is how long after joining a 0:0 character line may be a
+// skipped intro rather than a death: a new character arrives riding the
 // Valkyrie (a flight of about 65 s), and skipping it respawns the player
-// exactly as dying does.
-const introWindow = 90 * time.Second
+// exactly as dying does. Such a death is sent flagged Intro.
+const IntroWindow = 90 * time.Second
 
 // session is one open player session, keyed either "s:{steamID}" (Steam
 // mode) or "u:{uid}" (crossplay mode, keyed by the ZDO owner id).
@@ -175,7 +182,9 @@ func (s *Sessionizer) spawn(r Raw) []Event {
 // death turns a 0:0 character line into a player_death. The line names the
 // character only, so the platform identity comes from the newest open
 // session under that name; with none open the event keeps just the name.
-// A 0:0 within introWindow of the session's start is a skipped intro.
+// A 0:0 within IntroWindow of the session's start may be a skipped intro,
+// or a returning character dying early: it is flagged Intro, and the app
+// drops it only for a character with no earlier session.
 func (s *Sessionizer) death(r Raw) []Event {
 	ev := Event{Name: r.Name}
 	for i := len(s.order) - 1; i >= 0; i-- {
@@ -183,9 +192,7 @@ func (s *Sessionizer) death(r Raw) []Event {
 		if sess.name != r.Name {
 			continue
 		}
-		if r.At.Sub(sess.since) < introWindow {
-			return nil
-		}
+		ev.Intro = r.At.Sub(sess.since) < IntroWindow
 		ev.Platform, ev.PlatformID = sess.platform, sess.platformID
 		break
 	}

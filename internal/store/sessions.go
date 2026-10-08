@@ -163,6 +163,26 @@ func (s *Store) PlayerSessions(ctx context.Context, serverID, platformID string)
 	return scanSessions(rows)
 }
 
+// HasSessionBefore reports whether serverID has a session, open or
+// closed, of the character name that started before before. A non-empty
+// platformID narrows it to that account's character of that name. tx may
+// be nil to run directly on the database.
+func (s *Store) HasSessionBefore(ctx context.Context, tx *sql.Tx, serverID, name, platformID string, before time.Time) (bool, error) {
+	var one int
+	err := s.conn(tx).QueryRowContext(ctx, `
+		SELECT 1 FROM sessions
+		WHERE server_id = ? AND name = ? AND (? = '' OR platform_id = ?) AND since < ?
+		LIMIT 1`,
+		serverID, name, platformID, platformID, millis(before)).Scan(&one)
+	switch {
+	case err == sql.ErrNoRows:
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("store: has session before: %w", err)
+	}
+	return true, nil
+}
+
 // SessionsOverlapping returns serverID's sessions that overlap
 // [from, until): started before until, and still open or ended after
 // from. Oldest first.
