@@ -722,6 +722,42 @@ describe('polling', () => {
 		stop();
 	});
 
+	test('failed polls turn `disconnected` on 45 s into the streak; the next success clears it', async () => {
+		const { app, server } = setup('');
+		const stop = app.start();
+		await flush();
+		expect(app.failingSince).toBeUndefined();
+		expect(app.disconnected).toBe(false);
+		server.fail = true;
+		await vi.advanceTimersByTimeAsync(15_000); // the first failure
+		const since = Date.now();
+		expect(app.failingSince).toBe(since);
+		expect(app.disconnected).toBe(false);
+		await vi.advanceTimersByTimeAsync(30_000); // 30 s into the streak: still a blip
+		expect(app.disconnected).toBe(false);
+		expect(app.failingSince).toBe(since);
+		await vi.advanceTimersByTimeAsync(15_000); // 45 s
+		expect(app.disconnected).toBe(true);
+		server.fail = false;
+		await vi.advanceTimersByTimeAsync(15_000);
+		expect(app.disconnected).toBe(false);
+		expect(app.failingSince).toBeUndefined();
+		stop();
+	});
+
+	test('a failure long after a hidden tab stopped polling counts from the first failure, not the last success', async () => {
+		const { app, server, visibility } = setup('');
+		const stop = app.start();
+		await flush();
+		visibility.isVisible = false;
+		server.fail = true;
+		await vi.advanceTimersByTimeAsync(60_000); // the servers poll fails once
+		expect(app.disconnected).toBe(false);
+		await vi.advanceTimersByTimeAsync(60_000); // and again, a minute into the streak
+		expect(app.disconnected).toBe(true);
+		stop();
+	});
+
 	test('a hung card fetch times out, and the next poll starts a fresh request instead of wedging', async () => {
 		const { app, server } = setup('');
 		server.override = async (call) => {

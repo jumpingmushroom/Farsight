@@ -2,9 +2,10 @@
   Desktop shell (DESIGN-NOTES §1.1): the full-viewport map with markers and
   the marker popover (§5.9), the side panel or its collapsed pill (§3.2–
   §3.10, §3.4), the map-updated pill (§3.11) or a state overlay (§3.22:
-  waiting pill, charting card, offline/stale/can't-draw banner), the
-  time-and-weather pill under it (Plan 9; hidden while waiting/charting),
-  the top-right search and layers cluster (§3.12, §3.13), the scale readout and
+  waiting pill, charting card, offline/stale/can't-draw banner; while
+  Farsight can't be reached the "Reconnecting…" banner takes the pill's or
+  banner's slot), the time-and-weather pill under it (Plan 9; hidden while
+  waiting/charting), the top-right search and layers cluster (§3.12, §3.13), the scale readout and
   zoom controls, and the join dialog (§3.19). The toast lives in the layout.
 
   Owns the UI flags: panelOpen, tab, selectedId, joinOpen, layersOpen,
@@ -40,6 +41,7 @@
 	import AtlasMap from './AtlasMap.svelte';
 	import ChartingCard from './ChartingCard.svelte';
 	import CollapsedPill from './CollapsedPill.svelte';
+	import ConnectionBanner from './ConnectionBanner.svelte';
 	import JoinDialog from './JoinDialog.svelte';
 	import LayersButton from './LayersButton.svelte';
 	import LayersPanel from './LayersPanel.svelte';
@@ -104,9 +106,11 @@
 	// `app.tileSamples` is replaced together with `app.card`, so reading it
 	// here stays current.
 	// The world clock (Plan 9): ticks every second while it runs (app.now
-	// only ticks every 30 s); paused, netTimeNow ignores the time.
+	// only ticks every 30 s); paused, netTimeNow ignores the time. It stops
+	// while Farsight can't be reached: whether the world clock still runs
+	// isn't known then.
 	let clockNow = $state(new Date());
-	const clockRunning = $derived(!!card?.clock?.running);
+	const clockRunning = $derived(!!card?.clock?.running && !app.disconnected);
 	$effect(() => {
 		if (!clockRunning) return;
 		clockNow = new Date();
@@ -149,7 +153,7 @@
 	);
 	const pillTop = $derived(gap >= Math.max(pillW, 360) ? 16 : BELOW_CLUSTER);
 	/** The time pill: 12 px under the map-updated pill or banner (design: 106 under a 16 + 78 px pill). */
-	const slotTop = $derived(view?.overlay.kind === 'banner' ? bannerBox.top : pillTop);
+	const slotTop = $derived(app.disconnected || view?.overlay.kind === 'banner' ? bannerBox.top : pillTop);
 	const weatherTop = $derived(slotH > 0 ? slotTop + slotH + 12 : 106);
 	/** Hidden, like the map-updated pill, while waiting for a save or charting. */
 	const weatherShown = $derived(!!card?.clock && (view?.overlay.kind === 'banner' || view?.overlay.kind === 'pill'));
@@ -428,6 +432,9 @@
 	{:else if view?.overlay.kind === 'charting'}
 		{@const o = view.overlay}
 		<ChartingCard pct={o.pct} done={o.done} total={o.total} etaMin={o.etaMin} {padLeft} />
+	{/if}
+	{#if app.disconnected}
+		<ConnectionBanner left={pillL} right={bannerBox.right} top={bannerBox.top} bind:height={slotH} />
 	{:else if view?.overlay.kind === 'banner'}
 		{@const o = view.overlay}
 		<StateBanner

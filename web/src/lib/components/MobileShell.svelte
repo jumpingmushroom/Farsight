@@ -15,7 +15,9 @@
   - Esc closes the overlay sheet, then the card, then collapses pulled.
   - States (§3.22): offline/stale/can't-draw banners sit compact under the
     top bar; charting shows ChartingCard centred; no save shows the waiting
-    pill. The top-bar sub-line carries the short state text.
+    pill. The top-bar sub-line carries the short state text. While
+    Farsight can't be reached the "Reconnecting…" banner takes the state
+    banner's place (over the waiting pill or charting card too).
   - Time and weather (Plan 9): the compact chip sits under the top bar
     (under the banner when there is one; not while waiting or charting);
     a tap opens WeatherSheet. While the world clock runs, a 1 s ticker
@@ -46,6 +48,7 @@
 	import ActivitySheet from './ActivitySheet.svelte';
 	import AtlasMap from './AtlasMap.svelte';
 	import ChartingCard from './ChartingCard.svelte';
+	import ConnectionBanner from './ConnectionBanner.svelte';
 	import JoinSheet from './JoinSheet.svelte';
 	import MarkerLayer from './MarkerLayer.svelte';
 	import MenuSheet from './MenuSheet.svelte';
@@ -94,9 +97,10 @@
 
 	const card = $derived(app.card?.id === app.currentId ? app.card : undefined);
 	const summary = $derived(app.servers.find((s) => s.id === app.currentId));
-	// The world clock (Plan 9), as in DesktopShell: a 1 s ticker while it runs.
+	// The world clock (Plan 9), as in DesktopShell: a 1 s ticker while it
+	// runs and Farsight can be reached.
 	let clockNow = $state(new Date());
-	const clockRunning = $derived(!!card?.clock?.running);
+	const clockRunning = $derived(!!card?.clock?.running && !app.disconnected);
 	$effect(() => {
 		if (!clockRunning) return;
 		clockNow = new Date();
@@ -348,9 +352,12 @@
 				<ChartingCard pct={o.pct} done={o.done} total={o.total} etaMin={o.etaMin} padLeft={0} />
 			{/if}
 		</div>
-	{:else if (view?.overlay.kind === 'banner' || chipShown) && overlay !== 'join'}
+	{/if}
+	{#if (app.disconnected || view?.overlay.kind === 'banner' || chipShown) && overlay !== 'join'}
 		<div class="banner-slot">
-			{#if view?.overlay.kind === 'banner'}
+			{#if app.disconnected}
+				<ConnectionBanner mobile />
+			{:else if view?.overlay.kind === 'banner'}
 				{@const o = view.overlay}
 				<StateBanner tone={o.tone} title={o.title} body={o.body} mobile />
 			{/if}
