@@ -189,21 +189,23 @@ func (w *Watcher) Run(ctx context.Context) error {
 		// read that follows. The other order could see a stop a poll
 		// before the game's last lines and feed them after it, unlike a
 		// replay of the same files.
-		supLines, supErr := w.sup.readNew()
-		supErrs.log(log, "supervisor", supErr)
+		//
+		// Each line is parsed as it is read, so only the lines that yield
+		// a Raw are held, not every line of a replayed file.
+		var srvRaws, supRaws []Raw
+		supErrs.log(log, "supervisor", w.sup.readNew(func(l string) {
+			supRaws = append(supRaws, supClock.supervisorLine(l)...)
+		}))
 		if w.testMidPoll != nil {
 			w.testMidPoll()
 		}
-		srvLines, srvErr := w.srv.readNew()
-		srvErrs.log(log, "server", srvErr)
+		srvErrs.log(log, "server", w.srv.readNew(func(l string) {
+			srvRaws = append(srvRaws, srvClock.serverLine(l)...)
+		}))
 
-		var raws []Raw
-		for _, l := range srvLines {
-			raws = append(raws, srvClock.serverLine(l)...)
-		}
-		for _, l := range supLines {
-			raws = append(raws, supClock.supervisorLine(l)...)
-		}
+		// Server raws go first, so on a timestamp tie the stable sort
+		// keeps the game's own lines ahead of supervisord's.
+		raws := append(srvRaws, supRaws...)
 		sort.SliceStable(raws, func(i, j int) bool { return raws[i].At.Before(raws[j].At) })
 		var evs []Event
 		for _, r := range raws {

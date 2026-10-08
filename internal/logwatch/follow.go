@@ -7,10 +7,16 @@ import (
 	"os"
 )
 
-// maxPartialLine caps the bytes of a not-yet-terminated line a follower
-// carries across polls. A line that grows past it is discarded up to its
-// terminating newline, so a runaway writer can't grow memory unbounded.
-const maxPartialLine = 1 << 20
+// maxLine caps the bytes of one log line, newline included, that a
+// follower will hold: a line longer than that is discarded through its
+// terminating newline, whether it arrives whole or grows across polls, so
+// a runaway writer can't grow memory unbounded.
+const maxLine = 1 << 20
+
+// readChunk is the size of a follower's read buffer: lines are read in
+// fragments of at most this many bytes and assembled in follower.buf, so
+// the cap is checked before a line's bytes are held, not after.
+const readChunk = 64 << 10
 
 // openFile is a seam over os.Open, so tests can rotate a file between
 // readNew's stat of a path and its open.
@@ -28,7 +34,8 @@ type follower struct {
 	f      *os.File
 	fi     os.FileInfo // identity of the currently open file, for os.SameFile
 	offset int64
-	buf    []byte // bytes of a not-yet-terminated line, carried across polls
+	buf    []byte        // bytes of a not-yet-terminated line, carried across polls
+	r      *bufio.Reader // reused across drains, reset onto f at each
 
 	// rotated: the first file this follower opens is read after its
 	// newest rotated backup (<path>.1), so a replay after an agent
@@ -43,49 +50,48 @@ type follower struct {
 	warned     bool         // the overlong-line warning has been logged
 }
 
-// readNew returns the complete lines appended since the last call. A
+// readNew hands line each complete line appended since the last call, in
+// order, as it is read: nothing is kept once line returns, so a replay of
+// a large file holds one line at a time rather than the whole file. A
 // trailing partial line (no '\n' yet) is buffered and prefixed onto the
 // next complete line once it arrives. If the resolved file's identity
 // differs from the one currently open (rotation, or a fresh path after a
 // restart), or the file has shrunk below the tracked offset (truncation),
 // readNew drains the old handle to EOF first — so nothing written just
 // before a rename is lost — then reopens the new path from offset 0.
-func (fw *follower) readNew() ([]string, error) {
+func (fw *follower) readNew(line func(string)) error {
 	current := ""
 	if fw.f != nil {
 		current = fw.f.Name()
 	}
 	path, err := fw.resolve(current)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	fi, err := os.Stat(path)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	if fw.f == nil || !os.SameFile(fw.fi, fi) {
-		var lines []string
 		var carry []byte
 		discarding := false
 		if fw.f != nil {
-			drained, _ := fw.drain() // best effort; errors here don't block the switch
-			lines = append(lines, drained...)
+			fw.drain(line) // best effort; errors here don't block the switch
 			fw.f.Close()
 		} else if fw.rotated && !fw.opened {
 			// The backup's unterminated tail (rotation can split a line)
 			// carries into the current file.
-			lines, carry, discarding = fw.readBackup(path + ".1")
+			carry, discarding = fw.readBackup(path+".1", line)
 		}
 		nf, nfi, err := open(path)
 		if err != nil {
 			fw.f, fw.fi = nil, nil
-			return lines, err
+			return err
 		}
 		fw.opened = true
 		fw.f, fw.fi, fw.offset, fw.buf, fw.discarding = nf, nfi, 0, carry, discarding
-		more, err := fw.drain()
-		return append(lines, more...), err
+		return fw.drain(line)
 	}
 
 	if fi.Size() < fw.offset {
@@ -93,12 +99,12 @@ func (fw *follower) readNew() ([]string, error) {
 		nf, nfi, err := open(path)
 		if err != nil {
 			fw.f, fw.fi = nil, nil
-			return nil, err
+			return err
 		}
 		fw.f, fw.fi, fw.offset, fw.buf, fw.discarding = nf, nfi, 0, nil, false
 	}
 
-	return fw.drain()
+	return fw.drain(line)
 }
 
 // open opens path and returns the handle with its own identity. The path
@@ -118,17 +124,18 @@ func open(path string) (*os.File, os.FileInfo, error) {
 	return f, fi, nil
 }
 
-// readBackup reads every line of a rotated backup at path, returning
-// them with its unterminated tail (and whether that tail is an overlong
-// line being discarded). A missing or unreadable backup reads as empty.
-func (fw *follower) readBackup(path string) (lines []string, tail []byte, discarding bool) {
+// readBackup hands line every line of a rotated backup at path, returning
+// its unterminated tail (and whether that tail is an overlong line being
+// discarded). A missing or unreadable backup reads as empty.
+func (fw *follower) readBackup(path string, line func(string)) (tail []byte, discarding bool) {
 	b := &follower{resolve: func(string) (string, error) { return path, nil }, role: fw.role, log: fw.log}
 	defer b.close()
-	lines, err := b.readNew()
+	err := b.readNew(line)
 	if err != nil && !os.IsNotExist(err) && fw.log != nil {
 		fw.log.Warn("reading rotated log file", "role", fw.role, "path", path, "err", err)
 	}
-	return lines, b.buf, b.discarding
+	fw.warned = fw.warned || b.warned
+	return b.buf, b.discarding
 }
 
 // close releases the currently open handle, if any. It is safe to call
@@ -141,44 +148,50 @@ func (fw *follower) close() {
 }
 
 // drain reads from the current offset to EOF of the currently open file,
-// returning complete lines and buffering any trailing partial line.
-func (fw *follower) drain() ([]string, error) {
+// handing line each complete line and buffering any trailing partial
+// line. It reads in fragments of at most readChunk bytes, so a line is
+// only ever held whole once it is known to fit under maxLine.
+func (fw *follower) drain(line func(string)) error {
 	if _, err := fw.f.Seek(fw.offset, io.SeekStart); err != nil {
-		return nil, err
+		return err
 	}
-	r := bufio.NewReader(fw.f)
-	var lines []string
+	if fw.r == nil {
+		fw.r = bufio.NewReaderSize(fw.f, readChunk)
+	} else {
+		fw.r.Reset(fw.f)
+	}
 	for {
-		chunk, err := r.ReadBytes('\n')
-		if len(chunk) > 0 {
-			fw.offset += int64(len(chunk))
+		frag, err := fw.r.ReadSlice('\n')
+		if len(frag) > 0 {
+			fw.offset += int64(len(frag))
+			complete := frag[len(frag)-1] == '\n'
 			switch {
 			case fw.discarding:
 				// The rest of an overlong line: drop it through its newline.
-				fw.discarding = chunk[len(chunk)-1] != '\n'
-			case chunk[len(chunk)-1] == '\n':
-				if len(fw.buf) > 0 {
-					fw.buf = append(fw.buf, chunk...)
-					lines = append(lines, string(fw.buf))
-					fw.buf = nil
-				} else {
-					lines = append(lines, string(chunk))
-				}
-			case len(fw.buf)+len(chunk) > maxPartialLine:
-				fw.buf, fw.discarding = nil, true
+				fw.discarding = !complete
+			case len(fw.buf)+len(frag) > maxLine:
+				fw.buf, fw.discarding = nil, !complete
 				if !fw.warned && fw.log != nil {
-					fw.log.Warn("discarding a log line longer than the partial-line cap", "role", fw.role, "cap", maxPartialLine)
+					fw.log.Warn("discarding a log line longer than the line cap", "role", fw.role, "cap", maxLine)
 				}
 				fw.warned = true
+			case complete && len(fw.buf) > 0:
+				fw.buf = append(fw.buf, frag...)
+				line(string(fw.buf))
+				fw.buf = nil
+			case complete:
+				line(string(frag))
 			default:
-				fw.buf = append(fw.buf, chunk...)
+				// frag is only valid until the next read: copy it.
+				fw.buf = append(fw.buf, frag...)
 			}
 		}
-		if err != nil {
-			if err == io.EOF {
-				return lines, nil
-			}
-			return lines, err
+		switch err {
+		case nil, bufio.ErrBufferFull:
+		case io.EOF:
+			return nil
+		default:
+			return err
 		}
 	}
 }
