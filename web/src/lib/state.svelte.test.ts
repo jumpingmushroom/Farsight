@@ -1201,6 +1201,44 @@ describe('profile refresh (fix round 1)', () => {
 		expect(app.profileFailed).toBe(false);
 		expect(app.profile).toMatchObject({ id: '1' });
 	});
+
+	test('a poll refresh slower than the poll interval still lands: polls never stack a second request', async () => {
+		const { app, server } = setup('#s=a');
+		server.profiles['a/1'] = makeProfile({ online: true });
+		app.start();
+		await flush();
+		app.openView({ kind: 'profile', player: '1' });
+		await flush();
+		let release!: () => void;
+		const gate = new Promise<void>((r) => (release = r));
+		server.override = async (call) => {
+			if (call.path === '/api/servers/a/players/1') await gate;
+			return server.route(call);
+		};
+		server.profiles['a/1'] = makeProfile({ online: false, lastSeen: '2026-09-30T10:00:00Z' });
+		const before = server.count('/api/servers/a/players/1');
+		await vi.advanceTimersByTimeAsync(CARD_EVERY_MS); // starts the slow poll
+		await vi.advanceTimersByTimeAsync(CARD_EVERY_MS); // a second poll while it's in flight
+		expect(server.count('/api/servers/a/players/1')).toBe(before + 1);
+		release();
+		await flush();
+		expect(app.profile?.online).toBe(false);
+	});
+
+	test('a failed poll refresh keeps showing the loaded profile instead of the failure state', async () => {
+		const { app, server } = setup('#s=a');
+		server.profiles['a/1'] = makeProfile();
+		app.start();
+		await flush();
+		app.openView({ kind: 'profile', player: '1' });
+		await flush();
+		const shown = app.profile;
+		server.profiles['a/1'] = 502;
+		await vi.advanceTimersByTimeAsync(CARD_EVERY_MS);
+		await flush();
+		expect(app.profileFailed).toBe(false);
+		expect(app.profile).toBe(shown);
+	});
 });
 
 describe('activity refresh (fix round 1)', () => {

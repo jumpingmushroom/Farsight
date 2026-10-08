@@ -180,6 +180,8 @@ export class AppState {
 	private profileFor: { id: string; player: string } | undefined;
 	/** Bumped on every (re)fetch, close or switch: a stale fetch's result is dropped, which is as close to "abort" as a plain fetch gets. */
 	private profileGen = 0;
+	/** A profile fetch is in flight: polls are single-flight (like activityRefreshing), so a fetch slower than the poll interval still lands. */
+	private profileRefreshing = false;
 	/** The server id the shown activityPages/today are for, or the one just requested. */
 	private activityFor: string | undefined;
 	/** Bumped only on a real context change (open for a new id, close, switch): discards a fetch that resolves after it, same purpose as profileGen. */
@@ -543,9 +545,10 @@ export class AppState {
 	 * Fetches or refreshes the open profile: a fresh load (clearing
 	 * `profile`/`profileFailed` so the skeleton shows again) when the view
 	 * just opened or now names a different player; otherwise, when `poll`
-	 * is true, a quiet background refresh that only updates `profile` /
-	 * `profileFailed` once it lands, so a card poll never flickers the
-	 * panel. With no profile view open, this discards whatever the last
+	 * is true, a quiet background refresh that only updates `profile` once
+	 * it lands (and never sets `profileFailed` over a loaded profile), so a
+	 * card poll never flickers the panel. Single flight: a poll while a
+	 * fetch is in flight starts nothing. With no profile view open, this discards whatever the last
 	 * fetch was doing and clears both fields — covering close and
 	 * switching server, which call it with `this.view` already cleared.
 	 */
@@ -558,18 +561,21 @@ export class AppState {
 				this.profileFor = undefined;
 				this.profile = undefined;
 				this.profileFailed = false;
+				this.profileRefreshing = false;
 			}
 			return;
 		}
 		const player = view.player;
 		const fresh = this.profileFor?.id !== id || this.profileFor?.player !== player;
 		if (!fresh && !poll) return;
+		if (!fresh && this.profileRefreshing) return; // a fetch is already in flight; the next poll tries again
 		if (fresh) {
 			this.profile = undefined;
 			this.profileFailed = false;
 		}
 		this.profileFor = { id, player };
 		this.profileGen++;
+		this.profileRefreshing = true;
 		const g = this.profileGen;
 		void (async () => {
 			try {
@@ -579,8 +585,13 @@ export class AppState {
 				this.profileFailed = false;
 			} catch (err) {
 				if (g !== this.profileGen) return;
-				this.profileFailed = true;
+				// A failed quiet refresh keeps the loaded profile on screen:
+				// ProfileContent shows the failure state over any data, so
+				// only a load with nothing to show yet may set it.
+				if (fresh || this.profile === undefined) this.profileFailed = true;
 				this.log('farsight: profile refresh failed', err);
+			} finally {
+				if (g === this.profileGen) this.profileRefreshing = false;
 			}
 		})();
 	}
