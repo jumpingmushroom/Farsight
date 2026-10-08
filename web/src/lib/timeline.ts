@@ -5,8 +5,8 @@
 // uses the same text, icons and filters.
 
 import { fmtCode } from './format';
-import type { Activity, Category, TodaySessions } from './types';
-import { dayKey, prevDayKey, zClock, zWeekday } from './zoned';
+import type { Activity, ActivityPage, Category, TodaySessions } from './types';
+import { dayKey, daysBetween, prevDayKey, zClock, zWeekday } from './zoned';
 
 export type ActivityIcon = 'log-in' | 'log-out' | 'power' | 'map' | 'skull' | 'flame' | 'home' | 'portal' | 'paw-print' | 'alert';
 export type Tone = 'ember' | 'neutral' | 'sage' | 'cold';
@@ -156,6 +156,19 @@ export function collapseAutosaves(events: readonly Activity[]): Activity[] {
 		out.push(e);
 	}
 	return out;
+}
+
+/**
+ * How many local days the loaded pages span, for the "Last N days"
+ * header: from the oldest page's `from` through today in the server's
+ * zone. Not pages × 3: a quiet refresh can widen page 0 (up to 14 days)
+ * to keep it contiguous with an earlier page. 3 (the default window)
+ * while nothing is loaded.
+ */
+export function loadedDays(pages: readonly Pick<ActivityPage, 'from' | 'timeZone'>[], now: Date): number {
+	const oldest = pages.at(-1);
+	if (!oldest) return 3;
+	return Math.max(1, daysBetween(dayKey(oldest.from, oldest.timeZone), dayKey(now, oldest.timeZone)) + 1);
 }
 
 export interface DayGroup {

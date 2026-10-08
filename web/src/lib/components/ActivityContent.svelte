@@ -32,6 +32,7 @@
 		eventText,
 		eventTone,
 		groupByDay,
+		loadedDays,
 		passes,
 		sourceText,
 		todayRowLabel,
@@ -76,7 +77,7 @@
 	const whoToday = $derived(today ? todayRows(today, app.now, filters.people) : undefined);
 
 	$effect(() => {
-		days = Math.max(1, pages.length) * 3;
+		days = loadedDays(pages, app.now);
 	});
 </script>
 
