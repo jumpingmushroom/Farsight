@@ -29,6 +29,7 @@
 		defaultLayers,
 		enabledLayerCount,
 		layerCounts,
+		linkedMarker,
 		markerAt,
 		markersKey,
 		visibleMarkers,
@@ -355,10 +356,15 @@
 		select(altar.id);
 	}
 
-	/** A profile's "Map →": centre on the item at zoom 4, selecting its marker when it's on the map. */
+	/**
+	 * A profile's "Map →": centre on the item at zoom 4, selecting its
+	 * marker when it's on the map — found by position as well as id, since
+	 * ids are per save (linkedMarker).
+	 */
 	function mapTo(x: number, z: number, id: string): void {
 		atlas?.centerOn(x, z, 4);
-		if (all.some((m) => m.id === id)) select(id);
+		const m = linkedMarker(all, id, x, z);
+		if (m) select(m.id);
 	}
 
 	/** The timeline's "Show on map →": centre at zoom 4, selecting the marker there if any. */

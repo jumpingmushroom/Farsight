@@ -36,6 +36,7 @@
 		buildMarkers,
 		defaultLayers,
 		layerCounts,
+		linkedMarker,
 		markerAt,
 		markersKey,
 		visibleMarkers,
@@ -160,14 +161,14 @@
 		selectedKey = m ? keyOf(m) : undefined;
 	}
 
-	/** Selects a marker and centres it at y ≈ 300 px (design frame 4). */
-	function focusMarker(m: MapMarker, z: number): void {
+	/** Selects a marker and centres it (or `at`, a profile link's own position) at y ≈ 300 px (design frame 4). */
+	function focusMarker(m: MapMarker, z: number, at: { x: number; z: number } = m): void {
 		if (map) {
 			const h = map.getSize().y;
 			// Let maxBounds pan far enough to put the pin at y ≈ 300 (at the
 			// default zoom the world barely exceeds the screen).
 			atlas?.setPadBottom(cardPadBottom(h));
-			atlas?.centerOn(m.x, m.z, z, centerDy(h));
+			atlas?.centerOn(at.x, at.z, z, centerDy(h));
 		}
 		select(m.id);
 	}
@@ -232,7 +233,8 @@
 
 	/**
 	 * A profile's "Map →": close the sheet, then centre on the item
-	 * (selecting its marker when on the map). The row with focus closes
+	 * (selecting its marker when on the map — found by position as well as
+	 * id, since ids are per save: linkedMarker). The row with focus closes
 	 * along with the sheet, so once things settle (fix round 1), focus
 	 * moves to the docked marker card's Close button when the item landed
 	 * on one, or to the map itself otherwise (an item not currently on the
@@ -241,9 +243,9 @@
 	function mapTo(x: number, z: number, id: string): void {
 		app.closeView();
 		snap = 'peek';
-		const m = all.find((mm) => mm.id === id);
+		const m = linkedMarker(all, id, x, z);
 		if (m) {
-			focusMarker(m, 4);
+			focusMarker(m, 4, { x, z });
 		} else if (map) {
 			atlas?.centerOn(x, z, 4, centerDy(map.getSize().y));
 		}
