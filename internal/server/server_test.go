@@ -162,6 +162,57 @@ func TestIngestSnapshotReusedChunkedSaveNumberIsStored(t *testing.T) {
 	}
 }
 
+// A save time far in the future (the agent host's clock, or a file
+// touched by hand) is stored as the time it arrived, so it can't stay
+// "latest" forever; a retry of it, clamped to a later now, still dedupes,
+// and the next correct save becomes the latest.
+func TestIngestSnapshotFutureSavedAtIsClamped(t *testing.T) {
+	e := newEnv(t)
+	future := testSnapshot("chunked:5", at(24*time.Hour))
+	if err := e.post("alpha", "alpha-token", "snapshot", future); err != nil {
+		t.Fatal(err)
+	}
+	_, savedAt, ok, err := e.store.LatestSnapshot(t.Context(), "alpha")
+	if err != nil || !ok || !savedAt.Equal(at(0)) {
+		t.Fatalf("latest saved at %v ok=%v err=%v, want clamped to now %v", savedAt, ok, err, at(0))
+	}
+	blob, _, _, _ := e.store.LatestSnapshot(t.Context(), "alpha")
+	var got extract.Snapshot
+	if err := json.Unmarshal(blob, &got); err != nil || !got.SavedAt.Equal(at(0)) {
+		t.Fatalf("stored snapshot savedAt = %v (%v), want %v", got.SavedAt, err, at(0))
+	}
+
+	e.clock.Add(time.Minute)
+	r := e.do("POST", "/ingest/alpha/snapshot", gzipBytes(t, mustJSON(t, future)),
+		map[string]string{"Authorization": "Bearer alpha-token", "Content-Encoding": "gzip"}, "")
+	var out map[string]any
+	r.json(t, &out)
+	if r.code != 200 || out["stored"] != false {
+		t.Fatalf("retry: %d stored=%v, want 200 false", r.code, out["stored"])
+	}
+
+	e.clock.Add(10 * time.Minute)
+	next := testSnapshot("chunked:6", at(10*time.Minute))
+	if err := e.post("alpha", "alpha-token", "snapshot", next); err != nil {
+		t.Fatal(err)
+	}
+	if _, savedAt, _, _ := e.store.LatestSnapshot(t.Context(), "alpha"); !savedAt.Equal(next.SavedAt) {
+		t.Fatalf("latest saved at %v, want the next save %v", savedAt, next.SavedAt)
+	}
+}
+
+// A save time a few minutes ahead (ordinary clock skew) is kept.
+func TestIngestSnapshotSlightlyFutureSavedAtIsKept(t *testing.T) {
+	e := newEnv(t)
+	snap := testSnapshot("chunked:5", at(9*time.Minute))
+	if err := e.post("alpha", "alpha-token", "snapshot", snap); err != nil {
+		t.Fatal(err)
+	}
+	if _, savedAt, _, _ := e.store.LatestSnapshot(t.Context(), "alpha"); !savedAt.Equal(snap.SavedAt) {
+		t.Fatalf("latest saved at %v, want %v", savedAt, snap.SavedAt)
+	}
+}
+
 // Case 3: events counts and replay.
 func TestIngestEventsCountsAndReplay(t *testing.T) {
 	e := newEnv(t)

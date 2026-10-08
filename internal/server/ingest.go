@@ -201,6 +201,13 @@ func storedSaveID(saveID string, savedAt time.Time) string {
 	return saveID
 }
 
+// maxSnapshotFuture is how far past now a snapshot's SavedAt (the save
+// file's mtime, by the agent host's clock) may be before it is stored as
+// now instead. Left alone, a future save time stays the latest save for
+// good, moves the world diff past every correct save that follows and
+// stalls the world clock estimate.
+const maxSnapshotFuture = 10 * time.Minute
+
 func (s *server) ingestSnapshot(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.authIngest(w, r)
 	if !ok {
@@ -221,7 +228,14 @@ func (s *server) ingestSnapshot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// The id comes from the save time as sent, before any clamp: a retry
+	// of a clamped save would clamp to a later now, and must still dedupe.
 	snap.SaveID = storedSaveID(snap.SaveID, snap.SavedAt)
+	if now := s.Now(); snap.SavedAt.After(now.Add(maxSnapshotFuture)) {
+		s.Log.Warn("server: snapshot saved in the future, stored as received now",
+			"server", id, "saveId", snap.SaveID, "savedAt", snap.SavedAt, "offset", snap.SavedAt.Sub(now).Round(time.Second))
+		snap.SavedAt = now
+	}
 	blob, err := json.Marshal(snap)
 	if err != nil {
 		s.Log.Error("server: encode snapshot", "server", id, "err", err)
