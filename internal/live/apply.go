@@ -201,6 +201,7 @@ func (a *Applier) Apply(ctx context.Context, serverID string, evs []logwatch.Eve
 				}
 				live.Status = "restarting"
 				statusChanged = true
+				endBoot(&live, e.At)
 
 			case logwatch.EvServerStarting, logwatch.EvServerBoot:
 				until := e.At
@@ -212,6 +213,7 @@ func (a *Applier) Apply(ctx context.Context, serverID string, evs []logwatch.Eve
 				}
 				live.Status = "starting"
 				statusChanged = true
+				endBoot(&live, e.At)
 				live.UpSince = e.At
 				if e.Type == logwatch.EvServerBoot {
 					live.Version = e.Version
@@ -290,6 +292,19 @@ func (a *Applier) Apply(ctx context.Context, serverID string, evs []logwatch.Eve
 		return applied, skipped, err
 	}
 	return applied, skipped, nil
+}
+
+// endBoot clears what a restart at at invalidates in l: the player count
+// (every session was just closed) and the previous boot's crossplay join
+// code, which the new boot replaces with its own. The supervisor's log
+// (stopped, starting) and the server's are read by separate followers,
+// so the restart may be applied after the new boot's join code: a code
+// logged after at is kept.
+func endBoot(l *store.Live, at time.Time) {
+	l.Players = 0
+	if !l.JoinCodeAt.After(at) {
+		l.JoinCode, l.JoinCodeAt = "", time.Time{}
+	}
 }
 
 // skippedIntro reports whether e, a player_death flagged Intro (logged

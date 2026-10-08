@@ -512,6 +512,57 @@ func TestApplyReplayOfPrunedEventsLeavesLiveStateUnchanged(t *testing.T) {
 	}
 }
 
+// A restart ends the old boot's crossplay session: its join code no
+// longer works and nobody is on, until the new boot logs its own.
+func TestApplyRestartClearsJoinCodeAndPlayers(t *testing.T) {
+	for _, typ := range []string{logwatch.EvServerStopped, logwatch.EvServerStarting, logwatch.EvServerBoot} {
+		t.Run(typ, func(t *testing.T) {
+			s := newTestStore(t)
+			ctx := context.Background()
+			at := parseTime("2026-01-01T10:00:00Z")
+			a := &Applier{Store: s, Now: fixedNow(at.Add(time.Hour))}
+			p2 := 2
+			if _, _, err := a.Apply(ctx, "srv", []logwatch.Event{
+				{ID: "c1", Type: logwatch.EvJoinCode, At: at, Code: "111111"},
+				{ID: "p1", Type: logwatch.EvPlayersNow, At: at, Players: &p2},
+				{ID: "r1", Type: typ, At: at.Add(10 * time.Minute)},
+			}); err != nil {
+				t.Fatal(err)
+			}
+			l, _, err := s.GetLive(ctx, nil, "srv")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if l.Players != 0 || l.JoinCode != "" || !l.JoinCodeAt.IsZero() {
+				t.Fatalf("live = %+v, want no players and no join code", l)
+			}
+		})
+	}
+}
+
+// The supervisor's log (stopped, starting) and the server's are read by
+// separate followers, so a restart may be applied after the new boot's
+// join code: a code logged after the restart stays.
+func TestApplyRestartKeepsANewerJoinCode(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	at := parseTime("2026-01-01T10:00:00Z")
+	a := &Applier{Store: s, Now: fixedNow(at.Add(time.Hour))}
+	if _, _, err := a.Apply(ctx, "srv", []logwatch.Event{
+		{ID: "c1", Type: logwatch.EvJoinCode, At: at.Add(time.Minute), Code: "222222"},
+		{ID: "s1", Type: logwatch.EvServerStarting, At: at},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	l, _, err := s.GetLive(ctx, nil, "srv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.JoinCode != "222222" {
+		t.Fatalf("join code = %q, want the newer 222222 kept", l.JoinCode)
+	}
+}
+
 func TestApplyStoresRaidEvents(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
