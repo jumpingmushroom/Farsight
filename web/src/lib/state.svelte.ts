@@ -67,6 +67,9 @@ export function unlockMessage(r: Exclude<UnlockResult, 'ok'> | 'error'): string 
 
 const hasDocument = () => typeof document !== 'undefined';
 
+/** Two RFC 3339 timestamps name the same instant (activity page boundaries). */
+const sameInstant = (a: string, b: string) => Date.parse(a) === Date.parse(b);
+
 function documentVisibility(): Visibility {
 	return {
 		visible: () => !hasDocument() || document.visibilityState !== 'hidden',
@@ -180,6 +183,8 @@ export class AppState {
 	private profileFor: { id: string; player: string } | undefined;
 	/** Bumped on every (re)fetch, close or switch: a stale fetch's result is dropped, which is as close to "abort" as a plain fetch gets. */
 	private profileGen = 0;
+	/** A profile fetch is in flight: polls are single-flight (like activityRefreshing), so a fetch slower than the poll interval still lands. */
+	private profileRefreshing = false;
 	/** The server id the shown activityPages/today are for, or the one just requested. */
 	private activityFor: string | undefined;
 	/** Bumped only on a real context change (open for a new id, close, switch): discards a fetch that resolves after it, same purpose as profileGen. */
@@ -191,6 +196,16 @@ export class AppState {
 	private log: (message: string, err: unknown) => void;
 
 	private savedAt: string | undefined;
+	/** Bumped by every refreshServers() call: orders overlapping list responses. */
+	private serversSeq = 0;
+	/** The newest servers request whose result was applied (or invalidated by an unlock): older responses are dropped. */
+	private serversApplied = 0;
+	/**
+	 * The hash link boot lands on once a server list arrives, until a
+	 * server is first selected: the first list request can fail, and a
+	 * later poll's list must still select (and open the linked view).
+	 */
+	private landing: { server?: string; view?: View } | undefined;
 	/** Bumped by a server switch (select, moveOff); responses from older generations are dropped. */
 	private gen = 0;
 	/** The refresh in flight, if any (single flight per generation). */
@@ -246,6 +261,7 @@ export class AppState {
 			offVisible();
 			offHash();
 			clearTimeout(this.toastTimer);
+			this.landing = undefined;
 			if (this.stopFn === stop) this.stopFn = undefined;
 		};
 		this.stopFn = stop;
@@ -269,10 +285,23 @@ export class AppState {
 			if (result !== 'ok') this.unlockPrompt = { server: link.server, error: unlockMessage(result) };
 		}
 		if (stopped()) return;
+		this.landing = { server: link.server, view: link.view };
 		if (!this.loaded) await this.refreshServers();
-		if (stopped() || this.currentId !== undefined) return;
+		if (stopped()) return;
+		this.land();
+	}
+
+	/** Selects the linked (or else the first) server once one is listed, if nothing is selected yet; see `landing`. */
+	private land(): void {
+		const link = this.landing;
+		if (link === undefined) return;
+		if (this.currentId !== undefined) {
+			this.landing = undefined;
+			return;
+		}
 		const pick = this.servers.find((s) => s.id === link.server)?.id ?? this.servers[0]?.id;
 		if (pick === undefined) return;
+		this.landing = undefined;
 		this.select(pick);
 		// A linked profile or timeline opens over its server. It added no
 		// history entry, so closing it replaces the hash instead of going back.
@@ -394,15 +423,27 @@ export class AppState {
 		}
 	}
 
+	/**
+	 * Reloads the server list. Overlapping calls (the 60 s poll, an
+	 * unlock's reload) apply in request order, not arrival order: a
+	 * response older than the last one applied is dropped, so a slow poll
+	 * carrying a pre-unlock list can't move off the server just unlocked.
+	 */
 	async refreshServers(): Promise<void> {
+		const seq = ++this.serversSeq;
+		const stale = () => seq <= this.serversApplied;
 		try {
 			const list = await listServers(this.f);
+			if (stale()) return;
+			this.serversApplied = seq;
 			this.ok();
 			const cur = this.currentId;
 			// moveOff reads the neighbour index from the old list, so it runs first.
 			if (cur !== undefined && !list.some((s) => s.id === cur)) this.moveOff(cur, list);
 			this.servers = list;
+			this.land();
 		} catch (err) {
+			if (stale()) return;
 			this.fail(err);
 		} finally {
 			this.loaded = true;
@@ -413,6 +454,10 @@ export class AppState {
 	async tryUnlock(server: string, passphrase: string): Promise<UnlockResult> {
 		const r = await unlock(server, passphrase, this.f);
 		if (r === 'ok') {
+			// Lists requested before the unlock can't include `server`; and
+			// it, not boot's pending landing, is what gets selected.
+			this.serversApplied = this.serversSeq;
+			this.landing = undefined;
 			await this.refreshServers();
 			this.select(server);
 		}
@@ -495,10 +540,12 @@ export class AppState {
 	 * "Show earlier": fetches the three local days before the oldest loaded
 	 * page's `from`, and appends it — the pages already loaded (including
 	 * page 0, which a quiet poll refresh may replace concurrently) are
-	 * never discarded. Guarded by identity against exactly that race: if
-	 * the oldest page is no longer the one this call started with (a poll
-	 * refresh replaced page 0, the only page, while this was in flight, or
-	 * the view closed/switched), the result is dropped.
+	 * never discarded. Guarded by page boundaries against exactly that
+	 * race: a poll refresh that replaced page 0 with the same window keeps
+	 * the result, but if the oldest page's `from` no longer meets the new
+	 * page's `until` (page 0's window slid past midnight meanwhile), the
+	 * result is dropped rather than leave a gap, as it is if the view
+	 * closed or switched.
 	 */
 	async loadEarlierActivity(): Promise<void> {
 		if (this.currentId === undefined || this.view?.kind !== 'activity' || this.activityLoadingMore) return;
@@ -510,7 +557,8 @@ export class AppState {
 		try {
 			const p = await getActivity(id, oldest.from, this.f);
 			if (g !== this.activityGen) return;
-			if (this.activityPages.at(-1) === oldest) this.activityPages = [...this.activityPages, p];
+			const last = this.activityPages.at(-1);
+			if (last && sameInstant(last.from, p.until)) this.activityPages = [...this.activityPages, p];
 		} catch (err) {
 			if (g !== this.activityGen) return;
 			this.showToast('Couldn’t load earlier activity', 'Try again in a moment.');
@@ -543,9 +591,10 @@ export class AppState {
 	 * Fetches or refreshes the open profile: a fresh load (clearing
 	 * `profile`/`profileFailed` so the skeleton shows again) when the view
 	 * just opened or now names a different player; otherwise, when `poll`
-	 * is true, a quiet background refresh that only updates `profile` /
-	 * `profileFailed` once it lands, so a card poll never flickers the
-	 * panel. With no profile view open, this discards whatever the last
+	 * is true, a quiet background refresh that only updates `profile` once
+	 * it lands (and never sets `profileFailed` over a loaded profile), so a
+	 * card poll never flickers the panel. Single flight: a poll while a
+	 * fetch is in flight starts nothing. With no profile view open, this discards whatever the last
 	 * fetch was doing and clears both fields — covering close and
 	 * switching server, which call it with `this.view` already cleared.
 	 */
@@ -558,18 +607,21 @@ export class AppState {
 				this.profileFor = undefined;
 				this.profile = undefined;
 				this.profileFailed = false;
+				this.profileRefreshing = false;
 			}
 			return;
 		}
 		const player = view.player;
 		const fresh = this.profileFor?.id !== id || this.profileFor?.player !== player;
 		if (!fresh && !poll) return;
+		if (!fresh && this.profileRefreshing) return; // a fetch is already in flight; the next poll tries again
 		if (fresh) {
 			this.profile = undefined;
 			this.profileFailed = false;
 		}
 		this.profileFor = { id, player };
 		this.profileGen++;
+		this.profileRefreshing = true;
 		const g = this.profileGen;
 		void (async () => {
 			try {
@@ -579,8 +631,13 @@ export class AppState {
 				this.profileFailed = false;
 			} catch (err) {
 				if (g !== this.profileGen) return;
-				this.profileFailed = true;
+				// A failed quiet refresh keeps the loaded profile on screen:
+				// ProfileContent shows the failure state over any data, so
+				// only a load with nothing to show yet may set it.
+				if (fresh || this.profile === undefined) this.profileFailed = true;
 				this.log('farsight: profile refresh failed', err);
+			} finally {
+				if (g === this.profileGen) this.profileRefreshing = false;
 			}
 		})();
 	}
@@ -645,7 +702,11 @@ export class AppState {
 				const [p, t] = await Promise.all([getActivity(id, undefined, this.f, undefined, days), getSessionsToday(id, this.f)]);
 				if (g !== this.activityGen) return;
 				this.today = t;
-				this.activityPages = this.activityPages.length === 0 ? [p] : [p, ...this.activityPages.slice(1)];
+				// An earlier page that landed while this was in flight (it was
+				// asked for without the pinned `days`) can leave a page 0 that
+				// no longer meets it: drop that, and the next poll pins it.
+				const next = this.activityPages[1];
+				if (!next || sameInstant(p.from, next.until)) this.activityPages = [p, ...this.activityPages.slice(1)];
 				this.activityFailed = false;
 			} catch (err) {
 				if (g !== this.activityGen) return;

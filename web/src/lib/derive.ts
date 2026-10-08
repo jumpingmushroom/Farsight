@@ -3,20 +3,10 @@
 // against DESIGN-NOTES §3.3, §3.5, §3.7, §3.8, §3.9, §3.10, §3.11, §3.19,
 // §3.22 and the plan's rulings on design ambiguities.
 
-import { fmtClock, fmtDayRef, fmtMapAge } from './format';
+import { fmtMapAge } from './format';
 import { eventIcon, eventText, eventTone, passes, type ActivityIcon, type Tone } from './timeline';
 import type { Activity, Card, Category, Marker, ServerSummary, Status, WorldCard } from './types';
-
-const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-function sameLocalDay(a: Date, b: Date): boolean {
-	return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-}
-
-function isPreviousLocalDay(a: Date, b: Date): boolean {
-	const prev = new Date(b.getFullYear(), b.getMonth(), b.getDate() - 1);
-	return a.getFullYear() === prev.getFullYear() && a.getMonth() === prev.getMonth() && a.getDate() === prev.getDate();
-}
+import { cardZone, dayKey, prevDayKey, zClock, zDayMonth, zDayRef } from './zoned';
 
 // --- Status (§3.3) --------------------------------------------------------
 
@@ -108,11 +98,12 @@ export interface MapPill {
 	savedClock: string;
 }
 
-export function mapPill(world: WorldCard, now: Date): MapPill {
+/** `tz` is the server's zone (cardZone), for the snapshot's autosave clock. */
+export function mapPill(world: WorldCard, now: Date, tz: string): MapPill {
 	const savedAt = new Date(world.savedAt);
 	const elapsedSec = Math.max(0, (now.getTime() - savedAt.getTime()) / 1000);
 	const age = fmtMapAge(elapsedSec / 60);
-	const savedClock = fmtClock(world.savedAt);
+	const savedClock = zClock(world.savedAt, tz);
 	if (world.saveIntervalSec === undefined) {
 		return { age, savedClock };
 	}
@@ -129,6 +120,7 @@ export type MapState =
 	| { kind: 'waiting' }
 	| { kind: 'charting'; pct: number; done: number; total: number; etaMin?: number }
 	| { kind: 'refused' }
+	| { kind: 'undrawn' }
 	| { kind: 'ready'; stale: false }
 	| { kind: 'ready'; stale: true; ageText: string; usualMin?: number };
 
@@ -150,8 +142,14 @@ export function mapState(card: Card, now: Date, samples: TileSample[] = []): Map
 	if (!card.world) {
 		return { kind: 'waiting' };
 	}
-	if (card.tiles.state === 'refused' || card.tiles.state === 'none') {
+	if (card.tiles.state === 'refused') {
 		return { kind: 'refused' };
+	}
+	// "none" is not a refusal (internal/tileset/manager.go StateNone): the
+	// tile set was never asked for yet, or its last render failed; the
+	// server asks again on every save it receives.
+	if (card.tiles.state === 'none') {
+		return { kind: 'undrawn' };
 	}
 	if (card.tiles.state === 'queued' || card.tiles.state === 'rendering') {
 		const pct = card.tiles.total > 0 ? Math.round((card.tiles.done / card.tiles.total) * 100) : 0;
@@ -183,7 +181,7 @@ export function nextEtaMin(samples: TileSample[], total: number): number | undef
 
 // --- Map overlays, filters and pin treatment (§3.13, §3.22; ruling 2) --------
 
-export type BannerTone = 'offline' | 'stale' | 'refused';
+export type BannerTone = 'offline' | 'stale' | 'refused' | 'undrawn';
 
 export type Overlay =
 	| { kind: 'waiting' }
@@ -223,7 +221,7 @@ export function mapFilter(biomes: boolean, tone: 'offline' | 'stale' | undefined
 export function offlineTitle(card: Card, now: Date): string {
 	if (!card.lastHeartbeat) return 'Server offline';
 	const ago = agoShort(sessionSeconds(card.lastHeartbeat, now));
-	return `Server offline · last seen online ${fmtDayRef(card.lastHeartbeat, now)} (${ago})`;
+	return `Server offline · last seen online ${zDayRef(card.lastHeartbeat, cardZone(card), now)} (${ago})`;
 }
 
 const OFFLINE_BODY = 'The map is still here to browse. We’ll switch back to live as soon as it answers.';
@@ -232,12 +230,16 @@ const STALE_BODY =
 const REFUSED_TITLE = 'Can’t draw this world’s map yet';
 const REFUSED_BODY =
 	'This world was made by a newer game version than Farsight knows. Markers and the online list still work.';
+const UNDRAWN_TITLE = 'The map isn’t drawn yet';
+const UNDRAWN_BODY =
+	'Farsight draws it from the world save and tries again with the next one. Markers and the online list still work.';
 
 /**
  * The map's state treatment, highest precedence first: waiting (no save),
- * charting, refused/none banner, offline banner, stale banner, else the
- * map-updated pill. Offline beats stale for the banner, filter and pins;
- * the refused banner keeps the offline treatment when the server is down.
+ * charting, refused or undrawn (tiles "none") banner, offline banner,
+ * stale banner, else the map-updated pill. Offline beats stale for the
+ * banner, filter and pins; the refused and undrawn banners keep the
+ * offline treatment when the server is down.
  * `tint` (the world clock's night/evening, worldtime.ts `tintOf`) is
  * appended to the tile filter once there is a map to tint.
  */
@@ -262,6 +264,9 @@ export function mapView(
 	};
 	if (st.kind === 'refused') {
 		return { overlay: { kind: 'banner', tone: 'refused', title: REFUSED_TITLE, body: REFUSED_BODY }, ...base };
+	}
+	if (st.kind === 'undrawn') {
+		return { overlay: { kind: 'banner', tone: 'undrawn', title: UNDRAWN_TITLE, body: UNDRAWN_BODY }, ...base };
 	}
 	if (offline) {
 		return { overlay: { kind: 'banner', tone: 'offline', title: offlineTitle(card, now), body: OFFLINE_BODY }, ...base };
@@ -288,20 +293,23 @@ const RESTARTING_NOTE =
 const OFFLINE_NOTE =
 	'There’s no active session to join. The address stays listed for PC players and will work once the server is back.';
 
-function dayPossessive(iso: string, now: Date): string {
-	const d = new Date(iso);
-	if (sameLocalDay(d, now)) return 'today’s';
-	if (isPreviousLocalDay(d, now)) return 'yesterday’s';
-	return `${d.getDate()} ${MONTH_ABBR[d.getMonth()]}`;
+function dayPossessive(iso: string, now: Date, tz: string): string {
+	const day = dayKey(iso, tz);
+	const today = dayKey(now, tz);
+	if (day === today) return 'today’s';
+	if (day === prevDayKey(today)) return 'yesterday’s';
+	return zDayMonth(iso, tz);
 }
 
 export function joinCodeView(card: Card, now: Date): JoinCodeView {
 	if (!card.crossplay) {
 		return { state: 'none', note: 'Steam server: join by address.', status: '' };
 	}
+	const tz = cardZone(card);
 	if (card.status === 'online' && card.joinCode) {
+		const at = card.joinCodeAt ?? now.toISOString();
 		const note =
-			`Issued at ${dayPossessive(card.joinCodeAt ?? now.toISOString(), now)} ${fmtClock(card.joinCodeAt ?? now.toISOString())} restart. ` +
+			`Issued at ${dayPossessive(at, now, tz)} ${zClock(at, tz)} restart. ` +
 			'A new code is issued every time the server restarts, and this page updates by itself.';
 		return { state: 'live', code: card.joinCode, note, status: 'From server log' };
 	}
@@ -311,7 +319,7 @@ export function joinCodeView(card: Card, now: Date): JoinCodeView {
 	if (card.status === 'starting' || card.status === 'restarting') {
 		return { state: 'restarting', note: RESTARTING_NOTE, status: 'Waiting for new code' };
 	}
-	const status = card.lastHeartbeat ? `Last seen ${fmtClock(card.lastHeartbeat)}` : 'Offline';
+	const status = card.lastHeartbeat ? `Last seen ${zClock(card.lastHeartbeat, tz)}` : 'Offline';
 	return { state: 'offline', note: OFFLINE_NOTE, status };
 }
 
@@ -481,7 +489,7 @@ function agoShort(sec: number): string {
  */
 export function playersEmpty(card: Card, now: Date): EmptyState | undefined {
 	if (isOfflineLike(card.status)) {
-		const save = card.world ? ` The map shows the final save before shutdown (${fmtClock(card.world.savedAt)}).` : '';
+		const save = card.world ? ` The map shows the final save before shutdown (${zClock(card.world.savedAt, cardZone(card))}).` : '';
 		return { title: 'Server is resting', body: `Nobody can join until it’s back.${save}` };
 	}
 	if (card.online.length > 0) return undefined;

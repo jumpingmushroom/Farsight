@@ -8,9 +8,7 @@ process.env.TZ = 'UTC';
 import { describe, expect, test } from 'vitest';
 import {
 	fmtActivityTime,
-	fmtClock,
 	fmtCode,
-	fmtDayRef,
 	fmtInt,
 	fmtKm,
 	fmtLastSeen,
@@ -55,15 +53,6 @@ describe('fmtCode', () => {
 	});
 });
 
-describe('fmtClock', () => {
-	test('renders 24h HH:MM in local time (UTC in tests)', () => {
-		expect(fmtClock('2026-09-30T14:32:00Z')).toBe('14:32');
-	});
-	test('pads single-digit hours and minutes', () => {
-		expect(fmtClock('2026-09-30T03:05:00Z')).toBe('03:05');
-	});
-});
-
 describe('fmtSession', () => {
 	test.each([
 		[4320, '1h 12m'],
@@ -88,39 +77,47 @@ describe('fmtUptime', () => {
 
 describe('fmtActivityTime', () => {
 	test('5 min ago -> "5 min"', () => {
-		expect(fmtActivityTime(isoMinutesAgo(5), NOW)).toBe('5 min');
+		expect(fmtActivityTime(isoMinutesAgo(5), NOW, 'UTC')).toBe('5 min');
 	});
 	test('72 min ago -> "1 h 12 m"', () => {
-		expect(fmtActivityTime(isoMinutesAgo(72), NOW)).toBe('1 h 12 m');
+		expect(fmtActivityTime(isoMinutesAgo(72), NOW, 'UTC')).toBe('1 h 12 m');
 	});
 	test('3 days ago -> "27 Sep"', () => {
-		expect(fmtActivityTime(isoDaysAgo(3), NOW)).toBe('27 Sep');
+		expect(fmtActivityTime(isoDaysAgo(3), NOW, 'UTC')).toBe('27 Sep');
 	});
 	test('clamps under a minute to "1 min"', () => {
-		expect(fmtActivityTime(isoMinutesAgo(0.2), NOW)).toBe('1 min');
+		expect(fmtActivityTime(isoMinutesAgo(0.2), NOW, 'UTC')).toBe('1 min');
 	});
 	test('exact hour has no minutes suffix', () => {
-		expect(fmtActivityTime(isoMinutesAgo(120), NOW)).toBe('2 h');
+		expect(fmtActivityTime(isoMinutesAgo(120), NOW, 'UTC')).toBe('2 h');
+	});
+	test("the date is the server zone's: 23:00 UTC on 26 Sep is 27 Sep in Oslo", () => {
+		expect(fmtActivityTime('2026-09-26T23:00:00Z', NOW, 'Europe/Oslo')).toBe('27 Sep');
 	});
 });
 
 describe('fmtLastSeen', () => {
 	test('24 min ago', () => {
-		expect(fmtLastSeen(isoMinutesAgo(24), NOW)).toBe('last seen 24 min ago');
+		expect(fmtLastSeen(isoMinutesAgo(24), NOW, 'UTC')).toBe('last seen 24 min ago');
 	});
 	test('3 h ago (same calendar day)', () => {
-		expect(fmtLastSeen(isoMinutesAgo(180), NOW)).toBe('last seen 3 h ago');
+		expect(fmtLastSeen(isoMinutesAgo(180), NOW, 'UTC')).toBe('last seen 3 h ago');
 	});
 	test('previous calendar day -> "yesterday", even under 24h', () => {
 		// 2026-09-29T20:00:00Z is 16h before NOW but on the previous UTC day.
-		expect(fmtLastSeen('2026-09-29T20:00:00Z', NOW)).toBe('last seen yesterday');
+		expect(fmtLastSeen('2026-09-29T20:00:00Z', NOW, 'UTC')).toBe('last seen yesterday');
 	});
 	test('older than yesterday -> "D Mon"', () => {
-		expect(fmtLastSeen('2026-09-25T09:00:00Z', NOW)).toBe('last seen 25 Sep');
+		expect(fmtLastSeen('2026-09-25T09:00:00Z', NOW, 'UTC')).toBe('last seen 25 Sep');
 	});
 	test('midnight crossing: 20 min ago but the previous calendar day -> "yesterday"', () => {
 		const midnight = new Date('2026-09-30T00:10:00Z');
-		expect(fmtLastSeen('2026-09-29T23:50:00Z', midnight)).toBe('last seen yesterday');
+		expect(fmtLastSeen('2026-09-29T23:50:00Z', midnight, 'UTC')).toBe('last seen yesterday');
+	});
+	test("days are the server zone's: 22:30 UTC yesterday is already today in Oslo", () => {
+		expect(fmtLastSeen('2026-09-29T22:30:00Z', NOW, 'Europe/Oslo')).toBe('last seen 13 h ago');
+		expect(fmtLastSeen('2026-09-29T21:30:00Z', NOW, 'Europe/Oslo')).toBe('last seen yesterday');
+		expect(fmtLastSeen('2026-09-27T22:30:00Z', NOW, 'Europe/Oslo')).toBe('last seen 28 Sep');
 	});
 });
 
@@ -132,18 +129,6 @@ describe('fmtMapAge', () => {
 		[221, '3 h 41 min ago']
 	])('fmtMapAge(%s) = %s', (min, want) => {
 		expect(fmtMapAge(min)).toBe(want);
-	});
-});
-
-describe('fmtDayRef', () => {
-	test('today', () => {
-		expect(fmtDayRef('2026-09-30T03:12:00Z', NOW)).toBe('today 03:12');
-	});
-	test('yesterday', () => {
-		expect(fmtDayRef('2026-09-29T03:12:00Z', NOW)).toBe('yesterday 03:12');
-	});
-	test('older', () => {
-		expect(fmtDayRef('2026-09-27T03:12:00Z', NOW)).toBe('27 Sep 03:12');
 	});
 });
 

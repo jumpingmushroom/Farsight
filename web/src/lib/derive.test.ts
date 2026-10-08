@@ -185,20 +185,20 @@ describe('activityRows', () => {
 describe('mapPill', () => {
 	test('interval 1200s, saved 12 min ago', () => {
 		const world = makeWorld({ savedAt: iso(-720), saveIntervalSec: 1200 });
-		const pill = mapPill(world, NOW);
+		const pill = mapPill(world, NOW, 'UTC');
 		expect(pill.age).toBe('12 min ago');
 		expect(pill.next).toBe('~8 min');
 		expect(pill.progress).toBeCloseTo(0.6);
 	});
 	test('saved 25 min ago clamps progress to 1 and shows "any moment"', () => {
 		const world = makeWorld({ savedAt: iso(-1500), saveIntervalSec: 1200 });
-		const pill = mapPill(world, NOW);
+		const pill = mapPill(world, NOW, 'UTC');
 		expect(pill.next).toBe('any moment');
 		expect(pill.progress).toBe(1);
 	});
 	test('no interval: no next, no progress', () => {
 		const world = makeWorld({ savedAt: iso(-720), saveIntervalSec: undefined });
-		const pill = mapPill(world, NOW);
+		const pill = mapPill(world, NOW, 'UTC');
 		expect(pill.next).toBeUndefined();
 		expect(pill.progress).toBeUndefined();
 	});
@@ -254,9 +254,9 @@ describe('mapState', () => {
 			throw new Error('expected stale');
 		}
 	});
-	test('tiles none with a world present -> refused', () => {
+	test('tiles none with a world present -> undrawn (never asked for yet, or a failed render awaiting its retry), not refused', () => {
 		const card = makeCard({ world: makeWorld(), tiles: { state: 'none', done: 0, total: 0 } });
-		expect(mapState(card, NOW)).toEqual({ kind: 'refused' });
+		expect(mapState(card, NOW)).toEqual({ kind: 'undrawn' });
 	});
 });
 
@@ -569,9 +569,15 @@ describe('mapView (state precedence, ruling 2)', () => {
 		expect(v.filter).toBe('grayscale(.55) brightness(.8)');
 		expect(v.pinClass).toBe('fs-pins-offline');
 	});
-	test('tiles none with a world -> refused banner', () => {
+	test('tiles none with a world -> its own banner, without the newer-game-version claim; markers stay on', () => {
 		const v = mapView(makeCard({ world: fresh(), tiles: { state: 'none', done: 0, total: 0 } }), NOW, [], true);
-		expect(v.overlay).toMatchObject({ kind: 'banner', tone: 'refused' });
+		expect(v.overlay).toEqual({
+			kind: 'banner',
+			tone: 'undrawn',
+			title: 'The map isn’t drawn yet',
+			body: 'Farsight draws it from the world save and tries again with the next one. Markers and the online list still work.'
+		});
+		expect(v.markersOn).toBe(true);
 	});
 	test('offline -> offline banner, filter and pin class', () => {
 		const card = makeCard({ status: 'offline', lastHeartbeat: '2026-09-30T01:00:00Z', world: fresh(), tiles: complete });
@@ -635,5 +641,27 @@ describe('mapView (state precedence, ruling 2)', () => {
 	test('no tint while waiting or charting (no tiles to tint)', () => {
 		const v = mapView(makeCard({ world: undefined, tiles: complete }), NOW, [], true, 'night');
 		expect(v.filter).toBe('');
+	});
+});
+
+describe('server time zone (review): wall-clock times and days are the server’s, not the viewer’s', () => {
+	// The viewer is in UTC (TZ is pinned); the server is in Oslo (CEST, +2).
+	const tz = 'Europe/Oslo';
+	test('mapPill: the snapshot’s autosave clock', () => {
+		expect(mapPill(makeWorld({ savedAt: '2026-09-30T03:10:00Z' }), NOW, tz).savedClock).toBe('05:10');
+	});
+	test('offlineTitle: 23:30 UTC yesterday is 01:30 today in Oslo', () => {
+		const card = makeCard({ status: 'offline', timeZone: tz, lastHeartbeat: '2026-09-29T23:30:00Z' });
+		expect(offlineTitle(card, NOW)).toBe('Server offline · last seen online today 01:30 (12 h ago)');
+	});
+	test('joinCodeView: the restart the code was issued at, and the offline status', () => {
+		const live = makeCard({ status: 'online', timeZone: tz, joinCode: '318742', joinCodeAt: '2026-09-29T22:30:00Z' });
+		expect(joinCodeView(live, NOW).note).toMatch(/^Issued at today’s 00:30 restart\./);
+		const off = makeCard({ status: 'offline', timeZone: tz, lastHeartbeat: '2026-09-30T03:12:00Z' });
+		expect(joinCodeView(off, NOW).status).toBe('Last seen 05:12');
+	});
+	test('playersEmpty: the final save’s clock', () => {
+		const card = makeCard({ status: 'offline', timeZone: tz, world: makeWorld({ savedAt: '2026-09-30T03:10:00Z' }) });
+		expect(playersEmpty(card, NOW)?.body).toBe('Nobody can join until it’s back. The map shows the final save before shutdown (05:10).');
 	});
 });

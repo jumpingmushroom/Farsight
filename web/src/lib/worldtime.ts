@@ -4,9 +4,9 @@
 // map tint from it. Built against docs/superpowers/specs/2026-10-05-time-and-weather-design.md
 // and the plan's global constraints (exact formulas, thresholds, copy).
 
-import { fmtClock } from './format';
 import { BIOME_LEGEND } from './legend';
 import type { Card, Clock, Weather } from './types';
+import { cardZone, zClock } from './zoned';
 
 /** A game day is 1800 s. */
 const DAY_SEC = 1800;
@@ -142,7 +142,7 @@ export interface TimeView {
 	next: string;
 	/** The progress marker: the raw day fraction × 100. */
 	pct: number;
-	/** The Next and Then column headers: "from HH:MM" (local wall time) running, "after …" paused. */
+	/** The Next and Then column headers: "from HH:MM" (the server's wall time) running, "after …" paused. */
 	heads: { next: string; then: string };
 	rows: WeatherRow[];
 	/** The dropdown's paused notice, only while paused. */
@@ -161,7 +161,7 @@ function weatherAt(weather: Weather, idx: number, offset: number, biome: string)
  * clock is frozen while paused), for a card received at `receivedAt`;
  * undefined when the card has no clock, so there is no pill.
  */
-export function timeView(card: Pick<Card, 'clock' | 'weather'>, receivedAt: Date, now: Date): TimeView | undefined {
+export function timeView(card: Pick<Card, 'clock' | 'weather' | 'timeZone'>, receivedAt: Date, now: Date): TimeView | undefined {
 	const { clock, weather } = card;
 	if (!clock) return undefined;
 	const t = netTimeNow(clock, receivedAt, now);
@@ -187,7 +187,7 @@ export function timeView(card: Pick<Card, 'clock' | 'weather'>, receivedAt: Date
 			const from = (offset: number): string => {
 				const p = idx < 0 ? undefined : weather.periods[idx + offset];
 				if (!p) return DASH;
-				return `from ${fmtClock(new Date(now.getTime() + (p.start - t) * 1000).toISOString())}`;
+				return `from ${zClock(new Date(now.getTime() + (p.start - t) * 1000), cardZone(card))}`;
 			};
 			heads = { next: from(1), then: from(2) };
 		}

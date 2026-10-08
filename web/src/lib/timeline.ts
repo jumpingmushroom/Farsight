@@ -5,8 +5,8 @@
 // uses the same text, icons and filters.
 
 import { fmtCode } from './format';
-import type { Activity, Category, TodaySessions } from './types';
-import { dayKey, prevDayKey, zClock, zWeekday } from './zoned';
+import type { Activity, ActivityPage, Category, TodaySessions } from './types';
+import { dayKey, daysBetween, prevDayKey, zClock, zoned, zWeekday } from './zoned';
 
 export type ActivityIcon = 'log-in' | 'log-out' | 'power' | 'map' | 'skull' | 'flame' | 'home' | 'portal' | 'paw-print' | 'alert';
 export type Tone = 'ember' | 'neutral' | 'sage' | 'cold';
@@ -158,6 +158,19 @@ export function collapseAutosaves(events: readonly Activity[]): Activity[] {
 	return out;
 }
 
+/**
+ * How many local days the loaded pages span, for the "Last N days"
+ * header: from the oldest page's `from` through today in the server's
+ * zone. Not pages × 3: a quiet refresh can widen page 0 (up to 14 days)
+ * to keep it contiguous with an earlier page. 3 (the default window)
+ * while nothing is loaded.
+ */
+export function loadedDays(pages: readonly Pick<ActivityPage, 'from' | 'timeZone'>[], now: Date): number {
+	const oldest = pages.at(-1);
+	if (!oldest) return 3;
+	return Math.max(1, daysBetween(dayKey(oldest.from, oldest.timeZone), dayKey(now, oldest.timeZone)) + 1);
+}
+
 export interface DayGroup {
 	key: string;
 	label: string;
@@ -205,8 +218,37 @@ export interface TodayRow {
 	bars: TodayBar[];
 }
 
-/** "Who was on today": a row per player, a bar per session on the day's axis; open sessions run to `now`. */
-export function todayRows(t: TodaySessions, now: Date, people: readonly string[] = []): { rows: TodayRow[]; nowPct: number; nowClock: string } {
+export interface AxisTick {
+	label: string;
+	/** % of the axis, as the bars are placed. */
+	pct: number;
+}
+
+/**
+ * The instant local `hour` falls on in a day starting at `d0` (ms) in
+ * `tz`: d0 plus `hour` hours, corrected by however far the wall clock
+ * there is off from `hour` (an hour either way across a DST change).
+ */
+function localHour(d0: number, hour: number, tz: string): number {
+	const guess = d0 + hour * 3_600_000;
+	const z = zoned(new Date(guess), tz);
+	let off = hour * 60 - (z.hh * 60 + z.mm);
+	if (off > 720) off -= 1440;
+	if (off < -720) off += 1440;
+	return guess + off * 60_000;
+}
+
+/**
+ * "Who was on today": a row per player, a bar per session on the day's
+ * axis; open sessions run to `now`. Bars sit by elapsed time, and so do
+ * the 00/06/12/18/24 axis ticks: on a 23- or 25-hour DST change day local
+ * noon isn't at 50%, so the ticks are placed at the real local hours.
+ */
+export function todayRows(
+	t: TodaySessions,
+	now: Date,
+	people: readonly string[] = []
+): { rows: TodayRow[]; nowPct: number; nowClock: string; ticks: AxisTick[] } {
 	const d0 = new Date(t.dayStart).getTime();
 	const span = new Date(t.dayEnd).getTime() - d0;
 	const pct = (ms: number) => Math.max(0, Math.min(100, ((ms - d0) / span) * 100));
@@ -231,7 +273,11 @@ export function todayRows(t: TodaySessions, now: Date, people: readonly string[]
 				};
 			})
 		}));
-	return { rows, nowPct: pct(nowMs), nowClock };
+	const ticks = [0, 6, 12, 18, 24].map((h) => ({
+		label: pad2(h),
+		pct: h === 0 ? 0 : h === 24 ? 100 : pct(localHour(d0, h, t.timeZone))
+	}));
+	return { rows, nowPct: pct(nowMs), nowClock, ticks };
 }
 
 /** An accessible summary of one "who was on today" row: "Ragnar: 13:05–14:40 (online now)". */

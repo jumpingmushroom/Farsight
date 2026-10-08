@@ -1,7 +1,8 @@
 <!--
   The map-state banner (DESIGN-NOTES §3.22 and the States ruling), in the
-  map-updated pill's slot: offline (text-coloured, power icon), stale and
-  "Can’t draw this world’s map yet" (accent-100, triangle-alert icon).
+  map-updated pill's slot: offline (text-coloured, power icon), stale,
+  "Can’t draw this world’s map yet" and "The map isn’t drawn yet"
+  (accent-100, triangle-alert icon).
   Position comes from the shell (`left`, `right`, `top`). The `mobile`
   variant is compact and unpositioned: MobileShell places it under the top
   bar.

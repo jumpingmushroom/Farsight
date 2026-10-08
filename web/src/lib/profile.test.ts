@@ -106,6 +106,12 @@ describe('profileView', () => {
 		expect(v.last).toBe('today 12:00');
 		expect(v.beds).toBe('None placed');
 	});
+	test("the status line counts days in the server's zone, like the rest of the profile", () => {
+		// 22:30 UTC on 4 Oct is 00:30 on 5 Oct in Oslo: today, not yesterday.
+		const v = profileView(makeProfile({ online: false, since: undefined, lastSeen: '2026-10-04T22:30:00Z' }), NOW);
+		expect(v.status).toBe('Last seen 13 h ago');
+		expect(v.last).toBe('today 00:30');
+	});
 	test('deaths come from the server log once it has logged any', () => {
 		const p = makeProfile();
 		p.deaths = { ...p.deaths, logged: 12, loggedWeek: 1, loggedSince: '2026-10-06T06:00:00Z' };

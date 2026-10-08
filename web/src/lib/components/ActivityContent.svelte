@@ -32,6 +32,7 @@
 		eventText,
 		eventTone,
 		groupByDay,
+		loadedDays,
 		passes,
 		sourceText,
 		todayRowLabel,
@@ -76,7 +77,7 @@
 	const whoToday = $derived(today ? todayRows(today, app.now, filters.people) : undefined);
 
 	$effect(() => {
-		days = Math.max(1, pages.length) * 3;
+		days = loadedDays(pages, app.now);
 	});
 </script>
 
@@ -98,7 +99,11 @@
 						</li>
 					{/each}
 				</ul>
-				<div class="axis" aria-hidden="true"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
+				<div class="axis" aria-hidden="true">
+					{#each whoToday.ticks as k (k.label)}
+						<span style:left="{k.pct}%" style:translate="-{k.pct}% 0">{k.label}</span>
+					{/each}
+				</div>
 				<div class="legend">
 					<span><i class="key live"></i>Online now</span>
 					<span><i class="key"></i>Earlier session</span>
@@ -278,13 +283,19 @@
 		width: 2px;
 		background: var(--cold);
 	}
+	/* Ticks at their real place on the track (todayRows), each shifted by
+	   its own % so 00 and 24 stay flush with the track's ends. */
 	.axis {
-		display: flex;
-		justify-content: space-between;
-		padding-left: 60px;
+		position: relative;
+		height: 1.3em;
+		margin-left: 60px;
 		font-size: 11px;
 		color: var(--muted);
 		font-variant-numeric: tabular-nums;
+	}
+	.axis span {
+		position: absolute;
+		top: 0;
 	}
 	.legend {
 		display: flex;

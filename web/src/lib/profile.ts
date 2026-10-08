@@ -77,7 +77,7 @@ export function dayBars(days: Profile['days']): ProfileDayBar[] {
 export function profileView(p: Profile, now: Date): ProfileView {
 	const tz = p.timeZone;
 	const sessionSec = p.since ? Math.max(0, (now.getTime() - new Date(p.since).getTime()) / 1000) : 0;
-	const lastSeen = p.lastSeen ? fmtLastSeen(p.lastSeen, now) : '';
+	const lastSeen = p.lastSeen ? fmtLastSeen(p.lastSeen, now, tz) : '';
 	return {
 		initial: Array.from(p.name.trim())[0]?.toUpperCase() ?? '?',
 		status: p.online ? `Online now · ${fmtSession(sessionSec)}` : lastSeen.charAt(0).toUpperCase() + lastSeen.slice(1),

@@ -12,6 +12,7 @@
 	import { fmtLastSeen, fmtSession } from '$lib/format';
 	import { app } from '$lib/state.svelte';
 	import type { Card } from '$lib/types';
+	import { cardZone } from '$lib/zoned';
 	import ActivityList from './ActivityList.svelte';
 	import Avatar from './Avatar.svelte';
 
@@ -54,7 +55,7 @@
 					<Avatar name={r.name} />
 					<div class="who">
 						<div class="name">{r.name}</div>
-						<div class="sub">{fmtLastSeen(r.until, now)}</div>
+						<div class="sub">{fmtLastSeen(r.until, now, cardZone(card))}</div>
 					</div>
 					{#if r.platformId}
 						<button class="btn btn-ghost profile" type="button" aria-label="Profile of {r.name}" onclick={() => app.openView({ kind: 'profile', player: r.platformId }, r.name)}>Profile →</button>

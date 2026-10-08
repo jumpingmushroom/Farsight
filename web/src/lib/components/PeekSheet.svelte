@@ -19,6 +19,7 @@
 	import type { Snap } from '$lib/mobile';
 	import { app } from '$lib/state.svelte';
 	import type { Card } from '$lib/types';
+	import { cardZone } from '$lib/zoned';
 	import ActivityList from './ActivityList.svelte';
 	import Avatar from './Avatar.svelte';
 	import BottomSheet from './BottomSheet.svelte';
@@ -108,7 +109,7 @@
 									<Avatar name={r.name} size={44} />
 									<div class="who">
 										<div class="name">{r.name}</div>
-										<div class="row-sub">{fmtLastSeen(r.until, now)}</div>
+										<div class="row-sub">{fmtLastSeen(r.until, now, cardZone(card))}</div>
 									</div>
 									{#if r.platformId}
 										<button class="profile" type="button" aria-label="Profile of {r.name}" onclick={() => app.openView({ kind: 'profile', player: r.platformId })}>Profile →</button>

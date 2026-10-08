@@ -1,26 +1,10 @@
 // Formatters per DESIGN-NOTES §6 (Copy and formatting). Every time-relative
 // formatter takes `now` explicitly and never reads the clock itself, so
-// callers control determinism. Clock formatting uses local `Date` getters,
-// so in production this shows the viewer's local time; tests pin TZ=UTC.
+// callers control determinism. Day labels are in the server's zone (`tz`,
+// the card's or profile's `timeZone`), the same as every other wall-clock
+// time and day (zoned.ts zClock/zDayRef), never the viewer's.
 
-const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-function pad2(n: number): string {
-	return String(n).padStart(2, '0');
-}
-
-function sameLocalDay(a: Date, b: Date): boolean {
-	return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-}
-
-function isPreviousLocalDay(a: Date, b: Date): boolean {
-	const prev = new Date(b.getFullYear(), b.getMonth(), b.getDate() - 1);
-	return a.getFullYear() === prev.getFullYear() && a.getMonth() === prev.getMonth() && a.getDate() === prev.getDate();
-}
-
-function monthDay(d: Date): string {
-	return `${d.getDate()} ${MONTH_ABBR[d.getMonth()]}`;
-}
+import { dayKey, prevDayKey, zDayMonth } from './zoned';
 
 /**
  * −1,234 style: en-US grouping and a U+2212 minus sign. Deliberately departs
@@ -45,12 +29,6 @@ export function fmtCode(code: string): string {
 	return `${code.slice(0, 3)} ${code.slice(3)}`;
 }
 
-/** 24-hour HH:MM in the viewer's local time zone. */
-export function fmtClock(iso: string): string {
-	const d = new Date(iso);
-	return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-}
-
 function compactDuration(sec: number): string {
 	const days = Math.floor(sec / 86400);
 	if (days >= 1) {
@@ -73,8 +51,8 @@ export function fmtUptime(sec: number): string {
 	return compactDuration(sec);
 }
 
-/** "5 min", "1 h 12 m", "28 Sep" */
-export function fmtActivityTime(iso: string, now: Date): string {
+/** "5 min", "1 h 12 m", "28 Sep" (the date in `tz`) */
+export function fmtActivityTime(iso: string, now: Date, tz: string): string {
 	const diffSec = Math.max(0, (now.getTime() - new Date(iso).getTime()) / 1000);
 	const minTotal = Math.floor(diffSec / 60);
 	if (minTotal < 60) {
@@ -85,17 +63,19 @@ export function fmtActivityTime(iso: string, now: Date): string {
 		const m = minTotal - hoursTotal * 60;
 		return m === 0 ? `${hoursTotal} h` : `${hoursTotal} h ${m} m`;
 	}
-	return monthDay(new Date(iso));
+	return zDayMonth(iso, tz);
 }
 
-/** "last seen 24 min ago" | "last seen 3 h ago" | "last seen yesterday" | "last seen 28 Sep" */
-export function fmtLastSeen(iso: string, now: Date): string {
+/** "last seen 24 min ago" | "last seen 3 h ago" | "last seen yesterday" | "last seen 28 Sep", counting days in `tz` */
+export function fmtLastSeen(iso: string, now: Date, tz: string): string {
 	const at = new Date(iso);
+	const day = dayKey(at, tz);
+	const today = dayKey(now, tz);
 	// The previous-calendar-day check runs before the "< 60 min" branch: a
 	// midnight crossing (e.g. 23:50 -> 00:10, 20 minutes apart) must read
 	// "yesterday", not "20 min ago" — the day boundary takes priority over
 	// every other branch, not just over "{h} h ago".
-	if (isPreviousLocalDay(at, now)) {
+	if (day === prevDayKey(today)) {
 		return 'last seen yesterday';
 	}
 	const diffSec = Math.max(0, (now.getTime() - at.getTime()) / 1000);
@@ -103,11 +83,11 @@ export function fmtLastSeen(iso: string, now: Date): string {
 	if (minTotal < 60) {
 		return `last seen ${minTotal} min ago`;
 	}
-	if (sameLocalDay(at, now)) {
+	if (day === today) {
 		const hours = Math.floor(diffSec / 3600);
 		return `last seen ${hours} h ago`;
 	}
-	return `last seen ${monthDay(at)}`;
+	return `last seen ${zDayMonth(at, tz)}`;
 }
 
 /** "just now" | "12 min ago" | "3 h 41 min ago" */
@@ -117,15 +97,6 @@ export function fmtMapAge(minutes: number): string {
 	const h = Math.floor(minutes / 60);
 	const m = Math.floor(minutes % 60);
 	return `${h} h ${m} min ago`;
-}
-
-/** "today 03:12" | "yesterday 03:12" | "28 Sep 03:12" */
-export function fmtDayRef(iso: string, now: Date): string {
-	const d = new Date(iso);
-	const clock = fmtClock(iso);
-	if (sameLocalDay(d, now)) return `today ${clock}`;
-	if (isPreviousLocalDay(d, now)) return `yesterday ${clock}`;
-	return `${monthDay(d)} ${clock}`;
 }
 
 /** 12.4% */

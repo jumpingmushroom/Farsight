@@ -7,6 +7,7 @@ import {
 	eventTone,
 	groupByDay,
 	leftAfter,
+	loadedDays,
 	passes,
 	place,
 	sourceText,
@@ -168,6 +169,21 @@ describe('todayRows', () => {
 		expect(open.left + open.width).toBeCloseTo(nowPct, 5);
 		expect(rows[1].bars[0].left).toBe(0);
 	});
+	test('axis ticks at 00, 06, 12, 18 and 24, evenly spread on an ordinary day', () => {
+		const { ticks } = todayRows(t, new Date('2026-09-29T12:44:00Z'));
+		expect(ticks.map((k) => k.label)).toEqual(['00', '06', '12', '18', '24']);
+		ticks.forEach((k, i) => expect(k.pct).toBeCloseTo(i * 25, 5));
+	});
+	test('on a DST change day the ticks sit at the real local hours, under the bars', () => {
+		// Oslo springs forward at 02:00 on 29 Mar 2026: a 23-hour day.
+		const spring: TodaySessions = { ...t, dayStart: '2026-03-28T23:00:00Z', dayEnd: '2026-03-29T22:00:00Z', now: '2026-03-29T12:00:00Z', players: [] };
+		const s = todayRows(spring, new Date('2026-03-29T12:00:00Z')).ticks.map((k) => k.pct);
+		[0, 5 / 23, 11 / 23, 17 / 23, 1].forEach((f, i) => expect(s[i]).toBeCloseTo(f * 100, 5));
+		// And falls back at 03:00 on 25 Oct 2026: a 25-hour day.
+		const fall: TodaySessions = { ...t, dayStart: '2026-10-24T22:00:00Z', dayEnd: '2026-10-25T23:00:00Z', now: '2026-10-25T12:00:00Z', players: [] };
+		const f = todayRows(fall, new Date('2026-10-25T12:00:00Z')).ticks.map((k) => k.pct);
+		[0, 7 / 25, 13 / 25, 19 / 25, 1].forEach((x, i) => expect(f[i]).toBeCloseTo(x * 100, 5));
+	});
 	test('the people filter applies', () => {
 		expect(todayRows(t, new Date('2026-09-29T12:44:00Z'), ['2']).rows.map((r) => r.name)).toEqual(['Alina']);
 	});
@@ -196,5 +212,23 @@ describe('todayRowLabel (review: a real text equivalent for "who was on today")'
 		const { rows } = todayRows(t, new Date('2026-09-29T12:44:00Z'));
 		expect(todayRowLabel(rows[0])).toBe('Ragnar: 13:05–14:40');
 		expect(todayRowLabel(rows[1])).toBe('Alina: 01:00–03:30, 13:32–14:44 (online now)');
+	});
+});
+
+describe('loadedDays', () => {
+	const page = (from: string, timeZone = 'UTC') => ({ from, timeZone });
+	test('the default window: three days, today included', () => {
+		expect(loadedDays([page('2026-09-27T00:00:00Z')], new Date('2026-09-29T10:00:00Z'))).toBe(3);
+	});
+	test('counts from the oldest page, however wide a refresh made page 0', () => {
+		// Page 0 pinned at 27 Sep and grown to 6 days; an earlier page from 24 Sep.
+		const pages = [page('2026-09-27T00:00:00Z'), page('2026-09-24T00:00:00Z')];
+		expect(loadedDays(pages, new Date('2026-10-02T10:00:00Z'))).toBe(9);
+	});
+	test("days are the server zone's: 27 Sep 00:00 in Oslo is 26 Sep 22:00 UTC", () => {
+		expect(loadedDays([page('2026-09-26T22:00:00Z', 'Europe/Oslo')], new Date('2026-09-29T21:30:00Z'))).toBe(3);
+	});
+	test('nothing loaded yet: the default three', () => {
+		expect(loadedDays([], new Date('2026-09-29T10:00:00Z'))).toBe(3);
 	});
 });
