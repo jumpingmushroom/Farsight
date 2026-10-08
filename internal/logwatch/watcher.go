@@ -131,8 +131,10 @@ type Watcher struct {
 
 	// Test hooks: testTick replaces the Poll ticker, and testPolled
 	// receives once after every poll, so tests can drive polls one by one.
-	testTick   chan time.Time
-	testPolled chan struct{}
+	// testMidPoll, if set, runs between a poll's two reads.
+	testTick    chan time.Time
+	testPolled  chan struct{}
+	testMidPoll func()
 }
 
 // Run polls both logs until ctx is cancelled, returning ctx.Err(). With
@@ -181,10 +183,19 @@ func (w *Watcher) Run(ctx context.Context) error {
 			}
 		}
 
-		srvLines, srvErr := w.srv.readNew()
-		srvErrs.log(log, "server", srvErr)
+		// supervisord.log first: supervisord logs a stop only after the
+		// game has exited, so every server line written before a
+		// supervisor line read here is already on disk for the server
+		// read that follows. The other order could see a stop a poll
+		// before the game's last lines and feed them after it, unlike a
+		// replay of the same files.
 		supLines, supErr := w.sup.readNew()
 		supErrs.log(log, "supervisor", supErr)
+		if w.testMidPoll != nil {
+			w.testMidPoll()
+		}
+		srvLines, srvErr := w.srv.readNew()
+		srvErrs.log(log, "server", srvErr)
 
 		var raws []Raw
 		for _, l := range srvLines {

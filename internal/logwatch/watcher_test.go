@@ -413,3 +413,56 @@ func TestWatcherReplayReadsTheRotatedServerLog(t *testing.T) {
 		}
 	}
 }
+
+// TestWatcherReadsSupervisorBeforeServer: the game writes its last lines
+// and then supervisord logs the stop, possibly while a poll is between its
+// two reads. Each poll must read supervisord.log first: a supervisor line
+// it sees implies the server lines written before it are already on disk,
+// so the server read that follows picks them up in the same poll. Reading
+// the server log first would see the stop a poll before B's join and
+// leave B open, unlike a replay of the same files.
+func TestWatcherReadsSupervisorBeforeServer(t *testing.T) {
+	dir := t.TempDir()
+	srv, sup := filepath.Join(dir, testSrvLog), filepath.Join(dir, testSupLog)
+	steps := []step{
+		{
+			srv: "09/29/2026 10:00:00: Game server connected\n",
+			sup: "2026-09-29 09:59:00,000 INFO spawned: 'valheim-server' with pid 1\n",
+		},
+		{
+			srv: "09/29/2026 10:04:00: PlayFab socket with remote ID playfab/Y received local Platform ID Steam_2\n" +
+				"09/29/2026 10:04:05: Got character ZDOID from B : 22:1\n",
+			sup: "2026-09-29 10:05:00,000 INFO stopped: valheim-server (exit status 0)\n",
+		},
+	}
+
+	c := &collector{}
+	w := &Watcher{Dir: dir, Loc: time.UTC, Emit: c.emit, testTick: make(chan time.Time), testPolled: make(chan struct{})}
+	var mid []step // written between the next poll's two reads, then cleared
+	w.testMidPoll = func() {
+		for _, st := range mid {
+			appendLine(t, srv, st.srv)
+			appendLine(t, sup, st.sup)
+		}
+		mid = nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { w.Run(ctx); close(done) }()
+	appendLine(t, srv, steps[0].srv)
+	appendLine(t, sup, steps[0].sup)
+	w.testTick <- time.Now()
+	<-w.testPolled
+	mid = steps[1:] // ordered before Run's read by the testTick send
+	for range 2 {
+		w.testTick <- time.Now()
+		<-w.testPolled
+	}
+	cancel()
+	<-done
+
+	sameIDs(t, c.evs, replayOnce(t, time.UTC, steps))
+	if l := ofType(c.evs, EvPlayerLeave); len(l) != 1 || l[0].Reason != "server_stopped" {
+		t.Fatalf("leaves = %+v, want B closed by the 10:05 stop", l)
+	}
+}
