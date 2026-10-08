@@ -144,6 +144,57 @@ const eventsOfTypeSQL = `
 		WHERE server_id = ? AND type = ?
 		ORDER BY at ASC, id ASC`
 
+// DeathCounts is one player's logged deaths on a server.
+type DeathCounts struct {
+	Total int       // every death of theirs
+	Since int       // those at or after the since given to PlayerDeaths
+	First time.Time // the server's first logged death, anyone's; zero if none
+}
+
+// PlayerDeaths counts serverID's player_death events of one player: by
+// platformID, or, for a death logged with no identity (no open session
+// to take one from), by any of names. It filters and counts in SQL, so
+// a profile view doesn't read and decode every death on the server.
+func (s *Store) PlayerDeaths(ctx context.Context, serverID, platformID string, names []string, since time.Time) (DeathCounts, error) {
+	if names == nil {
+		names = []string{}
+	}
+	namesJSON, err := json.Marshal(names)
+	if err != nil {
+		return DeathCounts{}, fmt.Errorf("store: player deaths: %w", err)
+	}
+	var c DeathCounts
+	var first sql.NullInt64
+	err = s.db.QueryRowContext(ctx, playerDeathsSQL, millis(since), string(namesJSON), platformID, serverID, logwatch.EvPlayerDeath).
+		Scan(&first, &c.Total, &c.Since)
+	if err != nil {
+		return DeathCounts{}, fmt.Errorf("store: player deaths: %w", err)
+	}
+	if first.Valid {
+		c.First = fromMillis(first.Int64)
+	}
+	return c, nil
+}
+
+// playerDeathsSQL reads the deaths through the (server_id, type, at)
+// index (named: with no ORDER BY to steer it, and no statistics, the
+// planner otherwise walks the server's whole history by primary key) and
+// decides "mine" per row from the JSON body: a body that is not
+// JSON (never written by the store, but a CASE keeps json_extract from
+// failing the whole query on one) counts for nobody.
+const playerDeathsSQL = `
+		SELECT MIN(at), COALESCE(SUM(mine), 0), COALESCE(SUM(mine AND at >= ?), 0)
+		FROM (
+			SELECT at, COALESCE(CASE
+				WHEN NOT json_valid(body) THEN 0
+				WHEN COALESCE(json_extract(body, '$.platformId'), '') = ''
+					THEN json_extract(body, '$.name') IN (SELECT value FROM json_each(?))
+				ELSE json_extract(body, '$.platformId') = ?
+			END, 0) AS mine
+			FROM events INDEXED BY idx_events_server_type_at
+			WHERE server_id = ? AND type = ?
+		)`
+
 func scanEvents(rows *sql.Rows) ([]StoredEvent, error) {
 	var out []StoredEvent
 	for rows.Next() {

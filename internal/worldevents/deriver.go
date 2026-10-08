@@ -43,7 +43,23 @@ type Deriver struct {
 	// lets a test pace or observe a backfill deterministically, without a
 	// sleep.
 	AfterApply func()
+
+	// beforeApply, if set, is called with each snapshot's save id just
+	// before it is diffed, inside the per-snapshot recover. For tests: a
+	// panic in it stands for a diff that panics on that snapshot.
+	beforeApply func(saveID string)
+
+	// fails counts consecutive failed tries of the snapshot each server
+	// is stuck on (server id + "/" + save id); guarded by mu.
+	fails map[string]int
 }
+
+// maxSnapshotFailures is how many tries in a row a snapshot may fail (a
+// decode or store error, or a recovered panic) before CatchUp skips it:
+// world events stop at the first failing snapshot, and pruning keeps
+// every snapshot from the last one diffed, so one that always fails
+// would otherwise hold both up for good.
+const maxSnapshotFailures = 3
 
 // NewDeriver returns a Deriver over st. log may be nil.
 func NewDeriver(st *store.Store, log *slog.Logger) *Deriver {
@@ -116,6 +132,11 @@ func (d *Deriver) load(ctx context.Context, serverID, saveID string) (*extract.S
 // panic is logged with the server id and a stack trace, and returned as an
 // error like any other CatchUp failure, so the caller skips this server
 // and moves on exactly as it does for a decode or store error.
+//
+// CatchUp stops at a snapshot that fails (a panic in its diff included)
+// and tries it again next time; once it has failed maxSnapshotFailures
+// times in a row it is logged and skipped, and the next one becomes a
+// new baseline.
 func (d *Deriver) CatchUp(ctx context.Context, serverID string) (n int, err error) {
 	defer func() {
 		if p := recover(); p != nil {
@@ -143,36 +164,37 @@ func (d *Deriver) CatchUp(ctx context.Context, serverID string) (n int, err erro
 		if prev, _, err = d.load(ctx, serverID, state.SaveID); err != nil {
 			return 0, err
 		}
-		// prev nil here means the snapshot world_diff points to is no
-		// longer stored: not something the server's own pruning does (it
-		// never removes a server's world_diff snapshot, or anything
-		// newer), but a defensive fallback for a concurrent Deriver that
-		// raced this one, or a snapshot removed by some other means. The
-		// next one becomes a new baseline (its tombstones are matched
-		// against the stored ones instead of being reported as new).
+		// prev nil here means the snapshot world_diff points to is not
+		// stored: world_diff names no snapshot after a skip (see skip), and
+		// otherwise it is a defensive fallback (the server's own pruning
+		// never removes a server's world_diff snapshot, or anything newer)
+		// for a concurrent Deriver that raced this one, or a snapshot
+		// removed by some other means. The next one becomes a new baseline
+		// (its tombstones are matched against the stored ones instead of
+		// being reported as new).
 	}
 	written := 0
 	for _, k := range keys {
 		if err := ctx.Err(); err != nil {
 			return written, err
 		}
-		cur, ok, err := d.load(ctx, serverID, k.SaveID)
+		cur, n, err := d.step(ctx, serverID, k, prev, backfilled)
 		if err != nil {
-			return written, err
+			if ctx.Err() != nil || !d.failed(serverID, k.SaveID) {
+				return written, err
+			}
+			d.log.Error("world events: skipping a snapshot that keeps failing", "server", serverID,
+				"saveId", k.SaveID, "tries", maxSnapshotFailures, "err", err)
+			if err := d.skip(ctx, serverID, k); err != nil {
+				return written, err
+			}
+			prev, backfilled = nil, true
+			continue
 		}
-		if !ok {
+		if cur == nil {
 			continue // removed since SnapshotsAfter listed it
 		}
-		if prev != nil && !sameWorld(prev, cur) {
-			// Diffing across a world swap or a restored backup would
-			// report everything the other world has as new.
-			d.log.Info("world events: world changed, new baseline", "server", serverID, "saveId", cur.SaveID)
-			prev = nil
-		}
-		n, err := d.apply(ctx, serverID, k, prev, cur, backfilled)
-		if err != nil {
-			return written, err
-		}
+		d.succeeded(serverID, k.SaveID)
 		written += n
 		prev, backfilled = cur, true
 		if d.AfterApply != nil {
@@ -183,6 +205,72 @@ func (d *Deriver) CatchUp(ctx context.Context, serverID string) (n int, err erro
 		d.log.Info("world events", "server", serverID, "events", written, "saves", len(keys))
 	}
 	return written, nil
+}
+
+// step loads the snapshot k and diffs it against prev (see apply),
+// returning it with the number of events written; cur is nil if k is no
+// longer stored. A panic is recovered here, so it counts as a failure of
+// this snapshot like any error.
+func (d *Deriver) step(ctx context.Context, serverID string, k store.SnapshotKey, prev *extract.Snapshot, seenBefore bool) (cur *extract.Snapshot, n int, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			d.log.Error("world events: recovered panic", "server", serverID, "saveId", k.SaveID, "panic", p, "stack", string(debug.Stack()))
+			cur, n, err = nil, 0, fmt.Errorf("worldevents: recovered panic for server %s, snapshot %s: %v", serverID, k.SaveID, p)
+		}
+	}()
+	cur, ok, err := d.load(ctx, serverID, k.SaveID)
+	if err != nil || !ok {
+		return nil, 0, err
+	}
+	if prev != nil && !sameWorld(prev, cur) {
+		// Diffing across a world swap or a restored backup would
+		// report everything the other world has as new.
+		d.log.Info("world events: world changed, new baseline", "server", serverID, "saveId", cur.SaveID)
+		prev = nil
+	}
+	if d.beforeApply != nil {
+		d.beforeApply(k.SaveID)
+	}
+	n, err = d.apply(ctx, serverID, k, prev, cur, seenBefore)
+	if err != nil {
+		return nil, 0, err
+	}
+	return cur, n, nil
+}
+
+// failed records a failed try of serverID's snapshot saveID and reports
+// whether it has now failed maxSnapshotFailures times in a row.
+func (d *Deriver) failed(serverID, saveID string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.fails == nil {
+		d.fails = map[string]int{}
+	}
+	key := serverID + "/" + saveID
+	d.fails[key]++
+	if d.fails[key] < maxSnapshotFailures {
+		return false
+	}
+	delete(d.fails, key)
+	return true
+}
+
+// succeeded forgets the failed tries of serverID's snapshot saveID.
+func (d *Deriver) succeeded(serverID, saveID string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.fails, serverID+"/"+saveID)
+}
+
+// skip moves serverID's world_diff past k without diffing it. The key it
+// records sorts just after k but names no snapshot, so k is never listed
+// again, pruning may drop it, and the next CatchUp, even after a restart,
+// finds no previous snapshot to load: the next save is a new baseline.
+// (A snapshot saved in the same millisecond whose id extends k's with a
+// space and something before "(skipped)" would be skipped too; save ids
+// never do that.)
+func (d *Deriver) skip(ctx context.Context, serverID string, k store.SnapshotKey) error {
+	return d.store.PutWorldDiffState(ctx, nil, serverID, store.SnapshotKey{SaveID: k.SaveID + " (skipped)", SavedAt: k.SavedAt})
 }
 
 // sameWorld reports whether cur continues prev's world: the same name

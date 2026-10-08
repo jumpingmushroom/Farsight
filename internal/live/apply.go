@@ -159,6 +159,17 @@ func (a *Applier) Apply(ctx context.Context, serverID string, evs []logwatch.Eve
 				continue
 			}
 
+			if e.Type == logwatch.EvPlayerDeath && e.Intro {
+				skip, err := a.skippedIntro(ctx, tx, serverID, e)
+				if err != nil {
+					return err
+				}
+				if skip {
+					skipped++
+					continue
+				}
+			}
+
 			isNew, err := a.Store.InsertEventIfNew(ctx, tx, serverID, e)
 			if err != nil {
 				return err
@@ -190,6 +201,7 @@ func (a *Applier) Apply(ctx context.Context, serverID string, evs []logwatch.Eve
 				}
 				live.Status = "restarting"
 				statusChanged = true
+				endBoot(&live, e.At)
 
 			case logwatch.EvServerStarting, logwatch.EvServerBoot:
 				until := e.At
@@ -201,6 +213,7 @@ func (a *Applier) Apply(ctx context.Context, serverID string, evs []logwatch.Eve
 				}
 				live.Status = "starting"
 				statusChanged = true
+				endBoot(&live, e.At)
 				live.UpSince = e.At
 				if e.Type == logwatch.EvServerBoot {
 					live.Version = e.Version
@@ -279,6 +292,34 @@ func (a *Applier) Apply(ctx context.Context, serverID string, evs []logwatch.Eve
 		return applied, skipped, err
 	}
 	return applied, skipped, nil
+}
+
+// endBoot clears what a restart at at invalidates in l: the player count
+// (every session was just closed) and the previous boot's crossplay join
+// code, which the new boot replaces with its own. The supervisor's log
+// (stopped, starting) and the server's are read by separate followers,
+// so the restart may be applied after the new boot's join code: a code
+// logged after at is kept.
+func endBoot(l *store.Live, at time.Time) {
+	l.Players = 0
+	if !l.JoinCodeAt.After(at) {
+		l.JoinCode, l.JoinCodeAt = "", time.Time{}
+	}
+}
+
+// skippedIntro reports whether e, a player_death flagged Intro (logged
+// within logwatch.IntroWindow of its session's start), is a new
+// character skipping the Valkyrie intro rather than a death. Only a
+// character's first session has the intro, so it is a skip unless the
+// server has a session of that character (its name, and its platform id
+// when e has one) that started before e.At - IntroWindow: e's own
+// session started after that, so any such session is an earlier one.
+// The rule is deterministic, so a replayed death is judged the same way.
+// A character whose earlier sessions all fell inside the window (a
+// rejoin within seconds of a first join) is still treated as new.
+func (a *Applier) skippedIntro(ctx context.Context, tx *sql.Tx, serverID string, e logwatch.Event) (bool, error) {
+	before, err := a.Store.HasSessionBefore(ctx, tx, serverID, e.Name, e.PlatformID, e.At.Add(-logwatch.IntroWindow))
+	return !before, err
 }
 
 // warnInvalid logs that n of serverID's events were dropped as invalid,
