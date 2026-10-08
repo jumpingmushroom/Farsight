@@ -25,4 +25,10 @@ describe('Leaflet internals used by AtlasMap', () => {
 		expect(src).toMatch(/_subtract\(this\.getPixelOrigin\(\)\)/);
 		expect(L.Map.prototype.layerPointToContainerPoint.toString()).toMatch(/add\(this\._getMapPanePos\(\)\)/);
 	});
+	// AtlasMap clears _animatingZoom before remove() so the zoom
+	// animation's pending end timer returns without touching the removed map.
+	test('Map#_onZoomTransitionEnd returns early unless _animatingZoom', () => {
+		const proto = L.Map.prototype as unknown as Record<string, () => void>;
+		expect(proto._onZoomTransitionEnd.toString()).toMatch(/if \(!this\._animatingZoom\) \{ return; \}/);
+	});
 });

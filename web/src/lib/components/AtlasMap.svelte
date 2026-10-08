@@ -196,6 +196,12 @@
 			// hasn't gotten to yet (fix round 2, item 1).
 			clearAllLayers(liveTileLayers);
 			map = undefined;
+			// A zoom animation still running (the shells swapped mid-zoom)
+			// ends on a 250 ms timer that remove() doesn't clear, which then
+			// moves the removed map and throws. Marked finished, the timer
+			// returns at once. `_animatingZoom` is internal to Leaflet 1.9.4
+			// (pinned; leaflet-internals.test.ts).
+			(m as unknown as { _animatingZoom: boolean })._animatingZoom = false;
 			m.remove();
 		};
 	});
@@ -253,9 +259,13 @@
 ></div>
 
 <style>
+	/* The shells put the map last in the DOM (for Tab order) and let it sit
+	   under everything else in the shell's stacking context (the fixed
+	   `main`), whose other layers keep stacking in DOM order as before. */
 	.atlas-map {
 		position: absolute;
 		inset: 0;
+		z-index: -1;
 		isolation: isolate;
 		touch-action: none;
 		user-select: none;

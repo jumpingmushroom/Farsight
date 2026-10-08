@@ -682,3 +682,24 @@ export function markerAt(all: readonly MapMarker[], x: number, z: number, radius
 	}
 	return best;
 }
+
+/** How far (m) a linked marker may sit from the link's own position and still be the one it names. */
+const LINK_SAME_M = 5;
+/** How far (m) to look for a marker of the link's kind when its id names another (a base's centre moves as it grows). */
+const LINK_NEAR_M = 32;
+
+/**
+ * The marker a profile's "Map →" link to (x, z) names (review fix). Ids are
+ * "{kind}-{n}", numbered per save (bases by size rank), so by the time the
+ * map has a newer snapshot than the profile, `id` can name a different
+ * marker: it is trusted only when that marker sits within a few metres of
+ * the link; otherwise the nearest marker of the same kind within
+ * LINK_NEAR_M, if any.
+ */
+export function linkedMarker(all: readonly MapMarker[], id: string, x: number, z: number): MapMarker | undefined {
+	const same = all.find((m) => m.id === id);
+	if (same && Math.hypot(same.x - x, same.z - z) <= LINK_SAME_M) return same;
+	const kindOf = (mid: string) => mid.replace(/-\d+$/, '');
+	const kind = kindOf(id);
+	return markerAt(all.filter((m) => kindOf(m.id) === kind), x, z, LINK_NEAR_M);
+}

@@ -9,6 +9,7 @@ import {
 	buildMarkers,
 	clusterHtml,
 	layerCounts,
+	linkedMarker,
 	markerAt,
 	pinHtml,
 	portalPairs,
@@ -567,5 +568,33 @@ describe('markerAt (Plan 7)', () => {
 		expect(markerAt(all, -2003, 1002)?.id).toBe('tombstone-1');
 		expect(markerAt(all, 106, 100)).toBeUndefined();
 		expect(markerAt(all, 106, 100, 10)?.id).toBe('portal-1');
+	});
+});
+
+describe('linkedMarker (review fix)', () => {
+	// Only id and position matter here.
+	const at = (id: string, x: number, z: number) => ({ id, x, z }) as MapMarker;
+	// Base ids are size ranks: by the map's save, base-1 and base-2 swapped.
+	const all = [at('base-1', 500, 500), at('base-2', 100, 100), at('portal-1', 110, 100), at('tombstone-1', 0, 0)];
+
+	test('the id, when that marker sits within a few metres of the link', () => {
+		expect(linkedMarker(all, 'base-2', 103, 98)?.id).toBe('base-2');
+	});
+
+	test('a re-ranked id: the nearest marker of the same kind instead', () => {
+		expect(linkedMarker(all, 'base-1', 100, 100)?.id).toBe('base-2');
+		// A base that grew since moves its centre a little.
+		expect(linkedMarker(all, 'base-1', 120, 90)?.id).toBe('base-2');
+	});
+
+	test('an id the map no longer has: the nearest of its kind', () => {
+		expect(linkedMarker(all, 'base-7', 101, 101)?.id).toBe('base-2');
+		expect(linkedMarker(all, 'portal-9', 104, 100)?.id).toBe('portal-1');
+	});
+
+	test('none when nothing of its kind is close, even with a marker of another kind there', () => {
+		expect(linkedMarker(all, 'base-1', 0, 0)).toBeUndefined();
+		expect(linkedMarker(all, 'base-1', 300, 300)).toBeUndefined();
+		expect(linkedMarker([], 'base-1', 0, 0)).toBeUndefined();
 	});
 });

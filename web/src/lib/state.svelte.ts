@@ -24,6 +24,8 @@ export const NOW_EVERY_MS = 30_000;
 /** M2: a failed biomes fetch is retried on a later card refresh at most this often. */
 export const BIOMES_RETRY_MS = 60_000;
 export const TOAST_MS = 2600;
+/** A failure streak this long (from its first failure) counts as lost contact: the shells show "Reconnecting…". */
+export const RECONNECT_AFTER_MS = 45_000;
 const MAX_TILE_SAMPLES = 5;
 // Mirrors internal/server/activity.go's maxActivityDays: the cap on how far
 // a quiet refresh can grow `days` while keeping the loaded page's `from`
@@ -158,6 +160,15 @@ export class AppState {
 	 * its row stays mounted under the sheet.
 	 */
 	viewOpenerName: string | undefined;
+	/**
+	 * Contact with Farsight (review fix): when the current streak of failed
+	 * refreshes started (Date.now()), undefined while they succeed.
+	 * `disconnected` turns on when a failure lands RECONNECT_AFTER_MS or
+	 * more into the streak — the shells then show "Reconnecting…" and stop
+	 * the world clock — and both clear on the next successful refresh.
+	 */
+	failingSince = $state<number | undefined>(undefined);
+	disconnected = $state(false);
 
 	private f: typeof fetch;
 	private storage: Storage | null;
@@ -211,7 +222,6 @@ export class AppState {
 	/** The refresh in flight, if any (single flight per generation). */
 	private flight: Flight | undefined;
 	private stopFn: (() => void) | undefined;
-	private failing = false;
 	private toastTimer: ReturnType<typeof setTimeout> | undefined;
 
 	constructor(deps: AppDeps = {}) {
@@ -818,12 +828,16 @@ export class AppState {
 	}
 
 	private ok(): void {
-		this.failing = false;
+		this.failingSince = undefined;
+		this.disconnected = false;
 	}
 
 	private fail(err: unknown): void {
-		if (this.failing) return;
-		this.failing = true;
+		if (this.failingSince !== undefined) {
+			if (Date.now() - this.failingSince >= RECONNECT_AFTER_MS) this.disconnected = true;
+			return;
+		}
+		this.failingSince = Date.now();
 		this.log('farsight: refresh failed; keeping the last data', err);
 	}
 }

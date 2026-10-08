@@ -1,7 +1,8 @@
 <!--
   Collapsed panel pill (DESIGN-NOTES §3.4): the 32 px app mark, a status dot,
   "{players} online" (or the status word when not online) and a chevron.
-  Clicking it re-opens the panel.
+  Clicking it re-opens the panel. `#panel-pill` is DesktopShell's focus
+  target when a view closes over the collapsed panel.
 -->
 <script lang="ts">
 	import ChevronRight from 'lucide-svelte/icons/chevron-right';
@@ -18,7 +19,7 @@
 	const text = $derived(status === 'online' ? `${players} online` : statusView(status).label);
 </script>
 
-<button class="pill" type="button" aria-label="Expand panel · {text}" onclick={onopen}>
+<button id="panel-pill" class="pill" type="button" aria-label="Expand panel · {text}" onclick={onopen}>
 	<AppMark size={32} font={17} />
 	<span class="dot" style:background={statusView(status).dot}></span>
 	<span class="text">{text}</span>

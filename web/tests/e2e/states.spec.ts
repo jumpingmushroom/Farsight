@@ -101,3 +101,36 @@ test('fog guard: a failing snapshot fetch never requests tiles', async ({ page }
 	await page.waitForTimeout(1500);
 	await expect(page.locator('img.leaflet-tile')).toHaveCount(0);
 });
+
+// Review fix: losing contact with Farsight used to be invisible (the UI kept
+// saying "Online" and the clocks kept ticking). The page's clock is faked so
+// the 15 s polls can be stepped through without waiting them out.
+test('lost contact: "Reconnecting…" once polls have failed for 45 s, the world clock stops, and both recover', async ({ page }) => {
+	await page.clock.install();
+	await unlock(page);
+	const pill = page.getByTestId('weather-pill');
+	await expect(pill).toBeVisible();
+	const reconnecting = page.getByTestId('connection-banner');
+	await page.route('**/api/servers**', (route) => route.abort('internetdisconnected'));
+	// Failures at 15, 30 and 45 s: the streak is 30 s old, still a blip.
+	for (let i = 0; i < 3; i++) {
+		await page.clock.runFor(15_000);
+		await page.waitForTimeout(200);
+	}
+	await expect(reconnecting).toHaveCount(0);
+	// At 60 s the streak is 45 s old, give or take how long each failure
+	// took to land; by 75 s it is past any doubt.
+	await page.clock.runFor(30_000);
+	await expect(reconnecting).toContainText('Reconnecting…');
+	await expect(page.locator('.pill', { hasText: 'Map updated' })).toHaveCount(0);
+	const frozen = await pill.innerText();
+	await page.clock.runFor(60_000);
+	await expect(pill).toHaveText(frozen);
+
+	await page.unroute('**/api/servers**');
+	await page.clock.runFor(15_000);
+	await expect(reconnecting).toHaveCount(0);
+	await expect(page.locator('.pill', { hasText: 'Map updated' })).toBeVisible();
+	await page.clock.runFor(60_000);
+	await expect(pill).not.toHaveText(frozen);
+});

@@ -15,6 +15,7 @@ import {
 	refreshNow,
 	screenPixel,
 	test,
+	tabToFirstPin,
 	tilesLoaded,
 	unlock,
 	watchGuard,
@@ -330,6 +331,19 @@ test('fix · desktop profile: closing falls back to the Online tab when the open
 	await back.click();
 	await expect(page.getByTestId('profile-panel')).toHaveCount(0);
 	await expect(page.getByRole('tab', { name: /^Online/ })).toBeFocused();
+});
+
+// Review fix: the map came first in the DOM and Leaflet makes every pin a
+// tab stop, so a keyboard user went through every pin before reaching the
+// panel, search, layers or zoom.
+test('fix · keyboard: Tab reaches the panel, search, layers and zoom before the first map pin', async ({ page }) => {
+	await unlock(page);
+	await markersReady(page);
+	const seen = await tabToFirstPin(page);
+	expect(seen.at(-1), 'the pins are still reachable').toBe('pin');
+	for (const label of ['Collapse panel', 'Search the map', 'Layers · 6 on', 'Zoom in', 'Reset view']) {
+		expect(seen, `${label} before the first pin`).toContain(label);
+	}
 });
 
 test('5 · world tab: day, bosses, next up and world rules', async ({ page }) => {
@@ -878,6 +892,107 @@ test('fix · desktop activity: focus moves to Back on open, and back to "Full ti
 	await page.goBack();
 	await expect(page.getByTestId('activity-panel')).toHaveCount(0);
 	await expect(row).toBeFocused();
+});
+
+// Review fix: with the panel collapsed, closing a view re-renders the
+// collapsed pill, not the panel, so neither the opening row nor the Online
+// tab exists and focus used to drop to <body>.
+test('fix · desktop: closing a profile or the timeline over the collapsed panel focuses the collapsed pill', async ({ page }) => {
+	await unlock(page);
+	const back = page.getByRole('button', { name: 'Back' });
+	const pill = page.getByRole('button', { name: /^Expand panel/ });
+	const openers = [
+		{ open: page.getByRole('list', { name: 'Online now' }).getByRole('button', { name: 'Profile of Astrid' }), panel: 'profile-panel' },
+		{ open: page.getByRole('region', { name: 'Recent activity' }).getByRole('button', { name: 'Full timeline →' }), panel: 'activity-panel' }
+	];
+	for (const { open, panel } of openers) {
+		// Open the view, close it, collapse the panel, then reopen the view
+		// with browser forward: it now sits over the collapsed panel.
+		if (await pill.count()) await pill.click();
+		await open.click();
+		await expect(back).toBeFocused();
+		await page.goBack();
+		await expect(page.getByTestId(panel)).toHaveCount(0);
+		await page.getByRole('button', { name: 'Collapse panel' }).click();
+		await expect(pill).toBeVisible();
+		await page.goForward();
+		await expect(page.getByTestId(panel)).toBeVisible();
+		await back.click();
+		await expect(page.getByTestId(panel)).toHaveCount(0);
+		await expect(pill).toBeFocused();
+	}
+});
+
+// Review fix: the popover's left edge was clamped clear of the panel only
+// when the popover was placed (on a selection or a map move), so widening
+// the panel left it underneath and narrowing it left it stranded.
+test('fix · desktop: the marker popover follows the panel’s width', async ({ page }) => {
+	await unlock(page);
+	await markersReady(page);
+	await search(page).fill('copper');
+	await page.getByRole('listbox', { name: 'Search results' }).getByRole('option').filter({ hasText: 'Portal · unpaired' }).click();
+	const left = async () => Math.round((await markerCard(page).boundingBox())!.x);
+	// The pin settles at the visible centre (x = 908), the popover 26 px right
+	// of it; only then does a drag pan the map rather than stop the animation.
+	await expect.poll(left).toBe(934);
+	await expect(page.locator('.leaflet-map-pane.leaflet-zoom-anim')).toHaveCount(0);
+	await page.waitForTimeout(500);
+	// Drag the pin to x ≈ 500: the popover follows, still clear of the panel.
+	await page.mouse.move(850, 820);
+	await page.mouse.down();
+	for (let i = 1; i <= 20; i++) await page.mouse.move(850 - i * 20, 820);
+	await page.mouse.up();
+	// Leaflet's inertia carries the pan on a little: wait until it stops.
+	let last = NaN;
+	await expect
+		.poll(async () => {
+			const prev = last;
+			last = await left();
+			return last === prev;
+		})
+		.toBe(true);
+	const beside = last;
+	expect(beside).toBeGreaterThanOrEqual(376 + 16);
+	expect(beside).toBeLessThan(552);
+
+	// The Activity view widens the panel to 552 px: the popover moves clear of it.
+	await page.getByRole('region', { name: 'Recent activity' }).getByRole('button', { name: 'Full timeline →' }).click();
+	await expect(page.getByTestId('activity-panel')).toBeVisible();
+	await expect.poll(left).toBeGreaterThanOrEqual(552 + 16);
+	// Back to the 376 px panel: the popover returns beside its pin.
+	await page.getByRole('button', { name: 'Back' }).click();
+	await expect(page.getByTestId('activity-panel')).toHaveCount(0);
+	await expect.poll(left).toBe(beside);
+});
+
+// Review fix: the layer toggles and the selection lived in each shell, so a
+// tablet rotating across the 768 px breakpoint (which swaps the shells)
+// silently reset them.
+test('fix · the layer toggles and the selection survive a switch to the mobile shell and back', async ({ page }) => {
+	await unlock(page);
+	await markersReady(page);
+	await page.getByRole('button', { name: /^Layers ·/ }).click();
+	await page.getByRole('group', { name: 'Map layers' }).getByRole('switch', { name: /^Beds/ }).click();
+	await search(page).fill('copper');
+	await page.getByRole('listbox', { name: 'Search results' }).getByRole('option').filter({ hasText: 'Portal · unpaired' }).click();
+	await expect(markerCard(page)).toContainText('copper');
+
+	await page.setViewportSize({ width: 700, height: 900 });
+	await expect(page.locator('main.shell[data-layout="mobile"]')).toBeVisible();
+	await expect(page.getByTestId('mobile-marker-card')).toContainText('copper');
+	await page.getByTestId('mobile-marker-card').getByRole('button', { name: 'Close' }).click();
+	await page.getByRole('button', { name: 'Search and layers' }).click();
+	const menu = page.getByRole('dialog', { name: 'Search and layers' });
+	await expect(menu.getByRole('switch', { name: /^Beds/ })).toHaveAttribute('aria-checked', 'true');
+	await menu.getByRole('switch', { name: /^Signs/ }).click();
+
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await expect(page.getByRole('button', { name: /^Layers ·/ })).toBeVisible();
+	await page.getByRole('button', { name: /^Layers ·/ }).click();
+	const layers = page.getByRole('group', { name: 'Map layers' });
+	await expect(layers.getByRole('switch', { name: /^Beds/ })).toHaveAttribute('aria-checked', 'true');
+	await expect(layers.getByRole('switch', { name: /^Signs/ })).toHaveAttribute('aria-checked', 'true');
+	await expect(markerCard(page)).toHaveCount(0);
 });
 
 // --- Plan 9: time and weather -------------------------------------------------

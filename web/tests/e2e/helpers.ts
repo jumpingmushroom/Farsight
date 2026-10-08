@@ -182,3 +182,27 @@ export async function tilesLoaded(page: Page): Promise<void> {
 		)
 		.toBe(true);
 }
+
+/**
+ * Presses Tab from the top of the page until a map pin takes focus (or
+ * `max` presses), returning each focused element's accessible label (its
+ * aria-label, else its text) in order; a pin is reported as "pin" and the
+ * map itself (Leaflet's focusable container) as "map".
+ */
+export async function tabToFirstPin(page: Page, max = 120): Promise<string[]> {
+	await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+	const seen: string[] = [];
+	for (let i = 0; i < max; i++) {
+		await page.keyboard.press('Tab');
+		const label = await page.evaluate(() => {
+			const el = document.activeElement;
+			if (!el || el === document.body) return '';
+			if (el.classList.contains('leaflet-marker-icon')) return 'pin';
+			if (el.classList.contains('leaflet-container')) return 'map';
+			return el.getAttribute('aria-label') ?? (el.textContent ?? '').trim().slice(0, 40);
+		});
+		seen.push(label);
+		if (label === 'pin') break;
+	}
+	return seen;
+}

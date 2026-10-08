@@ -15,7 +15,9 @@
   - Esc closes the overlay sheet, then the card, then collapses pulled.
   - States (§3.22): offline/stale/can't-draw banners sit compact under the
     top bar; charting shows ChartingCard centred; no save shows the waiting
-    pill. The top-bar sub-line carries the short state text.
+    pill. The top-bar sub-line carries the short state text. While
+    Farsight can't be reached the "Reconnecting…" banner takes the state
+    banner's place (over the waiting pill or charting card too).
   - Time and weather (Plan 9): the compact chip sits under the top bar
     (under the banner when there is one; not while waiting or charting);
     a tap opens WeatherSheet. While the world clock runs, a 1 s ticker
@@ -25,27 +27,21 @@
     No scale readout and no desktop pills on mobile.
   - A server switch clears the selection, closes the sheets and resets the
     view (the map stays mounted, like the desktop shell).
+  - What it shares with DesktopShell (the card, the world clock, the map
+    view, the markers, the selection and the layer toggles) is the
+    ShellModel (shell.svelte.ts); the selection and the toggles outlive the
+    shell, e.g. across a tablet's rotation past 768 px.
 -->
 <script lang="ts">
-	import type L from 'leaflet';
 	import { tick, untrack } from 'svelte';
-	import { mapView } from '$lib/derive';
-	import {
-		buildMarkers,
-		defaultLayers,
-		layerCounts,
-		markerAt,
-		markersKey,
-		visibleMarkers,
-		type LayerKey,
-		type MapMarker
-	} from '$lib/markers';
+	import { linkedMarker, markerAt, type MapMarker } from '$lib/markers';
 	import { cardPadBottom, centerDy, mobileDim, topBarSub, zoomBottom, type MobileOverlay, type Snap } from '$lib/mobile';
+	import { ShellModel } from '$lib/shell.svelte';
 	import { app } from '$lib/state.svelte';
-	import { timeView, tintOf } from '$lib/worldtime';
 	import ActivitySheet from './ActivitySheet.svelte';
 	import AtlasMap from './AtlasMap.svelte';
 	import ChartingCard from './ChartingCard.svelte';
+	import ConnectionBanner from './ConnectionBanner.svelte';
 	import JoinSheet from './JoinSheet.svelte';
 	import MarkerLayer from './MarkerLayer.svelte';
 	import MenuSheet from './MenuSheet.svelte';
@@ -63,20 +59,13 @@
 	const DEFAULT_ZOOM = 1.5;
 	const SEARCH_ZOOM = 4.25;
 
-	// UI flags.
+	// UI flags (the selection and the layer toggles are the ShellModel's).
 	let snap = $state<Snap>('peek');
 	let overlay = $state<MobileOverlay>('none');
-	let selectedId = $state<string>();
-	let layers = $state(defaultLayers());
-	let portalLinks = $state(true);
 	/** The measured peek-sheet height (§1.2: ≈161 px). */
 	let peekH = $state(161);
 
 	let atlas = $state<ReturnType<typeof AtlasMap>>();
-	let map = $state.raw<L.Map>();
-	let zoom = $state(DEFAULT_ZOOM);
-	/** Kind and position of the selection, to drop it when a new snapshot reuses the id (§5.4). */
-	let selectedKey: string | undefined;
 	/** Focus to restore when an overlay sheet closes. */
 	let opener: HTMLElement | null = null;
 	/**
@@ -92,37 +81,31 @@
 	 */
 	let activityOpener: HTMLElement | null = null;
 
-	const card = $derived(app.card?.id === app.currentId ? app.card : undefined);
-	const summary = $derived(app.servers.find((s) => s.id === app.currentId));
-	// The world clock (Plan 9), as in DesktopShell: a 1 s ticker while it runs.
-	let clockNow = $state(new Date());
-	const clockRunning = $derived(!!card?.clock?.running);
-	$effect(() => {
-		if (!clockRunning) return;
-		clockNow = new Date();
-		const id = setInterval(() => (clockNow = new Date()), 1000);
-		return () => clearInterval(id);
+	const shell = new ShellModel({
+		zoom: DEFAULT_ZOOM,
+		// Closing the card lets maxBounds pull the view back in.
+		onselect: (id) => {
+			if (id === undefined) atlas?.setPadBottom(0);
+		},
+		// A server switch: close the sheets and reset the view.
+		onswitch: () => {
+			overlay = 'none';
+			snap = 'peek';
+			atlas?.resetView();
+		}
 	});
-	const time = $derived(card ? timeView(card, app.cardAt ?? clockNow, clockNow) : undefined);
-	const tint = $derived(time ? tintOf(time.phase) : undefined);
-	const view = $derived(card ? mapView(card, app.now, app.tileSamples, layers.biomes, tint) : undefined);
+	const { select, toggleLayer, toast } = shell;
+	const card = $derived(shell.card);
+	const map = $derived(shell.map);
+	const time = $derived(shell.time);
+	const view = $derived(shell.view);
+	const markersOn = $derived(shell.markersOn);
+	const all = $derived(shell.all);
+	const selected = $derived(shell.selected);
+	const cardShown = $derived(shell.selectedShown);
+	const summary = $derived(app.servers.find((s) => s.id === app.currentId));
 	/** The chip: not while waiting or charting (like the desktop pill). */
 	const chipShown = $derived(!!card?.clock && (view?.overlay.kind === 'banner' || view?.overlay.kind === 'pill'));
-	const markersOn = $derived(!!view?.markersOn);
-
-	// Memoised on (server, save, defeated bosses), as in DesktopShell.
-	let built: { key: string; all: MapMarker[] } = { key: '', all: [] };
-	const all = $derived.by<MapMarker[]>(() => {
-		const snapView = app.snapshot;
-		if (!markersOn || !snapView || !card) return [];
-		const key = markersKey(card.id, snapView, card.world);
-		if (built.key !== key) built = { key, all: buildMarkers(snapView, card.world) };
-		return built.all;
-	});
-	const counts = $derived(layerCounts(all));
-
-	const selected = $derived(selectedId === undefined ? undefined : all.find((m) => m.id === selectedId));
-	const cardShown = $derived(!!selected && visibleMarkers([selected], layers, zoom).length === 1);
 
 	const sub = $derived(topBarSub(view, card?.world, app.now, overlay === 'server'));
 	/** A profile (Plan 7) opens as a full-height sheet over everything. */
@@ -132,61 +115,23 @@
 	// a raised sheet or the docked card would cover them.
 	const zoomShown = $derived(markersOn && snap === 'peek' && overlay === 'none' && !cardShown && !app.view);
 
-	// Pin opacity for offline / stale lives on the marker pane (app.css).
-	$effect(() => {
-		const pane = map?.getPane('markerPane');
-		if (!pane) return;
-		const cls = view?.pinClass ?? '';
-		pane.classList.remove('fs-pins-offline', 'fs-pins-stale');
-		if (cls) pane.classList.add(cls);
-	});
-
-	const keyOf = (m: MapMarker) => `${m.type}@${m.x},${m.z}`;
-
 	// The clock went away (offline, a server switch) or the map started
 	// charting: close the weather sheet with it.
 	$effect(() => {
 		if (overlay === 'weather' && !chipShown) untrack(() => closeOverlay(false));
 	});
 
-	function select(id: string | undefined): void {
-		if (id === undefined) atlas?.setPadBottom(0);
-		selectedId = id;
-		const m = id === undefined ? undefined : all.find((x) => x.id === id);
-		selectedKey = m ? keyOf(m) : undefined;
-	}
-
-	/** Selects a marker and centres it at y ≈ 300 px (design frame 4). */
-	function focusMarker(m: MapMarker, z: number): void {
+	/** Selects a marker and centres it (or `at`, a profile link's own position) at y ≈ 300 px (design frame 4). */
+	function focusMarker(m: MapMarker, z: number, at: { x: number; z: number } = m): void {
 		if (map) {
 			const h = map.getSize().y;
 			// Let maxBounds pan far enough to put the pin at y ≈ 300 (at the
 			// default zoom the world barely exceeds the screen).
 			atlas?.setPadBottom(cardPadBottom(h));
-			atlas?.centerOn(m.x, m.z, z, centerDy(h));
+			atlas?.centerOn(at.x, at.z, z, centerDy(h));
 		}
 		select(m.id);
 	}
-
-	// A refreshed snapshot: keep the selection only if the id still names the
-	// same kind at the same position.
-	$effect(() => {
-		if (selectedId === undefined) return;
-		if (!selected || keyOf(selected) !== selectedKey) select(undefined);
-	});
-
-	// A server switch: drop the selection, close the sheets, reset the view.
-	let lastServer: string | undefined;
-	$effect(() => {
-		const id = app.currentId;
-		if (lastServer !== undefined && id !== lastServer) {
-			select(undefined);
-			overlay = 'none';
-			snap = 'peek';
-			atlas?.resetView();
-		}
-		lastServer = id;
-	});
 
 	function openOverlay(o: Exclude<MobileOverlay, 'none'>): void {
 		if (overlay === 'none') opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -227,19 +172,19 @@
 	}
 
 	/**
-	 * A profile's "Map →": close the sheet, then centre on the item
-	 * (selecting its marker when on the map). The row with focus closes
-	 * along with the sheet, so once things settle (fix round 1), focus
-	 * moves to the docked marker card's Close button when the item landed
-	 * on one, or to the map itself otherwise (an item not currently on the
-	 * map, e.g. filtered out or still unexplored).
+	 * A profile's "Map →" and the timeline's "Show on map →": close the
+	 * sheet, then centre on (x, z) at zoom 4, selecting `m` (the marker
+	 * there, if any). The row with focus closes along with the sheet, so
+	 * once things settle (fix round 1), focus moves to the docked marker
+	 * card's Close button when the item landed on one, or to the map itself
+	 * otherwise (an item not currently on the map, e.g. filtered out or
+	 * still unexplored) — not to the menu's carried-over opener.
 	 */
-	function mapTo(x: number, z: number, id: string): void {
+	function showAt(x: number, z: number, m: MapMarker | undefined): void {
 		app.closeView();
 		snap = 'peek';
-		const m = all.find((mm) => mm.id === id);
 		if (m) {
-			focusMarker(m, 4);
+			focusMarker(m, 4, { x, z });
 		} else if (map) {
 			atlas?.centerOn(x, z, 4, centerDy(map.getSize().y));
 		}
@@ -249,38 +194,20 @@
 		});
 	}
 
-	/**
-	 * The timeline's "Show on map →" (fix round 1: focus lands on the
-	 * docked marker card's Close button when one opens, matching the
-	 * profile's own `mapTo` — not on the menu's carried-over opener).
-	 */
+	/** A profile's "Map →": its marker found by position as well as id, since ids are per save (linkedMarker). */
+	function mapTo(x: number, z: number, id: string): void {
+		showAt(x, z, linkedMarker(all, id, x, z));
+	}
+
+	/** The timeline's "Show on map →": the marker at the event's place, if any. */
 	function showOnMap(x: number, z: number): void {
-		app.closeView();
-		snap = 'peek';
-		const m = markerAt(all, x, z);
-		if (m) {
-			focusMarker(m, 4);
-		} else if (map) {
-			atlas?.centerOn(x, z, 4, centerDy(map.getSize().y));
-		}
-		void tick().then(() => {
-			const close = document.querySelector<HTMLElement>('[data-testid="mobile-marker-card"] [aria-label="Close"]');
-			(close ?? map?.getContainer())?.focus();
-		});
+		showAt(x, z, markerAt(all, x, z));
 	}
 
 	/** Search pick (§5.2, Mobile ruling): close the menu, select the marker at zoom 4.25. */
 	function pickResult(m: MapMarker): void {
 		closeOverlay();
 		focusMarker(m, SEARCH_ZOOM);
-	}
-
-	function toggleLayer(key: LayerKey): void {
-		layers[key] = !layers[key];
-	}
-
-	function toast(title: string, sub: string): void {
-		app.showToast(title, sub === '' ? undefined : sub);
 	}
 
 	function onscrim(): void {
@@ -296,7 +223,7 @@
 		} else if (overlay !== 'none') {
 			e.preventDefault();
 			closeOverlay();
-		} else if (selectedId !== undefined) {
+		} else if (shell.selectedId !== undefined) {
 			select(undefined);
 		} else if (snap === 'pulled') {
 			snap = 'peek';
@@ -308,7 +235,7 @@
 		if (frame) return;
 		frame = requestAnimationFrame(() => {
 			frame = 0;
-			if (map) zoom = map.getZoom();
+			if (map) shell.zoom = map.getZoom();
 		});
 	}
 	$effect(() => () => {
@@ -319,25 +246,6 @@
 <svelte:window {onkeydown} />
 
 <main class="shell" data-layout="mobile">
-	<AtlasMap
-		bind:this={atlas}
-		{card}
-		snapshot={app.snapshot}
-		padLeft={0}
-		defaultZoom={DEFAULT_ZOOM}
-		{dim}
-		filter={view?.filter ?? ''}
-		onready={(m) => {
-			map = m;
-			zoom = m.getZoom();
-		}}
-		onclick={() => select(undefined)}
-		{onmove}
-	/>
-	{#if map}
-		<MarkerLayer {map} {all} {layers} {portalLinks} {selectedId} onselect={onmarker} />
-	{/if}
-
 	{#if view?.overlay.kind === 'waiting' || view?.overlay.kind === 'charting'}
 		<!-- Centred in the map area between the top bar and the peek sheet. -->
 		<div class="centre-slot" style:bottom="{peekH}px">
@@ -348,9 +256,12 @@
 				<ChartingCard pct={o.pct} done={o.done} total={o.total} etaMin={o.etaMin} padLeft={0} />
 			{/if}
 		</div>
-	{:else if (view?.overlay.kind === 'banner' || chipShown) && overlay !== 'join'}
+	{/if}
+	{#if (app.disconnected || view?.overlay.kind === 'banner' || chipShown) && overlay !== 'join'}
 		<div class="banner-slot">
-			{#if view?.overlay.kind === 'banner'}
+			{#if app.disconnected}
+				<ConnectionBanner mobile />
+			{:else if view?.overlay.kind === 'banner'}
 				{@const o = view.overlay}
 				<StateBanner tone={o.tone} title={o.title} body={o.body} mobile />
 			{/if}
@@ -416,11 +327,11 @@
 			{all}
 			disabled={!markersOn}
 			disabledPlaceholder={view?.overlay.kind === 'charting' ? 'Charting the map…' : 'Waiting for the first save…'}
-			{layers}
-			{portalLinks}
-			{counts}
+			layers={shell.layers}
+			portalLinks={shell.portalLinks}
+			counts={shell.counts}
 			ontoggle={toggleLayer}
-			onlinks={() => (portalLinks = !portalLinks)}
+			onlinks={shell.togglePortalLinks}
 			onpick={pickResult}
 			ontimeline={() => {
 				activityOpener = opener;
@@ -447,6 +358,28 @@
 			onclose={() => app.closeView()}
 			onmap={showOnMap}
 		/>
+	{/if}
+
+	<!-- Last in the DOM, so Tab reaches the top bar, the sheets and the
+	     controls before the map and its pins (each one a tab stop);
+	     AtlasMap sits under them all with z-index -1. -->
+	<AtlasMap
+		bind:this={atlas}
+		{card}
+		snapshot={app.snapshot}
+		padLeft={0}
+		defaultZoom={DEFAULT_ZOOM}
+		{dim}
+		filter={view?.filter ?? ''}
+		onready={(m) => {
+			shell.map = m;
+			shell.zoom = m.getZoom();
+		}}
+		onclick={() => select(undefined)}
+		{onmove}
+	/>
+	{#if map}
+		<MarkerLayer {map} {all} layers={shell.layers} portalLinks={shell.portalLinks} selectedId={shell.selectedId} onselect={onmarker} />
 	{/if}
 </main>
 
