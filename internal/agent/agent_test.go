@@ -391,3 +391,12 @@ func TestRunExitsOnContextCancel(t *testing.T) {
 		t.Fatal("Run did not exit after ctx cancel")
 	}
 }
+
+// TestNewDefaultsNonPositivePoll: a negative Poll would panic
+// time.NewTicker in Run, so New treats it like an unset one.
+func TestNewDefaultsNonPositivePoll(t *testing.T) {
+	a := New(Config{Poll: -time.Second}, slog.New(slog.DiscardHandler))
+	if a.cfg.Poll != 15*time.Second {
+		t.Fatalf("Poll = %v, want the 15s default", a.cfg.Poll)
+	}
+}

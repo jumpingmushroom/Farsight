@@ -34,7 +34,7 @@ type Config struct {
 	ServerID  string
 	URL       string
 	Token     string
-	Poll      time.Duration
+	Poll      time.Duration // <= 0 => 15s
 
 	// Client, if non-nil, is used instead of building a new ingest.Client
 	// from URL/ServerID/Token, so a caller that needs an ingest.Client for
@@ -70,7 +70,7 @@ type Agent struct {
 }
 
 func New(cfg Config, log *slog.Logger) *Agent {
-	if cfg.Poll == 0 {
+	if cfg.Poll <= 0 { // a negative Poll would panic time.NewTicker in Run
 		cfg.Poll = 15 * time.Second
 	}
 	client := cfg.Client
