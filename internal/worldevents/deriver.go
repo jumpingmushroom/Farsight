@@ -163,6 +163,12 @@ func (d *Deriver) CatchUp(ctx context.Context, serverID string) (n int, err erro
 		if !ok {
 			continue // removed since SnapshotsAfter listed it
 		}
+		if prev != nil && !sameWorld(prev, cur) {
+			// Diffing across a world swap or a restored backup would
+			// report everything the other world has as new.
+			d.log.Info("world events: world changed, new baseline", "server", serverID, "saveId", cur.SaveID)
+			prev = nil
+		}
 		n, err := d.apply(ctx, serverID, k, prev, cur, backfilled)
 		if err != nil {
 			return written, err
@@ -177,6 +183,15 @@ func (d *Deriver) CatchUp(ctx context.Context, serverID string) (n int, err erro
 		d.log.Info("world events", "server", serverID, "events", written, "saves", len(keys))
 	}
 	return written, nil
+}
+
+// sameWorld reports whether cur continues prev's world: the same name
+// and seed, and a world clock that has not gone back. The clock only
+// moves forward in play, so going back means a restored backup (or a
+// fresh world under the same name and seed).
+func sameWorld(prev, cur *extract.Snapshot) bool {
+	return prev.World.Name == cur.World.Name && prev.World.Seed == cur.World.Seed &&
+		cur.World.NetTime >= prev.World.NetTime
 }
 
 // CatchUpAsync starts CatchUp for serverID in the background and returns

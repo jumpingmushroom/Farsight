@@ -343,3 +343,44 @@ func TestCatchUpAsyncRecoversPanicAndLogsStack(t *testing.T) {
 		}
 	}
 }
+
+// A save from a different world, or one that went back in time (a
+// restored backup), starts a new baseline instead of being diffed
+// against the previous save.
+func TestCatchUpStartsANewBaselineWhenTheWorldChanges(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*extract.Snapshot)
+	}{
+		{"new seed", func(s *extract.Snapshot) { s.World.Seed = 99 }},
+		{"new name", func(s *extract.Snapshot) { s.World.Name = "Other" }},
+		{"time went back", func(s *extract.Snapshot) { s.World.NetTime = 100 }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := newStore(t)
+			ctx := context.Background()
+			d := NewDeriver(st, nil)
+
+			s1 := world("chunked:1", t0)
+			s1.World = extract.WorldInfo{Name: "Midgard", Seed: 7, NetTime: 5000}
+			put(t, st, s1)
+			if _, err := d.CatchUp(ctx, "srv"); err != nil {
+				t.Fatal(err)
+			}
+
+			s2 := world("chunked:2", t0.Add(20*time.Minute))
+			s2.World = s1.World
+			tc.change(s2)
+			s2.Markers = append(s2.Markers, extract.Marker{ID: "portal-9", Kind: "portal", Label: "new", X: 20, Z: 20, Owner: "Astrid"})
+			s2.GlobalKeys = append(s2.GlobalKeys, "defeated_gdking")
+			put(t, st, s2)
+
+			if n, err := d.CatchUp(ctx, "srv"); err != nil || n != 0 {
+				t.Fatalf("wrote %d (err %v), want 0: a new baseline; events %v", n, err, storedTypes(t, st))
+			}
+			if state, _, _ := st.WorldDiffState(ctx, nil, "srv"); state.SaveID != "chunked:2" {
+				t.Fatalf("state = %+v, want advanced to chunked:2", state)
+			}
+		})
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -186,6 +187,20 @@ func decodeBody(w http.ResponseWriter, r *http.Request, maxDecompressed int64, v
 	return body.n, true
 }
 
+// storedSaveID is the id a snapshot is stored (and deduplicated) under.
+// A chunked save's id is only the game's save counter ("chunked:N"),
+// which restarts lower when a world backup is restored, so it gets the
+// save time appended: otherwise every new save up to the old counter
+// would be dropped as a duplicate of a pre-restore one. Legacy ids
+// already carry the file's mtime. A retried POST of the same save keeps
+// the same SavedAt, so it still dedupes.
+func storedSaveID(saveID string, savedAt time.Time) string {
+	if strings.HasPrefix(saveID, "chunked:") && strings.Count(saveID, ":") == 1 {
+		return saveID + ":" + strconv.FormatInt(savedAt.UnixMilli(), 10)
+	}
+	return saveID
+}
+
 func (s *server) ingestSnapshot(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.authIngest(w, r)
 	if !ok {
@@ -206,6 +221,7 @@ func (s *server) ingestSnapshot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	snap.SaveID = storedSaveID(snap.SaveID, snap.SavedAt)
 	blob, err := json.Marshal(snap)
 	if err != nil {
 		s.Log.Error("server: encode snapshot", "server", id, "err", err)

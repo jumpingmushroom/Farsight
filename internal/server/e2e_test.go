@@ -292,7 +292,7 @@ func TestEndToEnd(t *testing.T) {
 	for _, s := range recent {
 		reasons[s.Name] = s.Reason
 	}
-	if reasons["Bjorn"] != "server_lost" || reasons["Astrid"] != "left" {
+	if reasons["Bjorn"] != store.ReasonHeartbeatLost || reasons["Astrid"] != "left" {
 		t.Errorf("reasons = %v", reasons)
 	}
 

@@ -26,6 +26,13 @@ type follower struct {
 	offset int64
 	buf    []byte // bytes of a not-yet-terminated line, carried across polls
 
+	// rotated: the first file this follower opens is read after its
+	// newest rotated backup (<path>.1), so a replay after an agent
+	// restart still sees what was logged before supervisord's last
+	// rotation. opened records that the first open has happened.
+	rotated bool
+	opened  bool
+
 	role       string       // "server" or "supervisor", for log lines
 	log        *slog.Logger // may be nil
 	discarding bool         // dropping an overlong line until its newline
@@ -55,17 +62,24 @@ func (fw *follower) readNew() ([]string, error) {
 
 	if fw.f == nil || !os.SameFile(fw.fi, fi) {
 		var lines []string
+		var carry []byte
+		discarding := false
 		if fw.f != nil {
 			drained, _ := fw.drain() // best effort; errors here don't block the switch
 			lines = append(lines, drained...)
 			fw.f.Close()
+		} else if fw.rotated && !fw.opened {
+			// The backup's unterminated tail (rotation can split a line)
+			// carries into the current file.
+			lines, carry, discarding = fw.readBackup(path + ".1")
 		}
 		nf, err := os.Open(path)
 		if err != nil {
 			fw.f, fw.fi = nil, nil
 			return lines, err
 		}
-		fw.f, fw.fi, fw.offset, fw.buf, fw.discarding = nf, fi, 0, nil, false
+		fw.opened = true
+		fw.f, fw.fi, fw.offset, fw.buf, fw.discarding = nf, fi, 0, carry, discarding
 		more, err := fw.drain()
 		return append(lines, more...), err
 	}
@@ -81,6 +95,19 @@ func (fw *follower) readNew() ([]string, error) {
 	}
 
 	return fw.drain()
+}
+
+// readBackup reads every line of a rotated backup at path, returning
+// them with its unterminated tail (and whether that tail is an overlong
+// line being discarded). A missing or unreadable backup reads as empty.
+func (fw *follower) readBackup(path string) (lines []string, tail []byte, discarding bool) {
+	b := &follower{resolve: func(string) (string, error) { return path, nil }, role: fw.role, log: fw.log}
+	defer b.close()
+	lines, err := b.readNew()
+	if err != nil && !os.IsNotExist(err) && fw.log != nil {
+		fw.log.Warn("reading rotated log file", "role", fw.role, "path", path, "err", err)
+	}
+	return lines, b.buf, b.discarding
 }
 
 // close releases the currently open handle, if any. It is safe to call
