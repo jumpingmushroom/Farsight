@@ -177,7 +177,7 @@ describe('timeView', () => {
 	// 100 s into period 741.
 	const clock = (partial: Partial<Clock> = {}) => makeClock({ netTime: 741 * 666 + 100, at, ...partial });
 	const now = new Date(at);
-	const tv = (card: Pick<Card, 'clock' | 'weather'>, n: Date): TimeView => {
+	const tv = (card: Pick<Card, 'clock' | 'weather' | 'timeZone'>, n: Date): TimeView => {
 		const v = timeView(card, new Date(at), n);
 		if (!v) throw new Error('no view');
 		return v;
@@ -213,11 +213,16 @@ describe('timeView', () => {
 		]);
 	});
 
-	test('running: Next and Then headed with their start in local wall time', () => {
-		// Next starts in 566 s (18:09:26), Then in 1232 s (18:20:32); TZ is UTC.
+	test("running: Next and Then headed with their start on the server's wall clock", () => {
+		// Next starts in 566 s (18:09:26), Then in 1232 s (18:20:32); no zone means UTC.
 		const v = tv({ clock: clock(), weather }, now);
 		expect(v.heads).toEqual({ next: 'from 18:09', then: 'from 18:20' });
 		expect(v.pausedText).toBeUndefined();
+	});
+
+	test("Next and Then start times are on the server's wall clock, not the viewer's", () => {
+		const v = tv({ clock: clock(), weather, timeZone: 'Europe/Oslo' }, now);
+		expect(v.heads).toEqual({ next: 'from 20:09', then: 'from 20:20' });
 	});
 
 	test('the clock ticks forward while running', () => {

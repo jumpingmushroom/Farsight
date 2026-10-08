@@ -111,7 +111,9 @@ export function topBarSub(view: MapView | undefined, world: WorldCard | undefine
 			return { text: BANNER_SHORT[o.tone], tone: o.tone === 'offline' ? 'offline' : 'warn' };
 		case 'pill': {
 			if (!world) return { text: '', tone: 'none' };
-			const p = mapPill(world, now);
+			// Only the relative age and next save are shown, so the zone (for
+			// the unused autosave clock) doesn't matter.
+			const p = mapPill(world, now, 'UTC');
 			const age = p.age === 'just now' ? 'Map updated just now' : `Map ${p.age}`;
 			const next = p.next === undefined ? '' : p.next === 'any moment' ? ' · next save any moment' : ` · next ${p.next}`;
 			return { text: age + next, tone: 'cold' };

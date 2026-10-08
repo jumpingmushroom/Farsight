@@ -13,7 +13,7 @@
 	import { fmtActivityTime } from '$lib/format';
 	import { app } from '$lib/state.svelte';
 	import type { Card } from '$lib/types';
-	import { zClock } from '$lib/zoned';
+	import { cardZone, zClock } from '$lib/zoned';
 	import ActivityIcon from './ActivityIcon.svelte';
 
 	let {
@@ -27,7 +27,7 @@
 	const uid = $props.id();
 
 	const rows = $derived(activityRows(card, limit, filters.off, filters.people));
-	const tz = $derived(card.timeZone ?? 'UTC');
+	const tz = $derived(cardZone(card));
 </script>
 
 <section class="activity" class:mobile aria-labelledby="{uid}-activity-title">
@@ -45,7 +45,7 @@
 				<li class="row">
 					<span class="disc {a.tone}" aria-hidden="true"><ActivityIcon name={a.icon} size={mobile ? 15 : 14} /></span>
 					<span class="text">{a.text}</span>
-					<time class="time" datetime={a.at}>{a.source === 'save' ? `save ${zClock(a.at, tz)}` : fmtActivityTime(a.at, now)}</time>
+					<time class="time" datetime={a.at}>{a.source === 'save' ? `save ${zClock(a.at, tz)}` : fmtActivityTime(a.at, now, tz)}</time>
 				</li>
 			{/each}
 		</ul>

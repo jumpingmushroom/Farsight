@@ -3,20 +3,10 @@
 // against DESIGN-NOTES §3.3, §3.5, §3.7, §3.8, §3.9, §3.10, §3.11, §3.19,
 // §3.22 and the plan's rulings on design ambiguities.
 
-import { fmtClock, fmtDayRef, fmtMapAge } from './format';
+import { fmtMapAge } from './format';
 import { eventIcon, eventText, eventTone, passes, type ActivityIcon, type Tone } from './timeline';
 import type { Activity, Card, Category, Marker, ServerSummary, Status, WorldCard } from './types';
-
-const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-function sameLocalDay(a: Date, b: Date): boolean {
-	return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-}
-
-function isPreviousLocalDay(a: Date, b: Date): boolean {
-	const prev = new Date(b.getFullYear(), b.getMonth(), b.getDate() - 1);
-	return a.getFullYear() === prev.getFullYear() && a.getMonth() === prev.getMonth() && a.getDate() === prev.getDate();
-}
+import { cardZone, dayKey, prevDayKey, zClock, zDayMonth, zDayRef } from './zoned';
 
 // --- Status (§3.3) --------------------------------------------------------
 
@@ -108,11 +98,12 @@ export interface MapPill {
 	savedClock: string;
 }
 
-export function mapPill(world: WorldCard, now: Date): MapPill {
+/** `tz` is the server's zone (cardZone), for the snapshot's autosave clock. */
+export function mapPill(world: WorldCard, now: Date, tz: string): MapPill {
 	const savedAt = new Date(world.savedAt);
 	const elapsedSec = Math.max(0, (now.getTime() - savedAt.getTime()) / 1000);
 	const age = fmtMapAge(elapsedSec / 60);
-	const savedClock = fmtClock(world.savedAt);
+	const savedClock = zClock(world.savedAt, tz);
 	if (world.saveIntervalSec === undefined) {
 		return { age, savedClock };
 	}
@@ -223,7 +214,7 @@ export function mapFilter(biomes: boolean, tone: 'offline' | 'stale' | undefined
 export function offlineTitle(card: Card, now: Date): string {
 	if (!card.lastHeartbeat) return 'Server offline';
 	const ago = agoShort(sessionSeconds(card.lastHeartbeat, now));
-	return `Server offline · last seen online ${fmtDayRef(card.lastHeartbeat, now)} (${ago})`;
+	return `Server offline · last seen online ${zDayRef(card.lastHeartbeat, cardZone(card), now)} (${ago})`;
 }
 
 const OFFLINE_BODY = 'The map is still here to browse. We’ll switch back to live as soon as it answers.';
@@ -288,20 +279,23 @@ const RESTARTING_NOTE =
 const OFFLINE_NOTE =
 	'There’s no active session to join. The address stays listed for PC players and will work once the server is back.';
 
-function dayPossessive(iso: string, now: Date): string {
-	const d = new Date(iso);
-	if (sameLocalDay(d, now)) return 'today’s';
-	if (isPreviousLocalDay(d, now)) return 'yesterday’s';
-	return `${d.getDate()} ${MONTH_ABBR[d.getMonth()]}`;
+function dayPossessive(iso: string, now: Date, tz: string): string {
+	const day = dayKey(iso, tz);
+	const today = dayKey(now, tz);
+	if (day === today) return 'today’s';
+	if (day === prevDayKey(today)) return 'yesterday’s';
+	return zDayMonth(iso, tz);
 }
 
 export function joinCodeView(card: Card, now: Date): JoinCodeView {
 	if (!card.crossplay) {
 		return { state: 'none', note: 'Steam server: join by address.', status: '' };
 	}
+	const tz = cardZone(card);
 	if (card.status === 'online' && card.joinCode) {
+		const at = card.joinCodeAt ?? now.toISOString();
 		const note =
-			`Issued at ${dayPossessive(card.joinCodeAt ?? now.toISOString(), now)} ${fmtClock(card.joinCodeAt ?? now.toISOString())} restart. ` +
+			`Issued at ${dayPossessive(at, now, tz)} ${zClock(at, tz)} restart. ` +
 			'A new code is issued every time the server restarts, and this page updates by itself.';
 		return { state: 'live', code: card.joinCode, note, status: 'From server log' };
 	}
@@ -311,7 +305,7 @@ export function joinCodeView(card: Card, now: Date): JoinCodeView {
 	if (card.status === 'starting' || card.status === 'restarting') {
 		return { state: 'restarting', note: RESTARTING_NOTE, status: 'Waiting for new code' };
 	}
-	const status = card.lastHeartbeat ? `Last seen ${fmtClock(card.lastHeartbeat)}` : 'Offline';
+	const status = card.lastHeartbeat ? `Last seen ${zClock(card.lastHeartbeat, tz)}` : 'Offline';
 	return { state: 'offline', note: OFFLINE_NOTE, status };
 }
 
@@ -481,7 +475,7 @@ function agoShort(sec: number): string {
  */
 export function playersEmpty(card: Card, now: Date): EmptyState | undefined {
 	if (isOfflineLike(card.status)) {
-		const save = card.world ? ` The map shows the final save before shutdown (${fmtClock(card.world.savedAt)}).` : '';
+		const save = card.world ? ` The map shows the final save before shutdown (${zClock(card.world.savedAt, cardZone(card))}).` : '';
 		return { title: 'Server is resting', body: `Nobody can join until it’s back.${save}` };
 	}
 	if (card.online.length > 0) return undefined;

@@ -11,6 +11,7 @@
 
 	let {
 		world,
+		timeZone,
 		now,
 		left,
 		top = 16,
@@ -18,6 +19,8 @@
 		height = $bindable(0)
 	}: {
 		world: WorldCard;
+		/** The server's zone (the card's `timeZone`), for the autosave's clock. */
+		timeZone: string | undefined;
 		now: Date;
 		left: number;
 		/** 16, or below the search/layers cluster when they'd collide (the shell decides). */
@@ -28,7 +31,7 @@
 		height?: number;
 	} = $props();
 
-	const pill = $derived(mapPill(world, now));
+	const pill = $derived(mapPill(world, now, timeZone ?? 'UTC'));
 	const next = $derived(
 		pill.next === undefined ? '' : pill.next === 'any moment' ? ' · next save any moment' : ` · next save in ${pill.next}`
 	);

@@ -53,6 +53,14 @@ export function zoned(at: string | Date, tz: string): Zoned {
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 
+/**
+ * A card's server zone, which every wall-clock time and day label in the
+ * app is shown in (review: never the viewer's), or UTC when it has none.
+ */
+export function cardZone(card: { timeZone?: string }): string {
+	return card.timeZone ?? 'UTC';
+}
+
 /** "2026-10-05": the local date, for grouping and comparing days. */
 export function dayKey(at: string | Date, tz: string): string {
 	const z = zoned(at, tz);

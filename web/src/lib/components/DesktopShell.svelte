@@ -440,7 +440,7 @@
 			bind:height={slotH}
 		/>
 	{:else if view?.overlay.kind === 'pill' && card?.world}
-		<MapUpdatedPill world={card.world} now={app.now} left={pillL} top={pillTop} bind:width={pillW} bind:height={slotH} />
+		<MapUpdatedPill world={card.world} timeZone={card.timeZone} now={app.now} left={pillL} top={pillTop} bind:width={pillW} bind:height={slotH} />
 	{/if}
 	{#if time && weatherShown}
 		<WeatherPill
