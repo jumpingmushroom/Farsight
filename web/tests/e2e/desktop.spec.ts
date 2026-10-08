@@ -923,6 +923,48 @@ test('fix · desktop: closing a profile or the timeline over the collapsed panel
 	}
 });
 
+// Review fix: the popover's left edge was clamped clear of the panel only
+// when the popover was placed (on a selection or a map move), so widening
+// the panel left it underneath and narrowing it left it stranded.
+test('fix · desktop: the marker popover follows the panel’s width', async ({ page }) => {
+	await unlock(page);
+	await markersReady(page);
+	await search(page).fill('copper');
+	await page.getByRole('listbox', { name: 'Search results' }).getByRole('option').filter({ hasText: 'Portal · unpaired' }).click();
+	const left = async () => Math.round((await markerCard(page).boundingBox())!.x);
+	// The pin settles at the visible centre (x = 908), the popover 26 px right
+	// of it; only then does a drag pan the map rather than stop the animation.
+	await expect.poll(left).toBe(934);
+	await expect(page.locator('.leaflet-map-pane.leaflet-zoom-anim')).toHaveCount(0);
+	await page.waitForTimeout(500);
+	// Drag the pin to x ≈ 500: the popover follows, still clear of the panel.
+	await page.mouse.move(850, 820);
+	await page.mouse.down();
+	for (let i = 1; i <= 20; i++) await page.mouse.move(850 - i * 20, 820);
+	await page.mouse.up();
+	// Leaflet's inertia carries the pan on a little: wait until it stops.
+	let last = NaN;
+	await expect
+		.poll(async () => {
+			const prev = last;
+			last = await left();
+			return last === prev;
+		})
+		.toBe(true);
+	const beside = last;
+	expect(beside).toBeGreaterThanOrEqual(376 + 16);
+	expect(beside).toBeLessThan(552);
+
+	// The Activity view widens the panel to 552 px: the popover moves clear of it.
+	await page.getByRole('region', { name: 'Recent activity' }).getByRole('button', { name: 'Full timeline →' }).click();
+	await expect(page.getByTestId('activity-panel')).toBeVisible();
+	await expect.poll(left).toBeGreaterThanOrEqual(552 + 16);
+	// Back to the 376 px panel: the popover returns beside its pin.
+	await page.getByRole('button', { name: 'Back' }).click();
+	await expect(page.getByTestId('activity-panel')).toHaveCount(0);
+	await expect.poll(left).toBe(beside);
+});
+
 // --- Plan 9: time and weather -------------------------------------------------
 
 const weatherPill = (page: Page) => page.getByTestId('weather-pill');

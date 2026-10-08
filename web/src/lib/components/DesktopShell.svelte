@@ -306,9 +306,13 @@
 		if (!frame) frame = requestAnimationFrame(placePopover);
 	}
 
+	// Placed again when the selection changes, and when the panel's width
+	// does (review fix): the clamp clear of the panel would otherwise leave
+	// it under a widened panel, or stranded beside a narrowed one.
 	$effect(() => {
 		void selected;
 		void map;
+		void padLeft;
 		schedulePopover();
 	});
 
