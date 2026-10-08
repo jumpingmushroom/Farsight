@@ -242,7 +242,10 @@
 	 * looks up the row that opened it (by name for a profile, falling back
 	 * to the Online tab when that row is gone — e.g. the player left and
 	 * dropped off "Recently online" by the time the profile closed — or the
-	 * "Full timeline →" link for the activity view) and focuses it.
+	 * "Full timeline →" link for the activity view) and focuses it. A view
+	 * closed over the collapsed panel (reopened by browser forward after
+	 * collapsing) remounts the collapsed pill instead, with neither, so
+	 * focus goes to the pill (review fix).
 	 */
 	let closingFocusKind: 'profile' | 'activity' | undefined;
 	let closingFocusName: string | undefined;
@@ -261,13 +264,15 @@
 		closingFocusName = undefined;
 		untrack(() => {
 			void tick().then(() => {
+				// The collapsed pill when the view closed over the collapsed panel.
+				const fallback = document.getElementById('tab-players') ?? document.getElementById('panel-pill');
 				if (kind === 'activity') {
-					(document.querySelector<HTMLElement>('.panel .full') ?? document.getElementById('tab-players'))?.focus();
+					(document.querySelector<HTMLElement>('.panel .full') ?? fallback)?.focus();
 					return;
 				}
 				const rows = document.querySelectorAll<HTMLButtonElement>('.panel .profile');
 				const row = Array.from(rows).find((b) => b.getAttribute('aria-label') === `Profile of ${name}`);
-				(row ?? document.getElementById('tab-players'))?.focus();
+				(row ?? fallback)?.focus();
 			});
 		});
 	});

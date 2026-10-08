@@ -894,6 +894,35 @@ test('fix · desktop activity: focus moves to Back on open, and back to "Full ti
 	await expect(row).toBeFocused();
 });
 
+// Review fix: with the panel collapsed, closing a view re-renders the
+// collapsed pill, not the panel, so neither the opening row nor the Online
+// tab exists and focus used to drop to <body>.
+test('fix · desktop: closing a profile or the timeline over the collapsed panel focuses the collapsed pill', async ({ page }) => {
+	await unlock(page);
+	const back = page.getByRole('button', { name: 'Back' });
+	const pill = page.getByRole('button', { name: /^Expand panel/ });
+	const openers = [
+		{ open: page.getByRole('list', { name: 'Online now' }).getByRole('button', { name: 'Profile of Astrid' }), panel: 'profile-panel' },
+		{ open: page.getByRole('region', { name: 'Recent activity' }).getByRole('button', { name: 'Full timeline →' }), panel: 'activity-panel' }
+	];
+	for (const { open, panel } of openers) {
+		// Open the view, close it, collapse the panel, then reopen the view
+		// with browser forward: it now sits over the collapsed panel.
+		if (await pill.count()) await pill.click();
+		await open.click();
+		await expect(back).toBeFocused();
+		await page.goBack();
+		await expect(page.getByTestId(panel)).toHaveCount(0);
+		await page.getByRole('button', { name: 'Collapse panel' }).click();
+		await expect(pill).toBeVisible();
+		await page.goForward();
+		await expect(page.getByTestId(panel)).toBeVisible();
+		await back.click();
+		await expect(page.getByTestId(panel)).toHaveCount(0);
+		await expect(pill).toBeFocused();
+	}
+});
+
 // --- Plan 9: time and weather -------------------------------------------------
 
 const weatherPill = (page: Page) => page.getByTestId('weather-pill');
