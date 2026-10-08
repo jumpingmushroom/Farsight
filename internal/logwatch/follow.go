@@ -12,6 +12,10 @@ import (
 // terminating newline, so a runaway writer can't grow memory unbounded.
 const maxPartialLine = 1 << 20
 
+// openFile is a seam over os.Open, so tests can rotate a file between
+// readNew's stat of a path and its open.
+var openFile = os.Open
+
 // follower tails one logical log role (the server's stdout log or
 // supervisord.log) across log rotation and game restarts. resolve is
 // called on every readNew with the path currently open (empty if none),
@@ -73,28 +77,45 @@ func (fw *follower) readNew() ([]string, error) {
 			// carries into the current file.
 			lines, carry, discarding = fw.readBackup(path + ".1")
 		}
-		nf, err := os.Open(path)
+		nf, nfi, err := open(path)
 		if err != nil {
 			fw.f, fw.fi = nil, nil
 			return lines, err
 		}
 		fw.opened = true
-		fw.f, fw.fi, fw.offset, fw.buf, fw.discarding = nf, fi, 0, carry, discarding
+		fw.f, fw.fi, fw.offset, fw.buf, fw.discarding = nf, nfi, 0, carry, discarding
 		more, err := fw.drain()
 		return append(lines, more...), err
 	}
 
 	if fi.Size() < fw.offset {
 		fw.f.Close()
-		nf, err := os.Open(path)
+		nf, nfi, err := open(path)
 		if err != nil {
 			fw.f, fw.fi = nil, nil
 			return nil, err
 		}
-		fw.f, fw.fi, fw.offset, fw.buf, fw.discarding = nf, fi, 0, nil, false
+		fw.f, fw.fi, fw.offset, fw.buf, fw.discarding = nf, nfi, 0, nil, false
 	}
 
 	return fw.drain()
+}
+
+// open opens path and returns the handle with its own identity. The path
+// may be rotated between readNew's stat and this open, so the identity
+// must come from the handle, not the earlier stat: a mismatch would make
+// the next poll treat the file already open as new and read it again.
+func open(path string) (*os.File, os.FileInfo, error) {
+	f, err := openFile(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	fi, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, nil, err
+	}
+	return f, fi, nil
 }
 
 // readBackup reads every line of a rotated backup at path, returning

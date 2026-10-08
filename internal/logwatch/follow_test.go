@@ -3,6 +3,7 @@ package logwatch
 import (
 	"bytes"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -59,5 +60,42 @@ func TestFollowerCapsPartialLine(t *testing.T) {
 	}
 	if n := strings.Count(buf.String(), "level=WARN"); n != 1 {
 		t.Fatalf("logged %d warnings, want 1: %s", n, buf.String())
+	}
+}
+
+// TestFollowerIdentityIsTheOpenedFile: a rotation between readNew's stat
+// of the path and its open must not leave the follower holding one file
+// while recording the other's identity, or the next poll sees a "new"
+// file and reads the one it already has again from the start.
+func TestFollowerIdentityIsTheOpenedFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "x.log")
+	appendLine(t, path, "old\n")
+	rotate := true
+	orig := openFile
+	t.Cleanup(func() { openFile = orig })
+	openFile = func(name string) (*os.File, error) {
+		if rotate {
+			rotate = false
+			if err := os.Rename(path, path+".1"); err != nil {
+				t.Fatal(err)
+			}
+			appendLine(t, path, "new\n")
+		}
+		return orig(name)
+	}
+
+	fw := &follower{resolve: func(string) (string, error) { return path, nil }}
+	defer fw.close()
+	var got []string
+	for range 2 {
+		lines, err := fw.readNew()
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, lines...)
+	}
+	if len(got) != 1 || got[0] != "new\n" {
+		t.Fatalf("lines = %q, want the opened file's line once", got)
 	}
 }
