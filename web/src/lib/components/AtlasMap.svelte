@@ -196,6 +196,12 @@
 			// hasn't gotten to yet (fix round 2, item 1).
 			clearAllLayers(liveTileLayers);
 			map = undefined;
+			// A zoom animation still running (the shells swapped mid-zoom)
+			// ends on a 250 ms timer that remove() doesn't clear, which then
+			// moves the removed map and throws. Marked finished, the timer
+			// returns at once. `_animatingZoom` is internal to Leaflet 1.9.4
+			// (pinned; leaflet-internals.test.ts).
+			(m as unknown as { _animatingZoom: boolean })._animatingZoom = false;
 			m.remove();
 		};
 	});

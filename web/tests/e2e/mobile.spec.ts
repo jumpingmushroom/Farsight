@@ -191,6 +191,19 @@ test('fix · keyboard: Tab reaches the top bar, the sheet and zoom before the fi
 	}
 });
 
+// Crossing the 768 px breakpoint mid-zoom (a tablet rotating) swaps the
+// shells, removing the map while Leaflet's zoom animation is still running;
+// its end-of-animation timer then threw on the removed map (the guard
+// fixture fails the test on any page error).
+test('fix · switching shells mid-zoom leaves no error behind', async ({ page }) => {
+	await unlock(page);
+	await expect(page.locator('.leaflet-marker-icon.fs-pin').first()).toBeVisible();
+	await page.getByRole('button', { name: 'Zoom in' }).click();
+	await page.setViewportSize({ width: 1024, height: 844 });
+	await expect(page.getByRole('combobox', { name: 'Search the map' })).toBeVisible();
+	await page.waitForTimeout(500);
+});
+
 test('carried · Esc on the pulled sheet collapses it to peek', async ({ page }) => {
 	await unlock(page);
 	await handle(page).tap();
