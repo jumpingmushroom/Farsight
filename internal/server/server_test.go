@@ -135,6 +135,33 @@ func TestIngestSnapshotStoredOnceAndEnsuresTiles(t *testing.T) {
 	}
 }
 
+// A restored backup restarts the chunked save counter: a reused save
+// number with a new save time is a new save, not a duplicate.
+func TestIngestSnapshotReusedChunkedSaveNumberIsStored(t *testing.T) {
+	e := newEnv(t)
+	old := testSnapshot("chunked:5", at(-time.Hour))
+	if err := e.post("alpha", "alpha-token", "snapshot", old); err != nil {
+		t.Fatal(err)
+	}
+	restored := testSnapshot("chunked:5", at(-time.Minute))
+	restored.World.Day = 7
+	r := e.do("POST", "/ingest/alpha/snapshot", gzipBytes(t, mustJSON(t, restored)),
+		map[string]string{"Authorization": "Bearer alpha-token", "Content-Encoding": "gzip"}, "")
+	var out map[string]any
+	r.json(t, &out)
+	if r.code != 200 || out["stored"] != true {
+		t.Fatalf("restored save: %d stored=%v, want 200 true", r.code, out["stored"])
+	}
+	blob, savedAt, ok, err := e.store.LatestSnapshot(t.Context(), "alpha")
+	if err != nil || !ok || !savedAt.Equal(restored.SavedAt) {
+		t.Fatalf("latest = %v ok=%v err=%v, want the restored save at %v", savedAt, ok, err, restored.SavedAt)
+	}
+	var got extract.Snapshot
+	if err := json.Unmarshal(blob, &got); err != nil || got.World.Day != 7 {
+		t.Fatalf("latest snapshot day = %d (%v), want 7", got.World.Day, err)
+	}
+}
+
 // Case 3: events counts and replay.
 func TestIngestEventsCountsAndReplay(t *testing.T) {
 	e := newEnv(t)
