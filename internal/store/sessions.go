@@ -37,19 +37,26 @@ func (s *Store) OpenSession(ctx context.Context, tx *sql.Tx, sess Session) error
 	return nil
 }
 
-// CloseSession sets until, seconds and reason (from sess) on the open
-// session row matching sess's exact key (ServerID, PlatformID, Name,
-// Since). found is false if no such open row exists. tx may be nil to
-// run directly on the database.
+// ReasonHeartbeatLost is the reason a session gets when it is closed
+// only because its server's heartbeat went stale. That close is a
+// guess, so the agent's own word overrides it: CloseSession replaces it
+// with the real end, and ReopenSession undoes it.
+const ReasonHeartbeatLost = "heartbeat_lost"
+
+// CloseSession sets until, seconds and reason (from sess) on the session
+// row matching sess's exact key (ServerID, PlatformID, Name, Since) that
+// is open or was closed as ReasonHeartbeatLost. found is false if no
+// such row exists. tx may be nil to run directly on the database.
 func (s *Store) CloseSession(ctx context.Context, tx *sql.Tx, sess Session) (found bool, err error) {
 	if sess.Until == nil {
 		return false, fmt.Errorf("store: close session: sess.Until is nil")
 	}
 	res, err := s.conn(tx).ExecContext(ctx, `
 		UPDATE sessions SET until = ?, seconds = ?, reason = ?
-		WHERE server_id = ? AND platform_id = ? AND name = ? AND since = ? AND until IS NULL`,
+		WHERE server_id = ? AND platform_id = ? AND name = ? AND since = ?
+		  AND (until IS NULL OR reason = ?)`,
 		nullMillis(derefTime(sess.Until)), sess.Seconds, sess.Reason,
-		sess.ServerID, sess.PlatformID, sess.Name, millis(sess.Since))
+		sess.ServerID, sess.PlatformID, sess.Name, millis(sess.Since), ReasonHeartbeatLost)
 	if err != nil {
 		return false, fmt.Errorf("store: close session: %w", err)
 	}
@@ -58,6 +65,20 @@ func (s *Store) CloseSession(ctx context.Context, tx *sql.Tx, sess Session) (fou
 		return false, err
 	}
 	return n > 0, nil
+}
+
+// ReopenSession reopens the session row matching sess's exact key if it
+// was closed as ReasonHeartbeatLost. tx may be nil to run directly on
+// the database.
+func (s *Store) ReopenSession(ctx context.Context, tx *sql.Tx, sess Session) error {
+	_, err := s.conn(tx).ExecContext(ctx, `
+		UPDATE sessions SET until = NULL, seconds = 0, reason = ''
+		WHERE server_id = ? AND platform_id = ? AND name = ? AND since = ? AND reason = ?`,
+		sess.ServerID, sess.PlatformID, sess.Name, millis(sess.Since), ReasonHeartbeatLost)
+	if err != nil {
+		return fmt.Errorf("store: reopen session: %w", err)
+	}
+	return nil
 }
 
 // InsertClosedSession records a session that is already known to be

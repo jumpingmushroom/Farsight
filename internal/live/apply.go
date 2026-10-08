@@ -46,6 +46,13 @@ type Applier struct {
 	// used. Tests set this to a fixed clock.
 	Now func() time.Time
 
+	// StartedAt, if set, is when the app started: SweepStale sweeps
+	// nothing until HeartbeatTimeout after it, since a heartbeat that
+	// is stale only because the app itself was down (a deploy) says
+	// nothing about the game server, and the agent's retry backoff may
+	// not have got one through yet.
+	StartedAt time.Time
+
 	// mu serializes Apply and SweepStale: both do a read-modify-write of
 	// a server's live row, and concurrent batches for the same server
 	// would otherwise race on that. The zero value is a usable, unlocked
@@ -131,6 +138,15 @@ func (a *Applier) Apply(ctx context.Context, serverID string, evs []logwatch.Eve
 				return err
 			}
 			if !isNew {
+				// A replayed join (the agent restarted) says the player
+				// is still on: undo a stale-heartbeat close of it.
+				if e.Type == logwatch.EvPlayerJoin {
+					if err := a.Store.ReopenSession(ctx, tx, store.Session{
+						ServerID: serverID, Name: e.Name, PlatformID: e.PlatformID, Since: e.At,
+					}); err != nil {
+						return err
+					}
+				}
 				skipped++
 				continue
 			}
@@ -248,6 +264,9 @@ func (a *Applier) SweepStale(ctx context.Context) (closed int64, err error) {
 	defer a.mu.Unlock()
 
 	now := a.now()
+	if !a.StartedAt.IsZero() && now.Sub(a.StartedAt) <= HeartbeatTimeout {
+		return 0, nil
+	}
 
 	servers, err := a.Store.ServersWithOpenSessions(ctx)
 	if err != nil {
@@ -270,7 +289,7 @@ func (a *Applier) SweepStale(ctx context.Context) (closed int64, err error) {
 			}
 
 			lastSeen := maxTime(live.LastHeartbeat, live.LastEventAt)
-			n, err := a.Store.CloseAllOpen(ctx, tx, serverID, lastSeen, "server_lost")
+			n, err := a.Store.CloseAllOpen(ctx, tx, serverID, lastSeen, store.ReasonHeartbeatLost)
 			if err != nil {
 				return err
 			}

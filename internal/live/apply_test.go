@@ -354,8 +354,8 @@ func TestSweepStaleClosesOnlyAfterHeartbeatTimeout(t *testing.T) {
 	if len(recent) != 1 {
 		t.Fatalf("recent = %+v, want 1", recent)
 	}
-	if recent[0].Reason != "server_lost" {
-		t.Fatalf("reason = %q, want server_lost", recent[0].Reason)
+	if recent[0].Reason != "heartbeat_lost" {
+		t.Fatalf("reason = %q, want heartbeat_lost", recent[0].Reason)
 	}
 	if recent[0].Until == nil || !recent[0].Until.Equal(heartbeatAt) {
 		t.Fatalf("until = %v, want last heartbeat %v", recent[0].Until, heartbeatAt)
@@ -579,5 +579,126 @@ func TestApplyStoresDeathEvents(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Type != logwatch.EvPlayerDeath || got[0].PlatformID != "765" {
 		t.Fatalf("stored = %+v", got)
+	}
+}
+
+// --- a session swept as heartbeat_lost is repaired by what the agent
+// sends once it is back ---
+
+// sweptSession applies a join and a heartbeat for Alice, then sweeps the
+// server stale, returning the applier and the join time.
+func sweptSession(t *testing.T, s *store.Store) (*Applier, time.Time) {
+	t.Helper()
+	ctx := context.Background()
+	heartbeatAt := parseTime("2026-01-01T00:00:00Z")
+	joinAt := heartbeatAt.Add(-time.Minute)
+	a := &Applier{Store: s, Now: fixedNow(heartbeatAt)}
+	evs := []logwatch.Event{
+		{ID: "j1", Type: logwatch.EvPlayerJoin, At: joinAt, Name: "Alice", Platform: "Steam", PlatformID: "p1"},
+		{ID: "h1", Type: logwatch.EvHeartbeat, At: heartbeatAt},
+	}
+	if _, _, err := a.Apply(ctx, "srv", evs); err != nil {
+		t.Fatal(err)
+	}
+	a.Now = fixedNow(heartbeatAt.Add(HeartbeatTimeout + time.Second))
+	if n, err := a.SweepStale(ctx); err != nil || n != 1 {
+		t.Fatalf("sweep closed %d, %v; want 1", n, err)
+	}
+	return a, joinAt
+}
+
+func TestApplyLeaveAfterSweepRecordsTheRealEnd(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	a, joinAt := sweptSession(t, s)
+
+	leaveAt := joinAt.Add(20 * time.Minute)
+	a.Now = fixedNow(leaveAt.Add(time.Minute))
+	leave := logwatch.Event{ID: "l1", Type: logwatch.EvPlayerLeave, At: leaveAt, Name: "Alice", Platform: "Steam", PlatformID: "p1", Since: &joinAt, Seconds: 1200, Reason: "left"}
+	if _, _, err := a.Apply(ctx, "srv", []logwatch.Event{leave}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.PlayerSessions(ctx, "srv", "p1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("sessions = %+v, want 1", got)
+	}
+	if got[0].Until == nil || !got[0].Until.Equal(leaveAt) || got[0].Seconds != 1200 || got[0].Reason != "left" {
+		t.Fatalf("session = %+v, want closed at %v with 1200s, reason left", got[0], leaveAt)
+	}
+}
+
+func TestApplyReplayedJoinReopensASweptSession(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	a, joinAt := sweptSession(t, s)
+
+	// The agent restarted and replays its log: the join is a duplicate.
+	join := logwatch.Event{ID: "j1", Type: logwatch.EvPlayerJoin, At: joinAt, Name: "Alice", Platform: "Steam", PlatformID: "p1"}
+	if _, _, err := a.Apply(ctx, "srv", []logwatch.Event{join}); err != nil {
+		t.Fatal(err)
+	}
+
+	online, err := s.Online(ctx, "srv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(online) != 1 || !online[0].Since.Equal(joinAt) {
+		t.Fatalf("online = %+v, want Alice reopened", online)
+	}
+}
+
+func TestApplyReplayedJoinLeavesASessionClosedByBootClosed(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	at := parseTime("2026-01-01T00:00:00Z")
+	a := &Applier{Store: s, Now: fixedNow(at.Add(time.Hour))}
+	join := logwatch.Event{ID: "j1", Type: logwatch.EvPlayerJoin, At: at, Name: "Alice", Platform: "Steam", PlatformID: "p1"}
+	evs := []logwatch.Event{
+		join,
+		{ID: "b1", Type: logwatch.EvServerBoot, At: at.Add(10 * time.Minute)},
+	}
+	if _, _, err := a.Apply(ctx, "srv", evs); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a.Apply(ctx, "srv", []logwatch.Event{join}); err != nil {
+		t.Fatal(err)
+	}
+	online, err := s.Online(ctx, "srv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(online) != 0 {
+		t.Fatalf("online = %+v, want none (the boot closed it)", online)
+	}
+}
+
+func TestSweepStaleWaitsAHeartbeatTimeoutAfterStart(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	heartbeatAt := parseTime("2026-01-01T00:00:00Z")
+	a := &Applier{Store: s, Now: fixedNow(heartbeatAt)}
+	evs := []logwatch.Event{
+		{ID: "j1", Type: logwatch.EvPlayerJoin, At: heartbeatAt.Add(-time.Minute), Name: "Alice", Platform: "Steam", PlatformID: "p1"},
+		{ID: "h1", Type: logwatch.EvHeartbeat, At: heartbeatAt},
+	}
+	if _, _, err := a.Apply(ctx, "srv", evs); err != nil {
+		t.Fatal(err)
+	}
+
+	// The app was down for ten minutes and has just started: the agent
+	// may not have got a heartbeat through yet.
+	started := heartbeatAt.Add(10 * time.Minute)
+	a.StartedAt = started
+	a.Now = fixedNow(started.Add(HeartbeatTimeout - time.Second))
+	if n, err := a.SweepStale(ctx); err != nil || n != 0 {
+		t.Fatalf("sweep closed %d, %v; want 0 inside the start grace", n, err)
+	}
+	a.Now = fixedNow(started.Add(HeartbeatTimeout + time.Second))
+	if n, err := a.SweepStale(ctx); err != nil || n != 1 {
+		t.Fatalf("sweep closed %d, %v; want 1 after the start grace", n, err)
 	}
 }
