@@ -179,8 +179,10 @@ func (c *clock) serverLine(line string) []Raw {
 		uid, _ := strconv.ParseInt(v[2], 10, 64)
 		if uid == 0 {
 			// "ZDOID from X : 0:0": the game dropped X's character to
-			// respawn it, almost always a death. The Sessionizer filters
-			// the one common exception, a new character skipping the intro.
+			// respawn it, almost always a death. The one common exception,
+			// a new character skipping the intro, can't be told apart here:
+			// the Sessionizer flags deaths soon after joining as Intro and
+			// the app drops those on a character's first session.
 			return []Raw{{Kind: RawDeath, At: at, Name: v[1]}}
 		}
 		return []Raw{{Kind: RawSpawn, At: at, Name: v[1], UID: uid}}

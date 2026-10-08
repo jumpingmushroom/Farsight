@@ -385,6 +385,11 @@ func (m *Manager) gcUnused(ctx context.Context) {
 		defer m.mu.Unlock()
 		for _, e := range entries {
 			name := e.Name()
+			if e.IsDir() && strings.HasPrefix(name, gcTrashPrefix) {
+				// Left by a removal cut short; already renamed away.
+				doomed = append(doomed, strings.TrimPrefix(name, gcTrashPrefix))
+				continue
+			}
 			if !e.IsDir() || keep[name] || !isSetName(name) {
 				continue
 			}

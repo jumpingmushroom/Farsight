@@ -509,3 +509,24 @@ func TestDefaultRenderRefusesOutOfRangeGen(t *testing.T) {
 		t.Fatal("expected an error for an out-of-range genVersion")
 	}
 }
+
+// A removal cut short (a crash mid-RemoveAll) leaves a renamed gc- set
+// behind; the next gc finishes it.
+func TestRunGCRemovesLeftoverTrash(t *testing.T) {
+	root := t.TempDir()
+	render := func(ctx context.Context, seed, gen int32, dir string, progress func(int, int)) error {
+		writeComplete(t, dir)
+		return nil
+	}
+	m := NewManager(root, render, nil)
+	m.InUse = func(context.Context) ([]World, error) { return []World{{Seed: 5, Gen: 2}}, nil }
+	trash := filepath.Join(root, gcTrashPrefix+"9-0-r1")
+	writeComplete(t, trash)
+
+	m.Ensure(5, 2)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go m.Run(ctx)
+	waitFor(t, 2*time.Second, func() bool { return m.Status(5, 2).State == StateComplete })
+	waitFor(t, 2*time.Second, func() bool { _, err := os.Stat(trash); return os.IsNotExist(err) })
+}
