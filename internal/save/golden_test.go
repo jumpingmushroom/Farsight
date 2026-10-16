@@ -18,31 +18,44 @@ func golden(t *testing.T, sub string) string {
 	return p
 }
 
+// goldenChunked are the chunked saves pulled for golden tests: the
+// 1.0.17 save (world version 41), moved aside as chunked-v41 when the
+// game updated, and the current 1.0.20 one (42). Each runs as its own
+// subtest, skipped when its directory is absent.
+var goldenChunked = []struct {
+	sub     string
+	version int32
+}{{"chunked-v41", VersionDeepNorth}, {"chunked", VersionCheatCleanSlate}}
+
 func TestGoldenChunked(t *testing.T) {
-	dir := golden(t, "chunked")
-	unknown := map[int32]bool{}
-	portals := map[string]int{}
-	w, err := Read(dir, "MuleVikings", func(z *ZDO) {
-		if _, ok := names.Lookup(z.Prefab); !ok {
-			unknown[z.Prefab] = true
-		}
-		if names.Name(z.Prefab) == "portal_wood" {
-			portals[z.Strings[names.StableHash("tag")]]++
-		}
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if w.Format != FormatChunked || w.ZDOCount < 400000 || len(unknown) != 0 {
-		t.Fatalf("format=%s zdos=%d unknown=%d", w.Format, w.ZDOCount, len(unknown))
-	}
-	// The seed name is not asserted literally: real seeds stay out of the
-	// repo. The seed must still be the stable hash of the seed name.
-	if len(w.Meta.SeedName) != 9 || w.Meta.Seed != names.StableHash(w.Meta.SeedName) || len(w.Zones) < 5000 || len(w.Locations) < 10000 {
-		t.Fatalf("meta=%+v zones=%d locs=%d", w.Meta, len(w.Zones), len(w.Locations))
-	}
-	if len(portals) < 8 {
-		t.Fatalf("portal tags = %v", portals)
+	for _, c := range goldenChunked {
+		t.Run(c.sub, func(t *testing.T) {
+			dir := golden(t, c.sub)
+			unknown := map[int32]bool{}
+			portals := map[string]int{}
+			w, err := Read(dir, "MuleVikings", func(z *ZDO) {
+				if _, ok := names.Lookup(z.Prefab); !ok {
+					unknown[z.Prefab] = true
+				}
+				if names.Name(z.Prefab) == "portal_wood" {
+					portals[z.Strings[names.StableHash("tag")]]++
+				}
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if w.Format != FormatChunked || w.Version != c.version || w.ZDOCount < 400000 || len(unknown) != 0 {
+				t.Fatalf("format=%s version=%d zdos=%d unknown=%d", w.Format, w.Version, w.ZDOCount, len(unknown))
+			}
+			// The seed name is not asserted literally: real seeds stay out of the
+			// repo. The seed must still be the stable hash of the seed name.
+			if len(w.Meta.SeedName) != 9 || w.Meta.Seed != names.StableHash(w.Meta.SeedName) || len(w.Zones) < 5000 || len(w.Locations) < 10000 {
+				t.Fatalf("meta=%+v zones=%d locs=%d", w.Meta, len(w.Zones), len(w.Locations))
+			}
+			if len(portals) < 8 {
+				t.Fatalf("portal tags = %v", portals)
+			}
+		})
 	}
 }
 
@@ -74,46 +87,56 @@ func TestGoldenLegacy(t *testing.T) {
 }
 
 // TestGoldenMapTables checks the cartography-table facts the explored mask
-// rests on: MuleVikings has one table recording 63 338 cells, Mulennials
-// five whose union is 353 206 cells.
+// rests on: MuleVikings has one table, recording 63 338 cells in the v41
+// save and 154 680 in the v42 one; Mulennials five whose union is
+// 353 206 cells.
 func TestGoldenMapTables(t *testing.T) {
 	for _, c := range []struct {
 		sub, world    string
 		tables, union int
-	}{{"chunked", "MuleVikings", 1, 63338}, {"legacy", "Mulennials", 5, 353206}} {
-		dir := golden(t, c.sub)
-		union := make([]bool, MapCells)
-		tables := 0
-		keep := ReadOptions{KeepBytes: func(p int32) bool { return p == MapTablePrefab }}
-		_, err := ReadWith(dir, c.world, keep, func(z *ZDO) {
-			b, ok := z.ByteArrays[MapDataKey]
-			if z.Prefab != MapTablePrefab || !ok {
-				return
-			}
-			flags, err := DecodeMapData(b)
-			if err != nil {
-				t.Errorf("%s: table at %v: %v", c.world, z.Pos, err)
-				return
-			}
-			tables++
-			for i, f := range flags {
-				if f != 0 {
-					union[i] = true
-				}
-			}
-		})
+	}{
+		{"chunked-v41", "MuleVikings", 1, 63338},
+		{"chunked", "MuleVikings", 1, 154680},
+		{"legacy", "Mulennials", 5, 353206},
+	} {
+		t.Run(c.sub, func(t *testing.T) { goldenMapTables(t, c.sub, c.world, c.tables, c.union) })
+	}
+}
+
+func goldenMapTables(t *testing.T, sub, world string, wantTables, wantUnion int) {
+	t.Helper()
+	dir := golden(t, sub)
+	union := make([]bool, MapCells)
+	tables := 0
+	keep := ReadOptions{KeepBytes: func(p int32) bool { return p == MapTablePrefab }}
+	_, err := ReadWith(dir, world, keep, func(z *ZDO) {
+		b, ok := z.ByteArrays[MapDataKey]
+		if z.Prefab != MapTablePrefab || !ok {
+			return
+		}
+		flags, err := DecodeMapData(b)
 		if err != nil {
-			t.Fatal(err)
+			t.Errorf("%s: table at %v: %v", world, z.Pos, err)
+			return
 		}
-		n := 0
-		for _, u := range union {
-			if u {
-				n++
+		tables++
+		for i, f := range flags {
+			if f != 0 {
+				union[i] = true
 			}
 		}
-		if tables != c.tables || n != c.union {
-			t.Errorf("%s: %d tables, %d cells; want %d, %d", c.world, tables, n, c.tables, c.union)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, u := range union {
+		if u {
+			n++
 		}
+	}
+	if tables != wantTables || n != wantUnion {
+		t.Errorf("%s: %d tables, %d cells; want %d, %d", world, tables, n, wantTables, wantUnion)
 	}
 }
 

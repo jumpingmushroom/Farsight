@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/jumpingmushroom/farsight/internal/names"
@@ -214,7 +215,7 @@ func TestReadChunkedSavedAtIsOkFileMTime(t *testing.T) {
 func TestReadChunkedRejectsUnsupportedVersion(t *testing.T) {
 	dir := t.TempDir()
 	savetest.WriteChunkedWorld(t, dir, "Test", 1, "abc", []savetest.ZDO{{Prefab: "bed"}}, nil, nil, nil)
-	// Overwrite the .fwl2 with the same content but world version 42.
+	// Overwrite the .fwl2 with the same content but world version 43.
 	fwlPath := filepath.Join(dir, "Test", "_main.1.fwl2")
 	b, err := os.ReadFile(fwlPath)
 	if err != nil {
@@ -225,7 +226,7 @@ func TestReadChunkedRejectsUnsupportedVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	var p zpkg.Writer
-	p.I32(42)
+	p.I32(43)
 	p.Str(meta.Name)
 	p.Str(meta.SeedName)
 	p.I32(meta.Seed)
@@ -245,5 +246,117 @@ func TestReadChunkedRejectsUnsupportedVersion(t *testing.T) {
 	_, err = readChunked(filepath.Join(dir, "Test"), ReadOptions{}, func(*ZDO) {})
 	if !errors.Is(err, ErrUnsupportedVersion) {
 		t.Fatalf("err = %v, want ErrUnsupportedVersion via errors.Is", err)
+	}
+}
+
+// The v42 fixtures are a real Valheim 1.0.20 save (world version 42,
+// CheatCleanSlate), with the .fwl2's seed, UID and player history
+// replaced by stand-ins. Their expected values were measured outside the
+// Go reader. The layout is v41's: 1.0.20 only bumped the version stamps.
+func fixtureV42(t *testing.T, name string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata/chunked-v42", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func TestReadFWL2FixtureV42(t *testing.T) {
+	ver, m, err := readFWL(fixtureV42(t, "main.fwl2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ver != VersionCheatCleanSlate || m.Name != "MuleVikings" || m.SeedName != "FjordSeed" || m.Seed != -1032944128 ||
+		m.UID != 1234567890 || m.GenVersion != 2 {
+		t.Fatalf("meta = %d %+v", ver, m)
+	}
+	if len(m.StartingKeys) != 40 || m.StartingKeys[0] != "teleportall" {
+		t.Fatalf("starting keys = %q", m.StartingKeys)
+	}
+}
+
+func TestReadChunkIndexFixtureV42(t *testing.T) {
+	total, refs, err := readChunkIndex(fixtureV42(t, "main.chunks"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 942877 || len(refs) != 93 {
+		t.Fatalf("total=%d refs=%d", total, len(refs))
+	}
+	var sum int32
+	for _, r := range refs {
+		sum += r.ZDOs
+	}
+	if sum != total {
+		t.Fatalf("sum of chunk counts %d != total %d", sum, total)
+	}
+}
+
+func TestReadDB2FixtureV42(t *testing.T) {
+	nt, zs, err := readDB2(fixtureV42(t, "main.db2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nt != 981113.6572293229 || len(zs.Zones) != 14965 || len(zs.Locations) != 12289 {
+		t.Fatalf("netTime=%v zones=%d locs=%d", nt, len(zs.Zones), len(zs.Locations))
+	}
+	if zs.Zones[0] != [2]int16{-2, -5} {
+		t.Fatalf("first zone %v", zs.Zones[0])
+	}
+	want := []string{"activebosses 0", "defeated_eikthyr", "killedtroll", "defeated_gdking", "defeated_writhan",
+		"defeated_bonemass", "killedbat", "bosshildir3", "hildir3", "killed_surtling", "bosshildir2", "hildir2",
+		"defeated_serpent", "ashlandsocean", "defeated_dragon", "bosshildir1", "hildir1"}
+	if !slices.Equal(zs.GlobalKeys, want) {
+		t.Fatalf("keys %q", zs.GlobalKeys)
+	}
+	for _, l := range zs.Locations {
+		if _, ok := names.Lookup(l.Hash); !ok {
+			t.Fatalf("location with unknown name hash %d", l.Hash)
+		}
+	}
+}
+
+func TestReadChunkFileFixtureV42(t *testing.T) {
+	counts := map[string]int{}
+	n, err := readChunkFile(fixtureV42(t, "rocks.chunk"), ReadOptions{}, func(z *ZDO) { counts[names.Name(z.Prefab)]++ })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 63 || counts["Rock_4"] != 21 || counts["Rock_3"] != 10 || counts["_ZoneCtrl"] != 32 {
+		t.Fatalf("n=%d counts=%v", n, counts)
+	}
+}
+
+// A 1.0.20 save stamps every file it writes with 42, but a chunk unchanged
+// since the update keeps the 41 it was written with, so one save mixes
+// both chunk versions.
+func TestReadChunkedV42WithAV41Chunk(t *testing.T) {
+	for _, chunkVer := range []int16{42, 41} {
+		dir := t.TempDir()
+		zdos := []savetest.ZDO{
+			{Pos: [3]float32{1, 2, 3}, Prefab: "portal_wood", Strings: map[string]string{"tag": "home"}},
+			{Pos: [3]float32{4, 5, 6}, Prefab: "bed"},
+		}
+		savetest.WriteChunkedWorldVersion(t, VersionCheatCleanSlate, dir, "Test", 9, "abc", zdos, [][2]int16{{0, 0}},
+			[]string{"defeated_eikthyr"}, nil)
+		chunk := filepath.Join(dir, "Test", "1e_1e__1_1.chunk")
+		b, err := os.ReadFile(chunk)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b[0], b[1] = byte(chunkVer), byte(chunkVer>>8)
+		if err := os.WriteFile(chunk, b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		w, err := readChunked(filepath.Join(dir, "Test"), ReadOptions{}, func(z *ZDO) { got = append(got, names.Name(z.Prefab)) })
+		if err != nil {
+			t.Fatalf("chunk version %d: %v", chunkVer, err)
+		}
+		if w.Version != VersionCheatCleanSlate || w.ZDOCount != 2 || !slices.Equal(got, []string{"portal_wood", "bed"}) ||
+			w.GlobalKeys[0] != "defeated_eikthyr" {
+			t.Fatalf("chunk version %d: world = %+v, zdos %v", chunkVer, w, got)
+		}
 	}
 }

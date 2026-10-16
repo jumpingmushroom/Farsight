@@ -28,7 +28,7 @@ type ZDO struct {
 }
 
 // EncodeZDO writes z in the record layout of the given world version
-// (legacy 31-39 or chunked 40-41). Positions are always full Vec3 and
+// (legacy 31-39 or chunked 40-42). Positions are always full Vec3 and
 // rotation is never written.
 func EncodeZDO(w *zpkg.Writer, version int32, z ZDO) {
 	var flags uint16
@@ -157,19 +157,27 @@ func fwl(version int32, name, seedName string) []byte {
 func WriteChunkedWorld(t testing.TB, worldsDir, worldName string, n int, seedName string,
 	zdos []ZDO, zones [][2]int16, keys []string, locs []Location) {
 	t.Helper()
+	WriteChunkedWorldVersion(t, 41, worldsDir, worldName, n, seedName, zdos, zones, keys, locs)
+}
+
+// WriteChunkedWorldVersion is WriteChunkedWorld stamping every file with
+// the given world version (40-42) instead of 41.
+func WriteChunkedWorldVersion(t testing.TB, version int32, worldsDir, worldName string, n int, seedName string,
+	zdos []ZDO, zones [][2]int16, keys []string, locs []Location) {
+	t.Helper()
 	dir := filepath.Join(worldsDir, worldName)
 	base := filepath.Join(dir, fmt.Sprintf("_main.%d", n))
 
 	var chunk zpkg.Writer
-	chunk.I16(41)
+	chunk.I16(int16(version))
 	chunk.I32(int32(len(zdos)))
 	for _, z := range zdos {
-		EncodeZDO(&chunk, 41, z)
+		EncodeZDO(&chunk, version, z)
 	}
 	writeFile(t, filepath.Join(dir, "1e_1e__1_1.chunk"), chunk.Bytes())
 
 	var idx zpkg.Writer
-	idx.I16(41)
+	idx.I16(int16(version))
 	idx.I32(int32(len(zdos)))
 	idx.I32(1)
 	idx.U16(0x1e1e)
@@ -200,14 +208,14 @@ func WriteChunkedWorld(t testing.TB, worldsDir, worldName string, n int, seedNam
 	gw.Write(zp.Bytes())
 	gw.Close()
 	var db2 zpkg.Writer
-	db2.I32(41)
+	db2.I32(version)
 	db2.F64(1800 * 10.5)
 	db2.ByteArray(gz.Bytes())
 	writeFile(t, base+".db2", db2.Bytes())
 
-	writeFile(t, base+".fwl2", fwl(41, worldName, seedName))
+	writeFile(t, base+".fwl2", fwl(version, worldName, seedName))
 	var ok zpkg.Writer
-	ok.I32(41)
+	ok.I32(version)
 	writeFile(t, base+".ok", ok.Bytes())
 }
 

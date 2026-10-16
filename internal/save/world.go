@@ -1,5 +1,5 @@
 // Package save reads Valheim world saves: the 1.0 chunked directory format
-// (world version 40-41) and the legacy single-file .db (versions 31-39).
+// (world version 40-42) and the legacy single-file .db (versions 31-39).
 package save
 
 import (
@@ -15,6 +15,15 @@ const (
 	VersionNumItems      = 33
 	VersionChunkedSave   = 40
 	VersionDeepNorth     = 41
+	// VersionCheatCleanSlate (Valheim 1.0.20) changed no save layout: it
+	// only re-stamps every file it writes, and stores an item's "cheated"
+	// ZDO flag as an int instead of a bool, which nothing here reads.
+	VersionCheatCleanSlate = 42
+
+	// maxChunkedVersion is the newest world (and chunk) version the
+	// chunked reader accepts. A newer one may have changed the layout,
+	// so it is refused rather than decoded as garbage.
+	maxChunkedVersion = VersionCheatCleanSlate
 )
 
 var (

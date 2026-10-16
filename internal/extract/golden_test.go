@@ -11,8 +11,16 @@ import (
 	"github.com/jumpingmushroom/farsight/internal/save"
 )
 
+// TestGoldenMuleVikings runs on both chunked saves: the 1.0.17 one
+// (world version 41, moved aside as chunked-v41) and the 1.0.20 one (42).
 func TestGoldenMuleVikings(t *testing.T) {
-	dir := filepath.Join("..", "..", "testdata-golden", "chunked")
+	for _, sub := range []string{"chunked-v41", "chunked"} {
+		t.Run(sub, func(t *testing.T) { goldenMuleVikings(t, sub) })
+	}
+}
+
+func goldenMuleVikings(t *testing.T, sub string) {
+	dir := filepath.Join("..", "..", "testdata-golden", sub)
 	if _, err := os.Stat(dir); err != nil {
 		t.Skip("golden data missing; run hack/pull-golden.sh")
 	}
@@ -89,32 +97,36 @@ func TestGoldenExplored(t *testing.T) {
 	for _, c := range []struct {
 		sub, world string
 		tableCells int
-	}{{"chunked", "MuleVikings", 63338}, {"legacy", "Mulennials", 353206}} {
-		dir := filepath.Join("..", "..", "testdata-golden", c.sub)
-		if _, err := os.Stat(dir); err != nil {
-			t.Skip("golden data missing; run hack/pull-golden.sh")
-		}
-		e := New()
-		w, err := save.ReadWith(dir, c.world, save.ReadOptions{KeepBytes: KeepBytes}, e.Add)
-		if err != nil {
-			t.Fatal(err)
-		}
-		s := e.Finish(w, "x", time.Now().UTC())
-		if s.Explored == nil || s.Explored.Source != explored.SourceTables {
-			t.Fatalf("%s: explored = %+v, want tables", c.world, s.Explored)
-		}
-		m, err := explored.Decode(*s.Explored)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if m.Count() < c.tableCells {
-			t.Errorf("%s: %d cells, want >= %d", c.world, m.Count(), c.tableCells)
-		}
-		for _, mk := range s.Markers {
-			if (mk.Kind == "bed" || mk.Kind == "portal") && !m.At(float64(mk.X), float64(mk.Z)) {
-				t.Errorf("%s: %s at (%.0f, %.0f) is not explored", c.world, mk.ID, mk.X, mk.Z)
-			}
-		}
-		t.Logf("%s: %d cells explored (%.1f%% of the world)", c.world, m.Count(), m.Percent())
+	}{{"chunked-v41", "MuleVikings", 63338}, {"chunked", "MuleVikings", 154680}, {"legacy", "Mulennials", 353206}} {
+		t.Run(c.sub, func(t *testing.T) { goldenExplored(t, c.sub, c.world, c.tableCells) })
 	}
+}
+
+func goldenExplored(t *testing.T, sub, world string, tableCells int) {
+	dir := filepath.Join("..", "..", "testdata-golden", sub)
+	if _, err := os.Stat(dir); err != nil {
+		t.Skip("golden data missing; run hack/pull-golden.sh")
+	}
+	e := New()
+	w, err := save.ReadWith(dir, world, save.ReadOptions{KeepBytes: KeepBytes}, e.Add)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := e.Finish(w, "x", time.Now().UTC())
+	if s.Explored == nil || s.Explored.Source != explored.SourceTables {
+		t.Fatalf("%s: explored = %+v, want tables", world, s.Explored)
+	}
+	m, err := explored.Decode(*s.Explored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Count() < tableCells {
+		t.Errorf("%s: %d cells, want >= %d", world, m.Count(), tableCells)
+	}
+	for _, mk := range s.Markers {
+		if (mk.Kind == "bed" || mk.Kind == "portal") && !m.At(float64(mk.X), float64(mk.Z)) {
+			t.Errorf("%s: %s at (%.0f, %.0f) is not explored", world, mk.ID, mk.X, mk.Z)
+		}
+	}
+	t.Logf("%s: %d cells explored (%.1f%% of the world)", world, m.Count(), m.Percent())
 }

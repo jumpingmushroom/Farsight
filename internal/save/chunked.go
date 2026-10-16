@@ -77,7 +77,7 @@ func readChunkIndex(b []byte) (int32, []chunkRef, error) {
 func readChunkFile(b []byte, opt ReadOptions, fn func(*ZDO)) (int, error) {
 	r := zpkg.NewReader(b)
 	ver := int32(r.I16())
-	if ver < VersionChunkedSave || ver > VersionDeepNorth {
+	if ver < VersionChunkedSave || ver > maxChunkedVersion {
 		return 0, fmt.Errorf("%w: chunk version %d", ErrUnsupportedVersion, ver)
 	}
 	n := int(r.I32())
@@ -233,7 +233,7 @@ func readChunked(dir string, opt ReadOptions, fn func(*ZDO)) (*World, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fwl2: %w", err)
 	}
-	if ver < VersionChunkedSave || ver > VersionDeepNorth {
+	if ver < VersionChunkedSave || ver > maxChunkedVersion {
 		return nil, fmt.Errorf("%w: %d", ErrUnsupportedVersion, ver)
 	}
 	idx, err := readFile(base + ".chunks")

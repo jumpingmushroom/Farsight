@@ -63,23 +63,32 @@ func fallback(zones *Mask, reveal *Mask, k int) *Mask {
 // (zones eroded by k cells, plus the reveal around built pieces) is scored
 // by intersection-over-union against what the real tables give, for k in
 // 0…40, on MuleVikings. The best k must be the constant. If it ever differs
-// (new golden data), set ZoneShrinkCells to the k this test reports.
+// (new golden data), set ZoneShrinkCells to the k this test reports. It was
+// tuned on the v41 save (IoU 0.71); the v42 one, explored much further,
+// agrees on k at a lower IoU (0.62).
 func TestGoldenZoneShrinkCalibration(t *testing.T) {
-	truth, reveal, zoneList := goldenTruth(t, "chunked", "MuleVikings")
-	zones := FromZones(zoneList)
-	best, bestIoU := -1, -1.0
-	for k := 0; k <= 40; k++ {
-		s := iou(fallback(zones, reveal, k), truth)
-		t.Logf("MuleVikings k=%2d IoU=%.4f", k, s)
-		if s > bestIoU {
-			best, bestIoU = k, s
-		}
-	}
-	if best != ZoneShrinkCells {
-		t.Fatalf("best shrink is %d cells (IoU %.4f); ZoneShrinkCells is %d", best, bestIoU, ZoneShrinkCells)
-	}
-	if bestIoU < 0.71 {
-		t.Fatalf("IoU at the best shrink = %.4f, want >= 0.71", bestIoU)
+	for _, c := range []struct {
+		sub    string
+		minIoU float64
+	}{{"chunked-v41", 0.71}, {"chunked", 0.62}} {
+		t.Run(c.sub, func(t *testing.T) {
+			truth, reveal, zoneList := goldenTruth(t, c.sub, "MuleVikings")
+			zones := FromZones(zoneList)
+			best, bestIoU := -1, -1.0
+			for k := 0; k <= 40; k++ {
+				s := iou(fallback(zones, reveal, k), truth)
+				t.Logf("MuleVikings k=%2d IoU=%.4f", k, s)
+				if s > bestIoU {
+					best, bestIoU = k, s
+				}
+			}
+			if best != ZoneShrinkCells {
+				t.Fatalf("best shrink is %d cells (IoU %.4f); ZoneShrinkCells is %d", best, bestIoU, ZoneShrinkCells)
+			}
+			if bestIoU < c.minIoU {
+				t.Fatalf("IoU at the best shrink = %.4f, want >= %.2f", bestIoU, c.minIoU)
+			}
+		})
 	}
 }
 
